@@ -141,14 +141,21 @@ async function flush(storeId) {
 /**
  * @param {object[]} products — current display list (ProductCatalogRow[]),
  *   `price` may be null for items still needing the live-pricing tier.
- * @param {number|null} [storeIdOverride] — price against THIS store instead
- *   of the Redux global active store. Pricing MUST follow the store actually
- *   being browsed (catalogStoreId) rather than the signed-in one — a price
- *   is which physical piece a store holds (see getLivePricesForItems), so
- *   pricing against the wrong store silently quotes a different piece than
- *   the one on screen. Callers without a filter of their own
- *   (RecentlyViewedCarousel, the customer profile's Wishlist tab) omit this
- *   and keep pricing against the signed-in store.
+ * @param {{ priorityItemIds?: number[], storeIdOverride?: number|null }} [options]
+ *   priorityItemIds - item_ids to price first (ahead of PRICE_WINDOW's plain
+ *   array-order cutoff) — the grid only ever *mounts* cards near the
+ *   viewport, but without this the pricing queue was blind to that, so a
+ *   long name-search result could spend the whole window pricing off-screen
+ *   rows while the ones actually on screen still read "Pricing…". Pass the
+ *   ids currently in view (see catalog/page.jsx's rangeChanged wiring).
+ *   storeIdOverride - price against THIS store instead of the Redux global
+ *   active store. Pricing MUST follow the store actually being browsed
+ *   (catalogStoreId) rather than the signed-in one — a price is which
+ *   physical piece a store holds (see getLivePricesForItems), so pricing
+ *   against the wrong store silently quotes a different piece than the one
+ *   on screen. Callers without a filter of their own (RecentlyViewedCarousel,
+ *   the customer profile's Wishlist tab) omit this and keep pricing against
+ *   the signed-in store.
  * @returns {{
  *   priceById:  Map<number, number>,  // item_id -> live price
  *   settledIds: Set<number>,          // server has given a verdict (priced or not)
@@ -156,21 +163,33 @@ async function flush(storeId) {
  *   Callers need both: a card with no price is "Pricing…" until its id is
  *   settled, and "Price unavailable" after.
  */
-export function useLiveCatalogPrices(products, storeIdOverride) {
+export function useLiveCatalogPrices(products, { priorityItemIds, storeIdOverride } = {}) {
   // The store decides WHICH physical piece a card is priced against, so a
   // price is only meaningful alongside it. See getLivePricesForItems.
   const activeStoreId = useSelector(selectActiveStoreId);
   const storeId = storeIdOverride ?? activeStoreId;
 
   const idsNeeding = useMemo(() => {
-    const seen = new Set();
+    const needing = new Set();
     for (const p of products) {
       if (p.price != null || p.item_id == null) continue;
-      seen.add(p.item_id);
-      if (seen.size >= PRICE_WINDOW) break;
+      needing.add(p.item_id);
     }
-    return [...seen];
-  }, [products]);
+    if (needing.size === 0) return [];
+
+    // Priority ids (on-screen right now) go first, in their own order, so
+    // they win the PRICE_WINDOW cutoff ahead of anything merely earlier in
+    // the array. Everything else follows in its existing order.
+    const ordered = [];
+    if (priorityItemIds?.length) {
+      for (const id of priorityItemIds) {
+        if (needing.has(id)) { ordered.push(id); needing.delete(id); }
+      }
+    }
+    ordered.push(...needing);
+
+    return ordered.slice(0, PRICE_WINDOW);
+  }, [products, priorityItemIds]);
 
   // Gates the queries below: until the first canary result lands there is no
   // epoch to key against, and fetching now would cache prices under a key

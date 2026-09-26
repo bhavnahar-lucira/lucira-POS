@@ -9,9 +9,13 @@ import { Input } from '@/components/ui/input';
  *   modeName: string,
  *   amount: number | string,
  *   onChange: (value: string) => void,
+ *   readOnly?: boolean,
  * }} props
+ *   readOnly (default false) — for a fixed, non-negotiable figure (Nector
+ *   Loyalty's own eligibility answer, see CheckoutPaymentSection) rather
+ *   than an operator-entered tender amount.
  */
-export default function PaymentAmountInput({ modeName, amount, onChange }) {
+export default function PaymentAmountInput({ modeName, amount, onChange, readOnly = false }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <label
@@ -32,7 +36,8 @@ export default function PaymentAmountInput({ modeName, amount, onChange }) {
           step="0.01"
           value={amount}
           onChange={(e) => onChange(e.target.value)}
-          className="h-11 pl-7 text-right"
+          readOnly={readOnly}
+          className={`h-11 pl-7 text-right ${readOnly ? 'bg-muted text-muted-foreground' : ''}`}
           aria-label={`Amount for ${modeName}`}
         />
       </div>

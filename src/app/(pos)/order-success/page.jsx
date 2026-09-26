@@ -9,18 +9,16 @@
 // stray back-navigation risked landing an operator back on a "confirmed"
 // checkout screen with no cart left to show.
 //
-// transactionId/documentType/coinsRedeemed travel via the URL
-// (?transactionId=&documentType=&coinsRedeemed=) rather than as component
-// props — checkout/page.jsx pushes this route right after
-// placeOrder/placeInvoice resolves; see that file's handlePaymentConfirmed
-// for the write side of this contract.
+// transactionId/documentType travel via the URL
+// (?transactionId=&documentType=) rather than as component props —
+// checkout/page.jsx pushes this route right after placeOrder/placeInvoice
+// resolves; see that file's handlePaymentConfirmed for the write side of
+// this contract.
 //
-// coinsRedeemed (2026-09-08) — Lucira Coins redeemed on this sale aren't a
-// field on the OrnaVerse document itself (coins aren't an OrnaVerse
-// concept — see CartSummary's own header), so there's nowhere else for
-// OrderConfirmationScreen to read this back from once this page reloads;
-// carried forward the same lightweight way transactionId/documentType
-// already are.
+// No coinsRedeemed here (removed 2026-09-25) — Nector Loyalty is a real
+// payment mode now, so it's already a receipt_details[] row on the posted
+// document itself; OrderConfirmationScreen's own Retrieve call reflects it
+// correctly without anything extra carried through the URL.
 
 import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -32,7 +30,6 @@ function OrderSuccessScreen() {
 
   const transactionId  = Number(params.get('transactionId')) || null;
   const documentType   = params.get('documentType') === 'order' ? 'order' : 'invoice';
-  const coinsRedeemed  = Number(params.get('coinsRedeemed')) || 0;
 
   // Defensive — this route only ever makes sense right after a real
   // create/post succeeded (see checkout/page.jsx). Landing here any other
@@ -52,7 +49,6 @@ function OrderSuccessScreen() {
       <OrderConfirmationScreen
         transactionId={transactionId}
         documentType={documentType}
-        coinsRedeemed={coinsRedeemed}
       />
     </div>
   );

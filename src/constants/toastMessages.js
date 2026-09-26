@@ -72,12 +72,6 @@ const TOAST = {
     PROMO_NO_LONGER_APPLIES: (code) => `Promo code ${code} no longer applies to your cart — removed.`,
     PROMO_FAILED:  'Failed to validate promo code. Please try again.',
     PROMO_SIMILAR_APPLIED: 'A similar promotion is already applied.',
-    // ADDED 2026-09-08 — Lucira Coins (Nector) redemption, mutually
-    // exclusive with promo codes (see cartSlice's redeemedCoins).
-    PROMO_BLOCKED_BY_COINS: 'Remove the applied Lucira Coins before adding a promo code.',
-    COINS_APPLIED: (amount) => `${amount.toLocaleString('en-IN')} Lucira Coins applied.`,
-    COINS_REMOVED: 'Lucira Coins redemption removed.',
-    COINS_BLOCKED_BY_PROMO: 'Remove the applied promo code before redeeming Lucira Coins.',
     LOADED_FROM_ORDER: (orderNo) => `Loaded ${orderNo} into a new invoice.`,
   },
 

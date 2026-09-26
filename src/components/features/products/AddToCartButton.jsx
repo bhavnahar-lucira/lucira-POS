@@ -1,13 +1,5 @@
 'use client';
 
-// Enabled by default — out of stock items can be added as made-to-order.
-// Disabled only when there's no valid price, since that would silently put
-// a ₹0 line item into a real sale.
-//
-// `unitPrice` is a required prop resolved once by the page and passed down
-// through ProductStickyActionBar — never re-derive a price from
-// `product.item_rate` here, it is not a usable price (0 for most items).
-
 import { useDispatch } from 'react-redux';
 import { toast } from 'react-toastify';
 import { ShoppingCart } from 'lucide-react';
@@ -15,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { addItem } from '@/store/slices/cartSlice';
 import { openCart } from '@/store/slices/uiSlice';
 import { resolveImageSrc } from '@/lib/resolveImageSrc';
+import { cn } from '@/lib/utils';
 import TOAST from '@/constants/toastMessages';
 import tracker from '@/lib/analytics/tracker';
 import EVENTS, { GA_ECOMMERCE_EVENTS } from '@/lib/analytics/events';
@@ -49,34 +42,17 @@ export default function AddToCartButton({
   stockStatus = null,
   pricedItem = null,
   disabled = false,
+  className,
 }) {
   const dispatch = useDispatch();
 
   const isDisabled = !product || disabled || unitPrice == null;
-
-  // Priority 1: Shopify image (already absolute URL). Priority 2: OrnaVerse
-  // image field (handles relative paths + "NA"). `primaryImage` MUST already
-  // be colour-matched to `product` (the active variant) by the caller — see
-  // products/[itemId]/page.jsx's activePrimaryImage — this component has no
-  // colour context of its own to re-derive the right image from.
   const resolvedImage =
     primaryImage?.src ??
     resolveImageSrc(product?.image_url ?? product?.image) ??
-    null;
-
-
-  // `productUrl` is this app's own staff-facing product route (no product
-  // handle is resolved anywhere in this codebase, only the numeric id) —
-  // built as an ABSOLUTE url since it travels into WebEngage/GA and,
-  // eventually, an actual communication (email/push) where a bare path
-  // resolves against nothing.
+    null;    
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const productUrl = product?.item_id != null ? `${origin}/products/${product.item_id}` : null;
-
-  // Built once via the shared productAttributes.js builder; used for both
-  // the cart line's own `attributes` and this event's webengageExtra below,
-  // so anything that later reads this cart line already has the full
-  // detail without re-deriving it.
   const hasStockBool = stockStatus === 'in_stock' ? true : stockStatus === 'out_stock' ? false : null;
   const fullAttributes = buildProductAttributes({
     product,
@@ -107,12 +83,6 @@ export default function AddToCartButton({
       productUrl,
       attributes: fullAttributes,
     }));
-
-    // GA4's `items[]` stays close to its reserved shape; the full product
-    // detail (photo, link, gemstone/price breakup — needed for a useful
-    // "you left this in your cart" retargeting message) goes into
-    // webengageExtra (fullAttributes) instead, same PII-safe split every
-    // other event in this app follows (see tracker.js's own jsdoc).
     tracker.trackEcommerce(GA_ECOMMERCE_EVENTS.ADD_TO_CART, EVENTS.CART_ITEM_ADDED, {
       currency: 'INR',
       value:    unitPrice * quantity,
@@ -134,13 +104,6 @@ export default function AddToCartButton({
     });
 
     toast.success(TOAST.CART.ITEM_ADDED(product.item_name ?? 'Item'));
-
-    // Every Add to Cart opens the mini cart (2026-08-24) — the item was
-    // landing in the cart correctly already, but nothing surfaced it; a
-    // toast alone doesn't show WHAT'S actually in the cart now, and the
-    // operator had to remember to check manually. CartDrawer itself is
-    // global (mounted once in Header, driven by uiSlice's cartOpen), so
-    // this is the single place every Add to Cart flows through.
     dispatch(openCart());
   };
 
@@ -151,10 +114,11 @@ export default function AddToCartButton({
       onClick={handleAddToCart}
       disabled={isDisabled}
       aria-label="Add to Cart"
-      className="flex-1 min-h-[52px] px-6 text-base font-semibold"
+      className={cn('flex-1 min-h-10 px-4 text-sm font-semibold sm:min-h-12 sm:px-6 sm:text-base', className)}
     >
       <ShoppingCart size={20} aria-hidden="true" className="shrink-0" />
-      Add to Cart
+      <span className="sm:hidden">Add</span>
+      <span className="hidden sm:inline">Add to Cart</span>
     </Button>
   );
 }

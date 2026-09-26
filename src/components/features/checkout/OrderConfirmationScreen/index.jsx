@@ -25,12 +25,10 @@ import { formatDateNumeric as fmtDate } from '@/lib/dateUtils';
  *   transactionId: number,   — EntityId returned from createInvoice/createOrder
  *   invoiceNo?:    string,   — document_no if already known (optional)
  *   documentType?: 'invoice'|'order',
- *   coinsRedeemed?: number,  — Lucira Coins applied on this sale (not
- *     something OrnaVerse's own document knows about, so it's passed in).
  * }} props
  */
 export default function OrderConfirmationScreen({
-  transactionId, invoiceNo, documentType = 'invoice', coinsRedeemed = 0,
+  transactionId, invoiceNo, documentType = 'invoice',
 }) {
   const router = useRouter();
   const isOrder = documentType === 'order';
@@ -54,18 +52,15 @@ export default function OrderConfirmationScreen({
   const totalAmount = invoice?.net_amount   ?? null;     // net_amount, NOT total_amount
   const invoiceDate = invoice?.document_date ?? null;
   const receiptAmt  = invoice?.receipt_amount ?? null;
-  // OrnaVerse's balance_amount doesn't know Lucira Coins covered part of
-  // net_amount (receipt_details only carry real payment modes collected),
-  // so a sale paid in full via coins + cash still comes back showing a
-  // balance owed. Subtracting coinsRedeemed reconciles that back to zero.
-  const balanceAmt  = invoice?.balance_amount != null
-    ? Math.max(0, invoice.balance_amount - coinsRedeemed)
-    : null;
+  // Nector Loyalty (like Exchange/Scheme/Old Gold/Advance before it) is a
+  // real receipt_details[] row on the posted document now — OrnaVerse's own
+  // balance_amount already accounts for it correctly, same as it already
+  // did for those. No client-side reconciliation needed.
+  const balanceAmt  = invoice?.balance_amount ?? null;
   // Read straight off the retrieved document's own `discount` field
   // (matches what Create submitted) rather than re-derived from client
-  // promo state. Merged with coinsRedeemed for display — a promo and
-  // Lucira Coins are mutually exclusive, so only one is ever non-zero.
-  const discountAmt = (invoice?.discount ?? 0) + coinsRedeemed || null;
+  // promo state.
+  const discountAmt = invoice?.discount || null;
   // Server-computed GST, read back per line item and split into CGST+SGST
   // for display (lib/gst.js) — not calculated client-side.
   const taxAmount   = invoice?.tax_amount ?? null;

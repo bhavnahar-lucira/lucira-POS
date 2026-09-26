@@ -3,13 +3,18 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Logo from '@/components/shared/Logo';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSidebar } from '@/hooks/ui/useSidebar';
+import { useAuth } from '@/hooks/auth/useAuth';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import { NAV_ITEMS, BOTTOM_ITEMS } from '@/constants/navItems';
+
+function getInitial(name) {
+  return name?.trim()?.[0]?.toUpperCase() ?? '?';
+}
 
 function SidebarNavItem({ item, collapsed, onNavigate }) {
   const pathname = usePathname();
@@ -58,6 +63,7 @@ function SidebarNavItem({ item, collapsed, onNavigate }) {
 
 export default function Sidebar() {
   const { sidebarOpen, toggle, close } = useSidebar();
+  const { user, logout } = useAuth();
 
   // sidebarOpen is dual-purpose: below `md` it means "mobile drawer visible"
   // (off-canvas vs full open with labels); at `md`+ it means expanded (w-56)
@@ -116,6 +122,30 @@ export default function Sidebar() {
         </nav>
 
         <Separator className="bg-sidebar-border" />
+
+        {/* Signed-in operator + logout — mobile drawer only. Header's own
+            UserMenu dropdown covers this at md+ (the always-visible rail);
+            reported as cluttering the mobile header, moved here instead of
+            just deleting it — the collapsed rail has no room for a
+            dropdown trigger anyway, so md+ keeps using Header's own. */}
+        <div className="flex items-center gap-3 border-t border-sidebar-border px-4 py-3 md:hidden">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-sm font-semibold text-sidebar-foreground">
+            {getInitial(user?.username)}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-sidebar-foreground">
+            {user?.username ?? 'Staff'}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={logout}
+            aria-label="Sign out"
+            className="shrink-0 text-sidebar-foreground/60 hover:text-destructive hover:bg-sidebar-accent"
+          >
+            <LogOut size={18} aria-hidden="true" />
+          </Button>
+        </div>
 
         {/* Collapses to icon-rail at md+, closes the drawer below md */}
         <div className="p-2">

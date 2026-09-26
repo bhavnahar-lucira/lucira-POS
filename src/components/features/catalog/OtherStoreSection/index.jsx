@@ -47,7 +47,7 @@ export default function OtherStoreSection({ store, showOutOfStock, categoryId, s
   const rawProducts = data?.products ?? [];
 
   // Same store this whole section is scoped to, never the operator's active store.
-  const { priceById, settledIds } = useLiveCatalogPrices(rawProducts, store.company_id);
+  const { priceById, settledIds } = useLiveCatalogPrices(rawProducts, { storeIdOverride: store.company_id });
 
   // Live has_stock re-check — same bug/fix as catalog/page.jsx: this
   // section's own rawProducts come from the exact same 24h-cached

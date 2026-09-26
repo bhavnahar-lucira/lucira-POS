@@ -22,15 +22,22 @@ import { Minus, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const SIZES = {
+  // 'default' is only ever used by QuantitySelector (the product detail
+  // sticky bar's own control) — safe to shrink on mobile here directly
+  // rather than adding a third size key. Below sm it reuses 'compact's own
+  // dimensions (reported: too large/cramped alongside Total + Add to Cart
+  // on a narrow phone); sm+ is untouched, same 44px targets as before.
   default: {
-    button:   'min-w-[44px] min-h-[44px]',
-    quantity: 'min-w-[44px] px-2 text-base',
+    button:   'min-w-9 min-h-9 sm:min-w-[44px] sm:min-h-[44px]',
+    quantity: 'min-w-[28px] px-1 text-sm sm:min-w-[44px] sm:px-2 sm:text-base',
     icon:     16,
+    iconClassName: 'size-3.5 sm:size-4',
   },
   compact: {
     button:   'min-w-[36px] min-h-[36px]',
     quantity: 'min-w-[28px] px-1 text-sm',
     icon:     14,
+    iconClassName: undefined,
   },
 };
 
@@ -74,7 +81,7 @@ export default function QuantityStepper({
         aria-label="Decrease quantity"
         className={cn(STEP_BUTTON, s.button, 'rounded-l-lg')}
       >
-        <Minus size={s.icon} aria-hidden="true" />
+        <Minus size={s.icon} className={s.iconClassName} aria-hidden="true" />
       </button>
 
       <span
@@ -92,7 +99,7 @@ export default function QuantityStepper({
         aria-label="Increase quantity"
         className={cn(STEP_BUTTON, s.button, 'rounded-r-lg')}
       >
-        <Plus size={s.icon} aria-hidden="true" />
+        <Plus size={s.icon} className={s.iconClassName} aria-hidden="true" />
       </button>
 
       {trailing}

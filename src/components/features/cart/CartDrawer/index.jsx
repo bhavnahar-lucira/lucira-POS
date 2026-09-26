@@ -10,7 +10,7 @@ import CartItemRow from '@/components/features/cart/CartItemRow';
 import CartEmptyState from '@/components/features/cart/CartEmptyState';
 import CartSummary from '@/components/features/cart/CartSummary';
 import CartCustomerTag from '@/components/features/cart/CartCustomerTag';
-import DiscountOrCoinsSection from '@/components/features/checkout/DiscountOrCoinsSection';
+import DiscountSection from '@/components/features/checkout/DiscountSection';
 import ProceedToCheckoutButton from '@/components/features/cart/ProceedToCheckoutButton';
 import { useCart } from '@/hooks/cart/useCart';
 import { useCheckoutPricing } from '@/hooks/checkout/useCheckoutPricing';
@@ -27,7 +27,6 @@ export default function CartDrawer({ isOpen, onClose }) {
     items,
     customerName,
     customerMobile,
-    redeemedCoins,
     isEmpty,
     removeItem,
     updateQuantity,
@@ -43,10 +42,6 @@ export default function CartDrawer({ isOpen, onClose }) {
     [items, pricedLineItems]
   );
 
-  // Re-derived from pricedTotals rather than trusting redeemedCoins as-is; see cart/page.jsx.
-  const payableTotal = pricedTotals ? Math.round(pricedTotals.netAmount) : 0;
-  const coinsRedeemed = Math.max(0, Math.min(redeemedCoins, payableTotal));
-
   return (
     <BottomSheet
       isOpen={isOpen}
@@ -55,7 +50,12 @@ export default function CartDrawer({ isOpen, onClose }) {
       footer={
         !isEmpty && (
           <div className="flex flex-col gap-3">
-            <CartSummary totals={pricedTotals} isPricing={isPricing} coinsRedeemed={coinsRedeemed} />
+            {/* collapsible — the drawer's footer is fixed/non-scrolling
+                (see BottomSheet), so the full breakdown sitting there
+                permanently left little room for the actual item list on a
+                short phone screen (reported directly). Collapsed by
+                default (just the Total row); tap to reveal the rest. */}
+            <CartSummary totals={pricedTotals} isPricing={isPricing} collapsible />
             <ProceedToCheckoutButton onNavigate={onClose} />
           </div>
         )
@@ -71,7 +71,7 @@ export default function CartDrawer({ isOpen, onClose }) {
               customerMobile={customerMobile}
               onDetach={detachCustomer}
             />
-            <DiscountOrCoinsSection payableTotal={payableTotal} isPricing={isPricing} />
+            <DiscountSection />
           </div>
 
           <div className="flex flex-col">

@@ -20,7 +20,7 @@ import { QUERY_KEYS } from '@/constants/queryKeys';
  *   isFound: boolean, isLoading: boolean, isError: boolean,
  * }}
  *   promotion is the first available redemption (this app claims the full
- *   claimable amount, never a partial one — see LucraCoinsSection).
+ *   claimable amount, never a partial one — see CheckoutPaymentSection).
  *   isFound distinguishes "checked, nothing redeemable at this amount" from
  *   "still loading" — NOT the same as "not enrolled" (see
  *   useNectorLoyaltyPoints for that).

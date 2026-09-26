@@ -93,7 +93,11 @@ function StockBadge({ inStock, storeCodes }) {
   return (
     <Badge
       className={[
-        'h-auto rounded-l-none rounded-r-full py-1 pl-2.5 pr-3 text-[11px] font-semibold text-white shadow-sm',
+        // Smaller/tighter below sm only — at a 2-up mobile card width, the
+        // full-size badge's text stretched far enough right to run under
+        // WishlistButton's top-right heart (reported directly). Desktop/tab
+        // (sm+) is untouched.
+        'h-auto rounded-l-none rounded-r-full py-0.5 pl-2 pr-2.5 text-[10px] font-semibold text-white shadow-sm sm:py-1 sm:pl-2.5 sm:pr-3 sm:text-[11px]',
         inStock ? 'bg-status-in-stock/95' : 'bg-status-error/95',
       ].join(' ')}
     >
@@ -355,7 +359,7 @@ function ProductCard({
         )}
       </div>
 
-      <div className="flex flex-1 flex-col gap-1.5 border-t border-border p-3.5">
+      <div className="flex flex-1 flex-col gap-1.5 border-t border-border p-2.5 sm:p-3.5">
 
         {/* Always rendered (min-h reserves its line even when infoLine is
             null) — a card whose metal/weight data happens to be missing
@@ -365,7 +369,7 @@ function ProductCard({
             outer card itself is already h-full/w-full stretched: two equal-
             height cards can still look mismatched if their PRICE and NAME
             land at different vertical positions inside them. */}
-        <span className="min-h-4 truncate text-xs text-muted-foreground">
+        <span className="min-h-4 text-xs sm:block hidden text-muted-foreground">
           {infoLine ?? ' '}
         </span>
 
@@ -373,11 +377,11 @@ function ProductCard({
             "Pricing…"/"Price unavailable" instead of a blank gap. Staying
             unpriced is a real, sellable-at-0 state, not a glitch. */}
         {price != null ? (
-          <p className="font-sans text-lg font-bold text-foreground">
+          <p className="font-sans text-sm font-bold text-foreground sm:text-base md:text-lg">
             {formatINR(price)}
           </p>
         ) : (
-          <p className="font-sans text-sm font-medium text-muted-foreground">
+          <p className="font-sans text-xs font-medium text-muted-foreground sm:text-sm">
             {isPricing ? 'Pricing…' : 'Price unavailable'}
           </p>
         )}
@@ -385,7 +389,7 @@ function ProductCard({
         {/* min-h-10 ≈ two lines at this text size — reserved even when a
             row has no real item_name (item_name === item_code, a raw
             unnamed catalog record), for the same reason as infoLine above. */}
-        <p className="line-clamp-2 min-h-10 text-sm font-semibold leading-snug text-foreground">
+        <p className="line-clamp-3 min-h-10 text-xs sm:text-sm font-semibold leading-snug text-foreground">
           {item_name && item_name !== item_code ? item_name : ''}
         </p>
 

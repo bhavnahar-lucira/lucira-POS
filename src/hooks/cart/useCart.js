@@ -9,7 +9,6 @@ import {
   selectCartCustomerName,
   selectCartCustomerMobile,
   selectAppliedPromos,
-  selectRedeemedCoins,
   selectIsCartEmpty,
   selectFulfillmentOrderId,
   selectFulfillmentOrderNo,
@@ -19,8 +18,6 @@ import {
   detachCustomer,
   applyPromo,
   removePromo,
-  applyLoyaltyCoins,
-  removeLoyaltyCoins,
   clearCart,
   clearCartKeepCustomer,
   hydrateFromOrder,
@@ -36,7 +33,6 @@ export function useCart() {
   const customerName        = useSelector(selectCartCustomerName);
   const customerMobile      = useSelector(selectCartCustomerMobile);
   const appliedPromos       = useSelector(selectAppliedPromos);
-  const redeemedCoins       = useSelector(selectRedeemedCoins);
   const isEmpty             = useSelector(selectIsCartEmpty);
   const fulfillmentOrderId  = useSelector(selectFulfillmentOrderId);
   const fulfillmentOrderNo  = useSelector(selectFulfillmentOrderNo);
@@ -81,27 +77,6 @@ export function useCart() {
   const handleRemovePromo = (promoCode) => {
     dispatch(removePromo(promoCode));
     toast.success(TOAST.CART.PROMO_REMOVED);
-  };
-
-  // Mutual exclusivity with promos is checked here synchronously (an amount
-  // doesn't need validating against OrnaVerse the way a promo code does).
-  // The reverse guard (blocking a promo while coins are applied) lives in
-  // usePromoValidation's own mutationFn instead. `amount` is expected to
-  // already be capped by the caller (see LucraCoinsSection's maxClaimable
-  // prop) — this only re-checks it's positive.
-  const handleApplyLoyaltyCoins = (amount) => {
-    if (appliedPromos.length > 0) {
-      toast.error(TOAST.CART.COINS_BLOCKED_BY_PROMO);
-      return;
-    }
-    if (!(amount > 0)) return;
-    dispatch(applyLoyaltyCoins(amount));
-    toast.success(TOAST.CART.COINS_APPLIED(amount));
-  };
-
-  const handleRemoveLoyaltyCoins = () => {
-    dispatch(removeLoyaltyCoins());
-    toast.success(TOAST.CART.COINS_REMOVED);
   };
 
   const handleClearCart = () => {
@@ -156,7 +131,6 @@ export function useCart() {
     customerName,
     customerMobile,
     appliedPromos,
-    redeemedCoins,
     isEmpty,
     fulfillmentOrderId,
     fulfillmentOrderNo,
@@ -166,8 +140,6 @@ export function useCart() {
     detachCustomer: handleDetachCustomer,
     applyPromo: handleApplyPromo,
     removePromo: handleRemovePromo,
-    applyLoyaltyCoins: handleApplyLoyaltyCoins,
-    removeLoyaltyCoins: handleRemoveLoyaltyCoins,
     clearCart: handleClearCart,
     clearCartKeepCustomer: handleClearCartKeepCustomer,
     loadFromOrder: handleLoadFromOrder,

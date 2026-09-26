@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import { PAN_REGEX } from '@/validators/customerSchema';
 import APP_CONFIG from '@/constants/appConfig';
+import { paymentRequiresBank } from '@/lib/checkout/paymentModeRules';
 
 /**
  * Zod validation schema for the checkout screen (Phase 9b).
@@ -33,16 +34,20 @@ const paymentModeSchema = z.object({
   // reference number is required server-side too) — Place Order/Complete Sale
   // stayed enabled with both empty and silently submitted ref_no: '' with no bank_pos.
   modeCode: z.string().optional().default(''),
+  // Stable discriminator for a credit-style mode fetched from OrnaVerse
+  // (currently only Nector Loyalty) — see paymentModeRules.js's own header
+  // for why this must be checked here too, not just in the UI.
+  modeType: z.number().nullable().optional().default(null),
   bankPosId: z.number().nullable().optional().default(null),
   refNo: z.string().optional().default(''),
   // Shape comes straight from a POSReceiptsSelect/List row, not this app's own —
   // loosely typed deliberately rather than re-declaring OrnaVerse's receipt schema.
   creditRef: z.any().nullable().optional().default(null),
 }).superRefine((mode, ctx) => {
-  // Cash and credit/helper balances (identified by creditRef) never touch a bank —
-  // mirrors CheckoutPaymentSection's own requiresBank() logic.
-  const requiresBank = !mode.creditRef && mode.modeCode !== 'Cash';
-  if (!requiresBank) return;
+  // Shared with CheckoutPaymentSection's own copy — see that file's
+  // requiresBank and paymentModeRules.js's header for why this must not be
+  // a second, independently-maintained copy of the same rule.
+  if (!paymentRequiresBank(mode)) return;
 
   if (mode.bankPosId == null) {
     ctx.addIssue({

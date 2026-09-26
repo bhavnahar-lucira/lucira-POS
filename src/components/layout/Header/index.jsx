@@ -180,6 +180,8 @@ export default function Header() {
           >
             <Menu size={18} aria-hidden="true" />
           </Button>
+          {/* Hidden on mobile — ate too much of the row for the title/action
+              cluster to fit; kept on tablet/desktop where there's room. */}
           {canGoBack && (
             <Button
               type="button"
@@ -187,12 +189,12 @@ export default function Header() {
               size="icon"
               onClick={goBack}
               aria-label="Go back"
-              className="min-h-[40px] min-w-[40px] shrink-0"
+              className="hidden min-h-[40px] min-w-[40px] shrink-0 sm:inline-flex"
             >
               <ArrowLeft size={18} aria-hidden="true" />
             </Button>
           )}
-          <h1 className="font-heading text-xl text-foreground truncate">
+          <h1 className="font-heading text-base text-foreground truncate sm:text-lg md:text-xl">
             {pageTitle}
           </h1>
         </div>
@@ -204,7 +206,12 @@ export default function Header() {
           <HeaderCustomerControl />
           <CartBadge onOpen={() => dispatch(openCart())} />
           <StoreIndicator onOpen={() => setStoreModalOpen(true)} />
-          <UserMenu />
+          {/* Hidden on mobile — moved into Sidebar's own mobile-drawer
+              footer (signed-in operator + Sign out), keeping the mobile
+              header down to just the essentials. Unchanged at md+. */}
+          <div className="hidden md:block">
+            <UserMenu />
+          </div>
         </div>
       </header>
 

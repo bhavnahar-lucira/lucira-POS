@@ -1,19 +1,6 @@
-// src/constants/appConfig.js
-// Application-wide fixed constants for Lucira POS.
-//
-// CHANGES FROM PREVIOUS VERSION:
-//   REMOVED: ORDER.POS_CHANNEL_ID — blocker gone. POS/Order/Create needs no channel.
-//   REMOVED: ORDER.DEFAULT_STATUS — status is derived from balance_amount, never sent
-//   REMOVED: GIFT.CARD_TYPE/VOUCHER_TYPE — vouchers handled via CRM endpoints directly
-//   REMOVED: SETTINGS block — AppSettings endpoint removed from new API spec
-//   ADDED:   PAGINATION entries for new modules
-//   ADDED:   STALE_TIME.ANALYTICS
-//   ADDED:   REPAIR.STAGES, ESTIMATION.STATUSES for UI state tracking
-
 const APP_CONFIG = {
 
   // ── METAL TYPE IDs ────────────────────────────────────────────────────────
-  // Fixed constants defined by OrnaVerse — never change these values
   METAL_TYPES: {
     GOLD:      106,
     SILVER:    107,
@@ -23,16 +10,6 @@ const APP_CONFIG = {
   },
 
   // ── URD PURCHASE MASTER ITEMS ─────────────────────────────────────────────
-  // Generic "unregistered dealer" gold placeholder item used as the line
-  // item on every URD Purchase — confirmed 2026-07-16 via a real URD
-  // Purchase's line item (item_id 46875, item_code "URD GOLD", is_urd: true).
-  // Hardcoded rather than searched: Items/List silently excludes is_urd
-  // items from EVERY query (item_search, item_ids, is_urd filter all
-  // return zero rows for this exact item_id) even though Items/Retrieve
-  // returns it fine — the same "filter silently ignored" pattern seen
-  // elsewhere in this API. Only Gold is confirmed; if the store buys old
-  // silver/platinum too, get those item_ids the same way (Retrieve by ID,
-  // not List) and add them here.
   URD_MASTER_ITEMS: {
     GOLD: 46875,
   },
@@ -44,44 +21,12 @@ const APP_CONFIG = {
   },
 
   // ── DOCUMENT TYPES ────────────────────────────────────────────────────────
-  // document_id constants for DocumentNumbering rows — confirmed live
-  // 2026-07-28 (see documentConfigService.js / useOrderHeaderConfig.js).
-  // Each row carries that document type's control ledger_id + posting flags,
-  // keyed by (document_id, company_id) — required on Order/Invoice Create.
   DOCUMENT_TYPES: {
     POS_INVOICE:     54,  // prefix "LJ"
     POS_ORDER:       53,  // prefix "RPO"
-    // Confirmed live 2026-07-28 by reading real document_no prefixes off
-    // each endpoint's own List response (ground truth, not guessed from
-    // DocumentNumbering's prefix text) — see [[transactions-duplicate-implementations]]
-    // memory for the broader context on these transaction flows.
     RETURN:          55,  // prefix "PSR"
-    // CONFIRMED 2026-08-01 off OrnaVerse's own New CreditNote form — Credit
-    // Note is its OWN document type, not a Return. The old note here guessed
-    // they might share id 55; they don't.
-    //   • auto_posting: TRUE → Create also posts. Do NOT call CreditNote/Post
-    //     after Create or it fails AlreadyPosted (same bug fixed on 5 flows).
-    //   • is_tax_applicable: TRUE → the party MUST have a tax_reg_type set,
-    //     or OrnaVerse rejects it. RE-CHECKED 2026-09-17: a 200-row live
-    //     Customer/List sample showed every existing party already has
-    //     tax_reg_type populated (server-defaults to 4 when Create omits
-    //     it, confirmed — this app's Customer/Create never sent it either),
-    //     so this specific risk looks moot in practice. tax_no (GSTIN) was
-    //     the field genuinely missing from this app's customer forms — see
-    //     src/validators/customerSchema.js.
-    //   • ledger_id 129, number_of_backdated_days 60.
     CREDIT_NOTE:     123, // prefix "CRN"
     REFUND:          126, // prefix "RFD"
-    // CONFIRMED LIVE 2026-09-09 — a standalone "POS Receipt" (e.g. a walk-in
-    // advance taken with no sale attached yet), distinct from POS_ORDER/
-    // POS_INVOICE's own advance receipts. Real example: party 3372 (Kavya
-    // Yellapu), document_no "HO-PRC-08-26-8", balance_amount 63200,
-    // mode_code "Advance" — this is exactly the credit OrnaVerse's own
-    // checkout screen shows as "Choose credits ₹63,200.00 available", which
-    // this app's own checkout showed NOTHING for before this was added:
-    // useInvoiceHelpers.js's BUCKET_BY_DOCUMENT_ID had no entry for this
-    // document type, so POSReceiptsSelect/List's row for it was silently
-    // dropped rather than bucketed. See that file's own comment.
     POS_RECEIPT:     57,  // prefix "PRC"
     EXCHANGE:        56,  // prefix "EXC"
     BUYBACK:         97,  // prefix "BYB"
@@ -91,25 +36,12 @@ const APP_CONFIG = {
                            // despite the same prefix text — this store's own config)
     REPAIR_INVOICE:  119, // prefix "RIN"
     SCHEME_RECEIPT:  99,  // prefix "SPY"
-    // CONFIRMED 2026-08-07 off a live SchemeEnrollment/Create capture on
-    // Lucira's own UAT tenant (lucira.uat.ornaverse.in) — see
-    // Lucira_Scheme_Module_Documentation.md §4. Real payload example:
-    // { document_no: "HO-SEN-08-26-12", document_id: 125, ... }
     SCHEME_ENROLLMENT: 125, // prefix "HO-SEN"
     ESTIMATION:      52,  // prefix "QTN" — same constant pricingService.js
-                           // already uses for the stateless SetSalesItems
-                           // preview call, confirmed live via the full
-                           // DocumentNumbering/List prefix dump 2026-07-28.
-    // Confirmed live both on UAT (2026-09-11, full Create→Closed lifecycle)
-    // and read-only on LIVE (2026-09-17, 2 real store-created records).
-    // 129 (InterstoreConsignment) and 130 (CrossStoreCreditSettlement) are
-    // server-managed side documents, never referenced directly by the POS.
     INTERSTORE_RETURN: 128,
   },
 
   // ── INTERSTORE RETURN ──────────────────────────────────────────────────────
-  // See INTERSTORE_RETURN in apiEndpoints.js for the full endpoint contract
-  // and lifecycle notes. Enums confirmed live 2026-09-11/2026-09-17.
   INTERSTORE_RETURN_STATUS: {
     DRAFT:                 0,
     PENDING_APPROVAL:      1,
@@ -120,16 +52,11 @@ const APP_CONFIG = {
     PERMANENTLY_CLOSED:    6,
     DEEMED_SUPPLY:         7,
   },
-  // How the return travels between origin and receiving store — set
-  // server-side, never computed client-side. Starts at 1, not 0.
   INTERSTORE_RETURN_PATHWAY: {
     SAME_STORE:              1,
     COCO_CROSS_STORE:        2,
     FRANCHISEE_MEDIATED:     3,
   },
-  // A DIFFERENT enum from the POS sold-item-picker TransactionType (1
-  // ISRETURN/2 BUYBACK/3 Repair/4 CreditNote/5 EXCHANGE) — easy to
-  // conflate, don't reuse one for the other.
   INTERSTORE_RETURN_TRANSACTION_TYPE: {
     RETURN:   1,
     EXCHANGE: 2,
@@ -142,39 +69,12 @@ const APP_CONFIG = {
   },
 
   // ── COMPLIANCE ────────────────────────────────────────────────────────────
-  // Income Tax Rule 114B: PAN is mandatory on a sale once the transaction
-  // value crosses ₹2,00,000, regardless of payment mode — this is a
-  // statutory threshold, not a store policy, so it isn't configurable per
-  // store/scheme the way PAYMENT_MODES is.
   COMPLIANCE: {
     PAN_MANDATORY_THRESHOLD: 200000,
-    // Income Tax s.269ST: cash receipts from one person in a single day may
-    // not reach ₹2,00,000, so the largest acceptable amount is 1,99,999.
-    // OrnaVerse enforces this server-side and reports it as "Cannot accept
-    // Cash above 199999.00" — matched here so the counter can see the limit
-    // before submitting rather than after.
-    //
-    // Confirmed live 2026-08-05 that their check is on the PARTY'S RUNNING
-    // DAILY TOTAL (POSInvoice/GetPartyDailyCash), not on the payment being
-    // made: a customer at 3,60,950.66 for the day had a fully-UPI invoice
-    // refused with the same cash message.
     CASH_DAILY_LIMIT: 199999,
   },
 
   // ── TAX ───────────────────────────────────────────────────────────────────
-  // GST on gold/silver/diamond jewellery in India is a flat 3% (CGST 1.5% +
-  // SGST 1.5% for an intra-state sale), unlike most goods' slab rates — so a
-  // single flat rate here is correct for this business, not a simplification.
-  // Applied to the taxable value (subtotal after discount) in cartSlice's
-  // recalculateTotals, the single source of truth for cart/checkout totals.
-  //
-  // This combined rate is still all that's computed/stored here — the real
-  // CGST+SGST split (confirmed live 2026-08-17 in OrnaVerse's own
-  // per-line item_taxes[], via SetSalesItems + summarizeLineItems) already
-  // happens server-side regardless of this constant. lib/gst.js's
-  // splitGst() reconstructs that same 50/50 split for display wherever
-  // only the combined tax_amount is at hand (cart estimate, order/invoice
-  // summaries) — a display-time bifurcation, not a second calculation.
   TAX: {
     GST_RATE: 0.03,
   },
@@ -203,28 +103,14 @@ const APP_CONFIG = {
     ORDERS:     2 * 60 * 1000, // 2 min  — orders, invoices, transactions
     STOCK:      1 * 60 * 1000, // 1 min  — live stock levels
     ANALYTICS: 10 * 60 * 1000, // 10 min — analytics charts (slow-changing)
-    // 24h (2026-08-23) — "master data" that only changes when someone edits
-    // a product in OrnaVerse/Shopify: the whole-store catalog list
-    // (useAllCatalog) and per-item Shopify photos (useShopifyProductImages).
-    // Paired with lib/queryPersister.js, which persists exactly these two
-    // to IndexedDB so a page reload doesn't re-fetch them either. NEVER use
-    // this for price — see usePricingEpoch.js for why price stays on a
-    // live change-detector instead of any timer, however long.
     MASTER_DATA: 24 * 60 * 60 * 1000,
   },
 
   // ── SESSION ───────────────────────────────────────────────────────────────
-  // IDLE_TIMEOUT_MS       — customer detached from cart after this long idle
-  // STAFF_IDLE_TIMEOUT_MS — agent fully logged out after this long idle
   SESSION: {
     IDLE_TIMEOUT_MS:       10 * 60 * 1000,
     STAFF_IDLE_TIMEOUT_MS: 20 * 60 * 1000,
     WARNING_BEFORE:        30 * 1000,
-    // CLICK_DEBOUNCE removed 2026-09-08 — SessionProvider's click tracker
-    // no longer debounces (see that file's own comment: the old single-
-    // timer debounce silently DROPPED any click that landed within 300ms
-    // of another, rather than delaying it — every click needed its own
-    // event, not a collapsed one).
   },
 
   SEARCH: {
@@ -233,30 +119,8 @@ const APP_CONFIG = {
   },
 
   // ── PAYMENT MODES ─────────────────────────────────────────────────────────
-  // Controls which modes from PaymentReceiptMode/List appear at checkout.
-  //
-  // A mode is SHOWN at checkout if:
-  //   mode_sub_type !== 2 (see usePaymentModes.js's own comment — this is
-  //   OrnaVerse's own discriminator for a credit-application row, not a
-  //   directly selectable tender: "Advance"/"Order Advance"/"Return"/
-  //   "Scheme Payment"/"scheme Enrollment"/"COD" are all this type)
-  //   AND (only_for_pos === true  OR  mode_code is in ALLOWLIST)
-  //   AND NOT in DENYLIST
-  //
-  // DENYLIST excludes modes that are still mode_sub_type:1 ("normal" tenders
-  // by OrnaVerse's own classification) but genuinely don't apply to an
-  // in-person counter sale — online/marketplace-only channels (GoKwik,
-  // Razorpay, District - Zomato) and promotional-only rows (Spin the
-  // Wheel). Everything mode_sub_type:2 is excluded by that rule directly
-  // now, not by name here — CONFIRMED LIVE 2026-09-09 that "Advance" has
-  // only_for_pos:true and was never in this list (only the differently-
-  // named "Order Advance" was), so it slipped through as a selectable
-  // tender before that rule was added; a name-only list will always
-  // eventually miss the next one like it.
-  //
-  // ALLOWLIST ensures Cash/Card/UPI always appear even if OrnaVerse hasn't
-  // flagged them only_for_pos yet.
   PAYMENT_MODES: {
+    LOYALTY_MODE_TYPE: 11,
     ALLOWLIST: ['Cash', 'Credit Card', 'Debit Card', 'UPI'],
     DENYLIST: [
       'Exchange',
@@ -269,16 +133,11 @@ const APP_CONFIG = {
       'Spin the Wheel :-Coin',
       'GoKwik',
       'Razorpay',
-      // ADDED 2026-09-09 — CONFIRMED LIVE: only_for_pos:true, mode_sub_type:1
-      // (so not caught by the sub_type rule above), but an online District/
-      // Zomato marketplace channel, not an in-person counter tender.
       'District - Zomato',
     ],
   },
 
   // ── REPAIR STAGES ─────────────────────────────────────────────────────────
-  // Used by the repair module UI to show workflow progress.
-  // Maps to the POS/RepairIn → POS/RepairOut → POS/RepairInvoice stages.
   REPAIR: {
     STAGES: {
       INTAKE:   'intake',   // RepairIn created
@@ -289,7 +148,6 @@ const APP_CONFIG = {
   },
 
   // ── ESTIMATION STATUSES ───────────────────────────────────────────────────
-  // Used by the estimation module UI to show quotation state.
   ESTIMATION: {
     STATUSES: {
       DRAFT:     'draft',     // created, not yet posted
@@ -299,14 +157,6 @@ const APP_CONFIG = {
   },
 
   // ── ORDER STATUS ───────────────────────────────────────────────────────────
-  // CANCELLED/DRAFT come straight from the API's own document_status (2/0) —
-  // confirmed live 2026-09-03 against a real UAT invoice (HO-LJ-0726-009,
-  // document_status: 2, balance_amount: 0) that was displaying as "Paid"
-  // because document_status was never looked at. PAID/PARTIAL/DUE remain
-  // derived client-side from balance_amount + receipt_amount, but only for
-  // a Posted (1) document — see deriveDocumentStatus() in useCustomerOrders.js,
-  // the one place this precedence is actually applied.
-  //
   // document_status: 2 (Cancelled)              → CANCELLED
   // document_status: 0 (Draft)                  → DRAFT
   // document_status: 1 (Posted), balance <= 0                        → PAID

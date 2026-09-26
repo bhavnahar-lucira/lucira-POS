@@ -24,7 +24,7 @@ import TOAST from '@/constants/toastMessages';
 
 export default function DiscountSection() {
   const dispatch = useDispatch();
-  const { appliedPromos, removePromo, redeemedCoins, isEmpty } = useCart();
+  const { appliedPromos, removePromo, isEmpty } = useCart();
   const {
     lineItems: pricedLineItems,
     documentId,
@@ -36,13 +36,7 @@ export default function DiscountSection() {
   // usePromoValidation's own PROMO_NOT_READY fallback. Empty cart and
   // still-pricing are surfaced as distinct hints below.
   const notReadyToCheck = !pricedLineItems?.length;
-  // Mutually exclusive with Lucira Coins (cartSlice's redeemedCoins /
-  // LucraCoinsSection). usePromoValidation's 'coins_active' guard is the
-  // real enforcement; disabling here just avoids an avoidable round trip.
-  const hasCoinsApplied = redeemedCoins > 0;
-  const disabledHint = hasCoinsApplied
-    ? 'Remove the applied Lucira Coins before adding a promo code.'
-    : isEmpty
+  const disabledHint = isEmpty
     ? 'Add items to your cart before applying a promo code.'
     : 'Still pricing your cart — promo codes can be applied once that’s done.';
 
@@ -90,12 +84,10 @@ export default function DiscountSection() {
       <PromoCodeInput
         onApply={validatePromo}
         isValidating={isValidating}
-        disabled={notReadyToCheck || hasCoinsApplied}
+        disabled={notReadyToCheck}
         disabledHint={disabledHint}
       />
-      {!hasCoinsApplied && (
-        <PromoCodeSheet onApply={validatePromo} isApplying={isValidating} appliedPromos={appliedPromos} />
-      )}
+      <PromoCodeSheet onApply={validatePromo} isApplying={isValidating} appliedPromos={appliedPromos} />
     </section>
   );
 }

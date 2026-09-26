@@ -13,10 +13,11 @@
 // back with a real discount row — avoids adding an ineligible promo and then
 // having to walk it back once pricing catches up.
 //
-// A promo and a Lucira Coins redemption (cartSlice's redeemedCoins) are
-// mutually exclusive; checked first, before fetching promotions. The reverse
-// guard (blocking coins while a promo is applied) lives in useCart.js's
-// handleApplyLoyaltyCoins instead, since it needs no server call.
+// REMOVED 2026-09-25 — a promo code and Nector Loyalty used to be mutually
+// exclusive (Loyalty was a cart-level redemption, cartSlice's old
+// redeemedCoins). Loyalty is now a checkout PAYMENT MODE (see
+// CheckoutPaymentSection), independent of the promo/discount mechanism
+// entirely — both can be applied to the same sale.
 
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
@@ -41,15 +42,11 @@ import TOAST from '@/constants/toastMessages';
  *   priced as (order vs invoice) — Helper/ApplyPromotions needs it too.
  */
 export function usePromoValidation(pricedLineItems, documentId) {
-  const { applyPromo, appliedPromos, redeemedCoins } = useCart();
+  const { applyPromo, appliedPromos } = useCart();
   const sessionCtx = useSessionTrackingContext();
 
   const mutation = useMutation({
     mutationFn: async (promoCode) => {
-      // Mutual exclusivity with Lucira Coins — checked before fetching
-      // promotions at all, regardless of whether the code itself is valid.
-      if (redeemedCoins > 0) return { status: 'coins_active' };
-
       const response = await listPromotions();
       const entities = response?.data?.Entities ?? [];
       const active   = entities.filter(isPromotionActive);
@@ -88,11 +85,6 @@ export function usePromoValidation(pricedLineItems, documentId) {
     // which one so PROMO_FAILED isn't an undifferentiated bucket.
     onSuccess: (result, promoCode) => {
       switch (result.status) {
-        case 'coins_active':
-          toast.error(TOAST.CART.PROMO_BLOCKED_BY_COINS);
-          tracker.track(EVENTS.PROMO_FAILED, { reason: 'coins_active', promoCode, ...sessionCtx });
-          return;
-
         case 'invalid':
           toast.error(TOAST.CART.PROMO_INVALID(promoCode));
           tracker.track(EVENTS.PROMO_FAILED, { reason: 'invalid', promoCode, ...sessionCtx });

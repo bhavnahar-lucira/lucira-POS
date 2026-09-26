@@ -14,14 +14,19 @@ import { usePaymentModes } from '@/hooks/checkout/usePaymentModes';
 import { useBankPosAccounts } from '@/hooks/checkout/useBankPosAccounts';
 import { useInvoiceHelpers } from '@/hooks/checkout/useInvoiceHelpers';
 import { useCustomerSession } from '@/hooks/customer/useCustomerSession';
+import { useNectorLoyaltyPoints } from '@/hooks/customer/useNectorLoyaltyPoints';
+import { useNectorCheckoutInfo } from '@/hooks/checkout/useNectorCheckoutInfo';
 import { useSelector } from 'react-redux';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import PaymentModeSelector from '../PaymentModeSelector';
 import PaymentAmountInput from '../PaymentAmountInput';
 import BankPosSelect from '../BankPosSelect';
+import { paymentRequiresBank } from '@/lib/checkout/paymentModeRules';
 import APP_CONFIG from '@/constants/appConfig';
 import tracker from '@/lib/analytics/tracker';
 import EVENTS from '@/lib/analytics/events';
+
+const { LOYALTY_MODE_TYPE } = APP_CONFIG.PAYMENT_MODES;
 
 function HelperBalanceRow({ label, amount, modeCode, rows, isApplied, onToggle, isLoading }) {
   if (isLoading) return null;
@@ -79,13 +84,44 @@ export default function CheckoutPaymentSection({ onChange, amountDue, allowParti
   const total = amountDue ?? cartTotal;
   const { paymentModes, isLoading: modesLoading, isError: modesError } = usePaymentModes();
   const { bankPosAccounts } = useBankPosAccounts();
-  const { customerId } = useCustomerSession();
+  const { customerId, customerMobile } = useCustomerSession();
   const activeStoreId  = useSelector(selectActiveStoreId);
 
   const helpers = useInvoiceHelpers({
     partyId:   customerId,
     companyId: activeStoreId,
   });
+
+  // Nector Loyalty — a real fetched payment mode (see usePaymentModes),
+  // but whether it's actually USABLE right now depends on this customer and
+  // this cart total, same two calls LucraCoinsSection used to make before
+  // loyalty moved from a cart-level redemption into a payment-mode tile.
+  // Disabled (not hidden) below whenever there's nothing to redeem — see
+  // loyaltyDisabledReason.
+  const loyaltyMode = paymentModes.find((m) => m.modeType === LOYALTY_MODE_TYPE) ?? null;
+  const { points: loyaltyBalance, isFound: loyaltyFound, isLoading: loyaltyBalanceLoading } =
+    useNectorLoyaltyPoints(customerMobile, { enabled: !!customerMobile });
+  const {
+    promotion: loyaltyPromotion, isEligible: loyaltyEligible, isLoading: loyaltyEligibilityLoading,
+  } = useNectorCheckoutInfo(customerMobile, total, {
+    enabled: !!customerMobile && loyaltyFound && loyaltyBalance > 0 && total > 0,
+  });
+  const loyaltyClaimable = Number(loyaltyPromotion?.fiat_value) || 0;
+  const loyaltyDisabledReason = !customerMobile
+    ? 'Attach a customer to redeem Nector Loyalty'
+    : loyaltyBalanceLoading
+    ? 'Checking Nector Loyalty balance…'
+    : !loyaltyFound
+    ? 'Not enrolled in Nector Loyalty'
+    : loyaltyBalance <= 0
+    ? 'No loyalty points available'
+    : total <= 0
+    ? 'Still pricing your cart'
+    : loyaltyEligibilityLoading
+    ? 'Checking what’s redeemable on this order…'
+    : !loyaltyEligible
+    ? 'Not redeemable on this order yet'
+    : null;
 
   // payments: { key, modeId?, modeCode, modeName, amount (string), isHelper?,
   //   helperCategory?, creditRef? }[]
@@ -127,10 +163,11 @@ export default function CheckoutPaymentSection({ onChange, amountDue, allowParti
     payments.filter((p) => p.isHelper).map((p) => p.helperCategory)
   )];
 
-  // Bank-settled tenders need to say which bank account the money lands in;
-  // Cash (and helper balances — Scheme/Exchange/Credit Note/Old Gold/
-  // Advances, none of which touch a bank) don't.
-  const requiresBank = (p) => !p.isHelper && p.modeCode !== 'Cash';
+  // Shared with checkoutSchema's own copy of this exact rule (see
+  // paymentModeRules.js's header) — the two drifting apart once already
+  // disabled Place Order the moment Loyalty was selected, since only this
+  // UI copy had been taught to exempt it.
+  const requiresBank = paymentRequiresBank;
 
   const handleModeToggle = (modeId) => {
     setPayments((prev) => {
@@ -138,6 +175,12 @@ export default function CheckoutPaymentSection({ onChange, amountDue, allowParti
       if (exists) return prev.filter((p) => p.modeId !== modeId);
 
       const mode    = paymentModes.find((m) => m.modeId === modeId);
+      const isLoyalty = mode?.modeType === LOYALTY_MODE_TYPE;
+      // Defensive — the tile is already disabled via PaymentModeSelector's
+      // disabledModeIds whenever this is true, so this should never
+      // actually be reached, but never apply a phantom credit if it is.
+      if (isLoyalty && loyaltyClaimable <= 0) return prev;
+
       const nonHelperPaid = prev.filter((p) => !p.isHelper)
         .reduce((s, p) => s + (Number(p.amount) || 0), 0);
       const helperPaid = prev.filter((p) => p.isHelper)
@@ -158,8 +201,14 @@ export default function CheckoutPaymentSection({ onChange, amountDue, allowParti
           modeId,
           modeCode: mode?.modeCode ?? '',
           modeName: mode?.modeName ?? 'Unknown',
-          amount:   isFirst ? String(remaining) : '',
+          modeType: mode?.modeType ?? null,
+          // Loyalty's amount is never a free typed figure — Nector's own
+          // `list` check already decided the one redemption available on
+          // this exact total (see useNectorCheckoutInfo), same "not
+          // editable, not partial" rule the old LucraCoinsSection enforced.
+          amount:   isLoyalty ? String(Math.min(remaining, loyaltyClaimable)) : (isFirst ? String(remaining) : ''),
           isHelper: false,
+          isCredit: isLoyalty,
           bankPosId: null,
           refNo:    '',
         },
@@ -247,16 +296,19 @@ export default function CheckoutPaymentSection({ onChange, amountDue, allowParti
   };
 
   // Recompute single-mode pre-fill when total changes — during render, not
-  // in an effect (see lastPricedTotal's comment above).
+  // in an effect (see lastPricedTotal's comment above). Excludes credit rows
+  // (isCredit) same as isHelper — a Loyalty amount is Nector's own fixed
+  // answer, never re-filled to "whatever's now remaining" the way a lone
+  // Cash/Card row is.
   if (total !== lastPricedTotal) {
     setLastPricedTotal(total);
     setPayments((prev) => {
-      const nonHelpers = prev.filter((p) => !p.isHelper);
+      const nonHelpers = prev.filter((p) => !p.isHelper && !p.isCredit);
       if (nonHelpers.length !== 1) return prev;
-      const helperPaid = prev.filter((p) => p.isHelper)
+      const helperPaid = prev.filter((p) => p.isHelper || p.isCredit)
         .reduce((s, p) => s + (Number(p.amount) || 0), 0);
       const remaining = Math.max(0, total - helperPaid);
-      return prev.map((p) => (!p.isHelper ? { ...p, amount: String(remaining) } : p));
+      return prev.map((p) => (!p.isHelper && !p.isCredit ? { ...p, amount: String(remaining) } : p));
     });
   }
 
@@ -291,6 +343,10 @@ export default function CheckoutPaymentSection({ onChange, amountDue, allowParti
           modeId:       p.modeId   ?? null,
           modeCode:     p.modeCode ?? '',
           modeName:     p.modeName,
+          // Stable identifier for "is this the Nector Loyalty row" downstream
+          // (checkout/page.jsx's CartSummary "Credit Applied" line) — mode_code
+          // differs by environment, mode_type doesn't.
+          modeType:     p.modeType ?? mode?.modeType ?? null,
           amount:       Number(p.amount) || 0,
           ledgerId:     bankAccount?.ledgerId ?? mode?.ledgerId ?? null,
           raw:          mode?.raw ?? null,
@@ -409,16 +465,22 @@ export default function CheckoutPaymentSection({ onChange, amountDue, allowParti
         onToggle={handleModeToggle}
         isLoading={modesLoading}
         isError={modesError}
+        disabledModeIds={loyaltyMode && loyaltyDisabledReason ? [loyaltyMode.modeId] : []}
+        disabledReasons={loyaltyMode ? { [loyaltyMode.modeId]: loyaltyDisabledReason } : {}}
       />
 
       {payments.length > 0 && (
         <div className="flex flex-col gap-2 pt-2 border-t border-border">
           {payments.map((p) => (
             <div key={p.key} className="flex flex-col gap-1.5">
+              {/* Loyalty's amount is Nector's own fixed answer, never a
+                  typed figure — read-only here, same as its own doc
+                  comment on handleModeToggle. */}
               <PaymentAmountInput
-                modeName={p.modeName}
+                modeName={p.isCredit ? `${p.modeName} (Credit Applied)` : p.modeName}
                 amount={p.amount}
                 onChange={(value) => handleAmountChange(p.key, value)}
+                readOnly={p.isCredit}
               />
               {requiresBank(p) && (
                 <>
@@ -451,7 +513,7 @@ export default function CheckoutPaymentSection({ onChange, amountDue, allowParti
             )}
             {collectedByMode.map((p) => (
               <div key={p.key} className="flex items-center justify-between text-muted-foreground">
-                <span>Collected ({p.modeName})</span>
+                <span>{p.isCredit ? `Credit Applied (${p.modeName})` : `Collected (${p.modeName})`}</span>
                 <span>{APP_CONFIG.CURRENCY.INR_SYMBOL}{(Number(p.amount) || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
               </div>
             ))}

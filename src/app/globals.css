@@ -347,6 +347,18 @@
     animation: shimmer-text 4s linear infinite;
   }
 
+  /* MetalRatesTicker's mobile-only marquee — the rate content is rendered
+     twice back-to-back (see that component) and this scrolls exactly one
+     copy's width, so the loop point is seamless. */
+  @keyframes marquee {
+    from { transform: translateX(0); }
+    to   { transform: translateX(-50%); }
+  }
+
+  .animate-marquee {
+    animation: marquee 16s linear infinite;
+  }
+
   /* Premium revamp motion — respects OS-level reduced-motion preference.
      Covers every plain-CSS transition/animation (Button, Input, Sidebar,
      PillTabs, .animate-scan-line, existing Radix tw-animate-css enter/exit)

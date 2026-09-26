@@ -69,10 +69,6 @@ const RAW_EVENTS = {
   PROMO_APPLIED:         'promo_applied',
   PROMO_FAILED:          'promo_failed',
   PROMO_SIMILAR_BLOCKED: 'promo_similar_blocked',
-  // Lucira Coins (Nector) redemption, mutually exclusive with promo codes.
-  // See cartSlice's redeemedCoins.
-  COINS_APPLIED:         'loyalty_coins_applied',
-  COINS_BLOCKED:         'loyalty_coins_blocked',
   ORDER_PLACED:          'order_placed',
   ORDER_FAILED:          'order_failed',
 

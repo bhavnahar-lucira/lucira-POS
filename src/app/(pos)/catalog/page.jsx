@@ -23,6 +23,7 @@ import CatalogStoreSelector  from '@/components/features/catalog/CatalogStoreSel
 import OutOfStockToggle      from '@/components/features/catalog/OutOfStockToggle';
 import CatalogSkeleton       from '@/components/features/catalog/CatalogSkeleton';
 import OtherStoreSection     from '@/components/features/catalog/OtherStoreSection';
+import MobileSortFilterBar   from '@/components/features/catalog/MobileSortFilterBar';
 
 import { stableSortProducts } from '@/lib/catalogSort';
 import APP_CONFIG from '@/constants/appConfig';
@@ -218,45 +219,30 @@ function CatalogScreen() {
 
   const {
     data: skuResults = [],
-    isLoading: skuLoading,
   } = useSkuSearch(isSearchMode && !allReady ? searchQuery : '', effectiveStoreId);
 
-  // Category-name matches — originally only an interim pre-index result set
-  // (useSkuSearch only ever matches item_code; categories load fast/
-  // independently of the slow full-catalog scan, so this resolves
-  // immediately even on a store with thousands of items still indexing).
-  // FIXED 2026-09-23 — kept enabled permanently, not just pre-index. This is
-  // a direct, server-side type_ids-scoped query (see useCategoryNameSearch's
-  // own header) — reliable and COMPLETE even for a rare category, unlike
-  // allProducts once showOutOfStock is on: that sweep is capped (see
-  // useAllCatalog's own header) and confirmed live to miss real items deep
-  // in the raw tenant order (one of two known real out-of-stock items in a
-  // rare category sat past the cap). Previously this got thrown away the
-  // moment the full sweep finished, so a correctly-found item could visibly
-  // disappear once loading completed — now merged into the final result
-  // below instead of being discarded.
+  // Category-name matches — a direct, server-side, type_ids-scoped query
+  // (see useCategoryNameSearch's own header) — reliable and COMPLETE even
+  // for a rare category, unlike allProducts once showOutOfStock is on: that
+  // sweep is capped and confirmed live to miss real items deep in the raw
+  // tenant order. Kept enabled for the WHOLE search session (not just
+  // pre-index) and merged into the final result below rather than
+  // discarded once the full sweep finishes — a correctly-found item used to
+  // visibly disappear the moment allReady flipped true, since the old code
+  // only used this as an interim result set.
   const matchingTypeIds = useMemo(
     () => (isSearchMode ? getMatchingTypeIds(searchQuery, categories) : []),
     [isSearchMode, searchQuery, categories],
   );
   const {
     data: categoryNameResults = [],
-    isLoading: categoryNameLoading,
   } = useCategoryNameSearch(matchingTypeIds, effectiveStoreId, isSearchMode);
 
   // UNSORTED — same reason as rawBrowseProducts above.
   const searchResults = useMemo(() => {
     if (!isSearchMode) return [];
 
-    // categoryNameResults always includes out-of-stock rows regardless of
-    // the toggle (useCategoryNameSearch's own query hardcodes
-    // show_out_of_stock:true — it needs the complete category, then this
-    // re-applies the operator's actual choice), and is scoped to the active
-    // category chip too, matching what applySearchFilterOnly/
-    // applyBasicFilterOnly already enforce on the other source.
-    const categoryNameMatches = categoryNameResults
-      .filter((p) => showOutOfStock || isInStock(p))
-      .filter((p) => !activeCategoryId || p.type_id === activeCategoryId);
+    const categoryNameMatches = applyBasicFilterOnly(categoryNameResults, { activeCategoryId, showOutOfStock });
 
     if (allReady) {
       const swept = applySearchFilterOnly(allProducts, {
@@ -265,11 +251,9 @@ function CatalogScreen() {
         showOutOfStock,
         categories,           // ← passed so category name matching works
       });
-      // FIXED 2026-09-23 — merge in rather than replace: allProducts' own
-      // sweep can be missing a real match (see this file's own comment on
-      // matchingTypeIds above), so a reliable category-name match must
-      // never be dropped just because the (necessarily capped) sweep
-      // finished loading.
+      // Merge, don't replace — see this block's own header comment above
+      // for why a reliable category-name match must never be dropped just
+      // because the (necessarily capped) sweep finished loading.
       const seen = new Set(swept.map((p) => p.item_id));
       const extra = categoryNameMatches.filter((p) => !seen.has(p.item_id));
       return [...swept, ...extra];
@@ -299,10 +283,40 @@ function CatalogScreen() {
   // Still unsorted at this point — see sortedDisplayProducts below, which is
   // what actually renders.
   const displayProducts = isSearchMode ? searchResults : rawBrowseProducts;
-  // Only block on the fast SKU/category-name paths — the full background
-  // fetch can take a while on a large store and shouldn't hold the whole
-  // search UI hostage.
-  const isLoading       = isSearchMode ? (!allReady && (skuLoading || categoryNameLoading)) : browseLoading;
+
+  // The grid's own real rendered range (ProductGrid's rangeChanged, backed
+  // by react-virtuoso) — see useLiveCatalogPrices' own doc comment on
+  // priorityItemIds for why this exists (reported: catalog pricing "takes
+  // a lot of time" — prioritize whatever's actually in the DOM first, load
+  // the rest in the background). Defaults to a plausible first screenful
+  // so priority is sane for the brief moment before Virtuoso reports its
+  // first real range.
+  //
+  // Indexed against displayProducts, NOT sortedDisplayProducts (what
+  // ProductGrid actually renders) — using the sorted list here would be
+  // circular (sortedDisplayProducts is derived from prices, which this
+  // feeds into). The two orders can only diverge once a price-based sort
+  // has real prices to reorder by, which is exactly when most items are
+  // already settled and priority barely matters — an acceptable, self-
+  // correcting approximation given the alternative is a genuine cycle.
+  const [visibleRange, setVisibleRange] = useState({ startIndex: 0, endIndex: 23 });
+  const priorityItemIds = useMemo(
+    () => displayProducts.slice(visibleRange.startIndex, visibleRange.endIndex + 1).map((p) => p.item_id),
+    [displayProducts, visibleRange]
+  );
+  // Gated on "do we have anything to show yet", not on the fast paths'
+  // own isLoading flags — those hooks are DISABLED (see useSkuSearch.js/
+  // useCategoryNameSearch.js) whenever the query doesn't look like a SKU
+  // or a category name, so a plain item-name query left BOTH permanently
+  // isLoading:false regardless of whether the slower, authoritative full
+  // sweep had actually finished — nothing marked as loading, searchResults
+  // genuinely empty, so the empty-state message rendered instead of a
+  // loading skeleton for however long the sweep took (reported as
+  // "products sometimes vanish" after a search). Still doesn't block on
+  // the sweep once ANY result exists, only when there's genuinely nothing
+  // to show and the one source that could still find something hasn't
+  // finished.
+  const isLoading       = isSearchMode ? (!allReady && searchResults.length === 0) : browseLoading;
   const isFetchingMore  = !isSearchMode && isFetchingNextPage;
   const hasMore         = !isSearchMode && !!hasNextPage;
   const showStockBadge  = true; // always show — badge content reflects actual stock status
@@ -311,7 +325,7 @@ function CatalogScreen() {
   // fetched in the background so they never block the page. Keyed on
   // effectiveStoreId, not reduxStoreId — pricing must follow whichever store
   // the catalog filter has on screen, not the signed-in store.
-  const { priceById: livePriceById, settledIds } = useLiveCatalogPrices(displayProducts, effectiveStoreId);
+  const { priceById: livePriceById, settledIds } = useLiveCatalogPrices(displayProducts, { priorityItemIds, storeIdOverride: effectiveStoreId });
 
   // Live has_stock re-check — FIXED 2026-09-18 (reported: a sold-out SKU
   // still showed "In Stock"). ProductCatalog/List's own has_stock is just a
@@ -344,39 +358,63 @@ function CatalogScreen() {
   // idiom as stableSort below.
   const [mergeCache, setMergeCache] = useState(() => new Map());
 
-  const nextMergeCache = new Map();
-  const mergedEntries = displayProducts.map((p) => {
-    const price = p.price ?? livePriceById.get(p.item_id) ?? null;
-    // Distinguishes "still coming" from "there will never be a number".
-    const isPricing = price == null && !settledIds.has(p.item_id);
+  // MEMOIZED (reported: "the POS doesn't respond" after a search) — this
+  // whole block used to be plain consts in the render body, so this full
+  // .map() over the entire visible result set (which in search mode can be
+  // the whole store-scoped slice of the 2,699+ item shared sweep) re-ran on
+  // EVERY render of this component, not just when pricing/stock genuinely
+  // changed — including each of the dozens of progressive settle-ticks
+  // useLiveCatalogPrices fires while a large result set is still being
+  // priced. Wrapped in useMemo so it only recomputes when the real inputs
+  // change.
+  //
+  // mergeCache is deliberately OMITTED from the dependency array — it's
+  // WRITTEN by this same computation (via setMergeCache below), not an
+  // input that should trigger a recompute; including it would make every
+  // write immediately trigger another read. This memo's function body is
+  // still recreated fresh every render (closures always are), so a real
+  // recompute always reads the current mergeCache — only a recompute that
+  // ISN'T needed (because none of the listed deps moved) is skipped.
+  const { mergedEntries, nextMergeCache } = useMemo(() => {
+    const nextMergeCache = new Map();
+    const mergedEntries = displayProducts.map((p) => {
+      const price = p.price ?? livePriceById.get(p.item_id) ?? null;
+      // Distinguishes "still coming" from "there will never be a number".
+      const isPricing = price == null && !settledIds.has(p.item_id);
 
-    // Falls back to the snapshot's own has_stock until the live check
-    // resolves for this id — exactly like price falls back to "Pricing…"
-    // rather than asserting a wrong number while unsettled. Scoped to
-    // effectiveStoreCode specifically (not liveStock.hasStock, which is an
-    // OR across every store the operator can access) — this grid shows one
-    // store's stock, not "in stock somewhere".
-    const liveStock = liveStockByItemId.get(p.item_id);
-    const has_stock = liveStock ? liveStock.storeCodes.includes(effectiveStoreCode) : p.has_stock;
+      // Falls back to the snapshot's own has_stock until the live check
+      // resolves for this id — exactly like price falls back to "Pricing…"
+      // rather than asserting a wrong number while unsettled. Scoped to
+      // effectiveStoreCode specifically (not liveStock.hasStock, which is an
+      // OR across every store the operator can access) — this grid shows one
+      // store's stock, not "in stock somewhere".
+      const liveStock = liveStockByItemId.get(p.item_id);
+      const has_stock = liveStock ? liveStock.storeCodes.includes(effectiveStoreCode) : p.has_stock;
 
-    // Compared on price/isPricing/has_stock content only, not object
-    // reference — `products` from useCatalogProducts' select() can get a
-    // fresh reference on every render during the fetching/refetching
-    // transition right after a store switch, which previously caused an
-    // update-depth-exceeded loop (same class of bug useLiveCatalogPrices hit
-    // and fixed the same way). Trade-off: if a product's other fields
-    // (name/image) changed while none of these three did, the reused entry
-    // shows the old ones — accepted since those catalog fields are
-    // effectively immutable per item_id within a session.
-    const cached = mergeCache.get(p.item_id);
-    const entry = (cached && cached.price === price && cached.isPricing === isPricing && cached.has_stock === has_stock)
-      ? cached
-      : { raw: p, price, isPricing, has_stock, merged: { ...p, price, is_pricing: isPricing, has_stock } };
+      // Compared on price/isPricing/has_stock content only, not object
+      // reference — `products` from useCatalogProducts' select() can get a
+      // fresh reference on every render during the fetching/refetching
+      // transition right after a store switch, which previously caused an
+      // update-depth-exceeded loop (same class of bug useLiveCatalogPrices hit
+      // and fixed the same way). Trade-off: if a product's other fields
+      // (name/image) changed while none of these three did, the reused entry
+      // shows the old ones — accepted since those catalog fields are
+      // effectively immutable per item_id within a session.
+      const cached = mergeCache.get(p.item_id);
+      const entry = (cached && cached.price === price && cached.isPricing === isPricing && cached.has_stock === has_stock)
+        ? cached
+        : { raw: p, price, isPricing, has_stock, merged: { ...p, price, is_pricing: isPricing, has_stock } };
 
-    nextMergeCache.set(p.item_id, entry);
-    return entry;
-  });
-  const pricedDisplayProducts = mergedEntries.map((entry) => entry.merged);
+      nextMergeCache.set(p.item_id, entry);
+      return entry;
+    });
+    return { mergedEntries, nextMergeCache };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayProducts, livePriceById, settledIds, liveStockByItemId, effectiveStoreCode]);
+  const pricedDisplayProducts = useMemo(
+    () => mergedEntries.map((entry) => entry.merged),
+    [mergedEntries]
+  );
 
   // FIX (2026-09-18, reported: "Made to Order products visible even with the
   // out-of-stock toggle off"). There's no separate "Made to Order" flag
@@ -395,9 +433,10 @@ function CatalogScreen() {
   // their badge. Only takes effect within the live-checked window (see
   // STOCK_CHECK_WINDOW); anything beyond it still relies on the
   // (occasionally wrong) snapshot, same as before this fix.
-  const visibleDisplayProducts = showOutOfStock
-    ? pricedDisplayProducts
-    : pricedDisplayProducts.filter((p) => p.has_stock === true);
+  const visibleDisplayProducts = useMemo(
+    () => (showOutOfStock ? pricedDisplayProducts : pricedDisplayProducts.filter((p) => p.has_stock === true)),
+    [pricedDisplayProducts, showOutOfStock]
+  );
 
   // Compared after building both maps, in a plain loop rather than a flag
   // mutated inside the .map() callback above — this repo's lint
@@ -421,7 +460,15 @@ function CatalogScreen() {
   // fetchNextPage() used to do exactly that).
   //
   // sortResetKey forces a genuine fresh sort (not a frozen-prefix carry) only
-  // when sort order, filter, store, or mode actually changes.
+  // when sort order, filter, store, mode, or query actually changes.
+  //
+  // FIXED (reported: "sorting filters are not working") — this must include
+  // searchQuery. Typing a DIFFERENT search query while sort/category/OOS/
+  // store stayed the same would otherwise never change this key, so
+  // stableSortProducts would treat the previous query's item order as a
+  // frozen prefix and only sort+append the genuinely-new matches after it —
+  // real matches for the new query silently riding along in the old
+  // query's order instead of being sorted properly.
   //
   // pricedSignature is a content signature, not a reference — comparing
   // `pricedDisplayProducts` by reference caused an update-depth-exceeded
@@ -432,10 +479,11 @@ function CatalogScreen() {
   // sortedDisplayProducts — without it here, a stock-only change (price
   // unchanged) would never look different enough to escape the frozen
   // stableSort.order carried over from the previous tick.
-  const sortResetKey = `${sortBy}|${activeCategoryId ?? ''}|${showOutOfStock}|${effectiveStoreId ?? ''}|${isSearchMode}`;
-  const pricedSignature = visibleDisplayProducts
-    .map((p) => `${p.item_id}:${p.price ?? ''}:${p.has_stock}`)
-    .join('|');
+  const sortResetKey = `${sortBy}|${activeCategoryId ?? ''}|${showOutOfStock}|${effectiveStoreId ?? ''}|${isSearchMode}|${searchQuery}`;
+  const pricedSignature = useMemo(
+    () => visibleDisplayProducts.map((p) => `${p.item_id}:${p.price ?? ''}:${p.has_stock}`).join('|'),
+    [visibleDisplayProducts]
+  );
 
   const [stableSort, setStableSort] = useState({ key: sortResetKey, signature: null, order: [] });
 
@@ -532,8 +580,11 @@ function CatalogScreen() {
           translucent, so cards don't show through once pinned. z-20 (not
           z-10) because ProductCard's wishlist heart is also `absolute z-10`
           with no stacking context of its own — equal z-index would let it
-          show through the bar on tie-break. */}
-      <div className="sticky top-0 z-20 px-4 pt-4 pb-3 md:px-6 md:pt-5 bg-muted border-b border-border">
+          show through the bar on tie-break.
+          Desktop-only (lg+) — below lg this took up roughly half the mobile
+          viewport on its own (reported directly); MobileSortFilterBar's
+          floating pill + bottom sheets replace it below that breakpoint. */}
+      <div className="hidden lg:block sticky top-0 z-20 px-4 pt-4 pb-3 md:px-6 md:pt-5 bg-muted border-b border-border">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           {/* Search — left, grows on wide screens but caps out so it doesn't
               dominate the row; always full-width on its own line below lg */}
@@ -577,7 +628,24 @@ function CatalogScreen() {
         </div>
       </div>
 
-      <div className="p-4 md:p-6">
+      <MobileSortFilterBar
+        sortBy={sortBy}
+        onSortChange={actions.setSortBy}
+        searchQuery={searchQuery}
+        onSearch={handleSearch}
+        onBarcodeDetected={handleBarcodeDetected}
+        catalogStoreId={catalogStoreId}
+        onStoreChange={actions.setCatalogStore}
+        showOutOfStock={showOutOfStock}
+        onShowOutOfStockChange={actions.setShowOutOfStock}
+        categories={categories}
+        activeCategorySlug={activeCategorySlug}
+        hasActiveFilters={hasActiveFilters}
+        onSelectCategory={actions.selectCategory}
+        onClearFilters={handleClearFilters}
+      />
+
+      <div className="p-4 pb-28 md:p-6 lg:pb-6">
         {countLabel && (
           <p className="pb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             {countLabel}
@@ -595,6 +663,7 @@ function CatalogScreen() {
             storeCode={effectiveStoreCode}
             onLoadMore={handleLoadMore}
             onClearFilters={handleClearFilters}
+            onRangeChanged={setVisibleRange}
           />
         </div>
 

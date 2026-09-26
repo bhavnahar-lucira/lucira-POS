@@ -28,6 +28,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { X } from 'lucide-react';
 import { useMediaQuery } from '@/hooks/ui/useMediaQuery';
 import { useBodyScrollLock } from '@/hooks/ui/useBodyScrollLock';
+import { cn } from '@/lib/utils';
 import { EASE_PREMIUM, DURATION } from '@/lib/motion';
 
 export default function BottomSheet({
@@ -36,6 +37,7 @@ export default function BottomSheet({
   title,
   children,
   footer,
+  footerClassName,
   maxWidth = 'max-w-md',
   alwaysBottom = false,
 }) {
@@ -109,7 +111,7 @@ export default function BottomSheet({
             {...panelMotion}
             transition={{ duration: DURATION.panel, ease: EASE_PREMIUM }}
           >
-            <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-border shrink-0">
+            <div className="flex items-center justify-between px-3 pt-3 pb-2.5 sm:px-5 sm:pt-5 sm:pb-4 border-b border-border shrink-0">
               {/* Visual uppercase only — aria-label above keeps the real-case title for screen readers. */}
               <h2 className="text-base font-bold uppercase tracking-wide text-foreground">
                 {title}
@@ -119,7 +121,7 @@ export default function BottomSheet({
                 onClick={onClose}
                 aria-label="Close"
                 className="
-                  min-w-[44px] min-h-[44px] flex items-center justify-center
+                  sm:min-w-11 sm:min-h-11 min-w-8 min-h-8 flex items-center justify-center
                   rounded-full text-muted-foreground
                   hover:text-foreground hover:bg-secondary
                   transition-colors duration-standard ease-premium
@@ -129,12 +131,12 @@ export default function BottomSheet({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-5 py-5">
+            <div className="flex-1 overflow-y-auto px-3 py-3 sm:px-5 sm:py-5">
               {children}
             </div>
 
             {footer && (
-              <div className="shrink-0 px-5 py-4 border-t border-border">
+              <div className={cn('shrink-0 sm:px-5 sm:py-4 px-3 py-2 border-t border-border', footerClassName)}>
                 {footer}
               </div>
             )}

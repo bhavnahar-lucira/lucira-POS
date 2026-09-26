@@ -27,6 +27,10 @@ function normalizeMode(entity) {
     // ADDED 2026-09-09 — see isPosPaymentMode's own comment for why this is
     // now part of the filter.
     modeSubType:  entity.mode_sub_type ?? null,
+    // ADDED 2026-09-25 — Nector Loyalty's own stable discriminator (see
+    // APP_CONFIG.PAYMENT_MODES.LOYALTY_MODE_TYPE); mode_code/mode_id both
+    // differ by environment, this doesn't.
+    modeType:     entity.mode_type ?? null,
     // Confirmed 2026-07-16 via real Refund/List and Invoice/List data — every
     // PaymentReceiptModeRow carries its own ledger_id, and RefundDetailsRow
     // genuinely requires one. Use the mode's own value rather than inventing one.
@@ -55,7 +59,13 @@ function normalizeMode(entity) {
 // here (an online-only channel like GoKwik/Razorpay/District-Zomato).
 function isPosPaymentMode(mode) {
   if (mode.isDisabled) return false;
-  if (mode.modeSubType === 2) return false;
+  // Nector Loyalty is mode_sub_type:2 (a credit-knockoff row, same
+  // classification as Exchange/Scheme/Advance) but must NOT be excluded
+  // here — unlike those, it's meant to appear as a real tile in the
+  // checkout payment picker (see CheckoutPaymentSection), just one that
+  // gets disabled rather than hidden when the customer has nothing to
+  // redeem. Every other mode_sub_type:2 row stays excluded.
+  if (mode.modeSubType === 2 && mode.modeType !== APP_CONFIG.PAYMENT_MODES.LOYALTY_MODE_TYPE) return false;
   const { ALLOWLIST, DENYLIST } = APP_CONFIG.PAYMENT_MODES;
   if (DENYLIST.includes(mode.modeCode)) return false;
   return mode.onlyForPos === true || ALLOWLIST.includes(mode.modeCode);

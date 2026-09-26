@@ -111,12 +111,6 @@ export const analyticsMiddleware = (store) => (next) => (action) => {
       break;
     }
 
-    // Only application is tracked, same as cart/applyPromo (no removal case for either).
-    case 'cart/applyLoyaltyCoins': {
-      tracker.track(EVENTS.COINS_APPLIED, { amount: action.payload });
-      break;
-    }
-
     default:
       break;
   }

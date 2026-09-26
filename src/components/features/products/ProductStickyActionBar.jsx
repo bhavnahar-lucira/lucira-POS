@@ -76,29 +76,28 @@ export default function ProductStickyActionBar({
           </div>
         )}
 
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 md:justify-between sm:flex-nowrap sm:justify-start sm:gap-3">
 
           <div className="shrink-0">
             <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
               Total
             </p>
-            <p className="font-heading text-xl text-foreground leading-tight">
+            <p className="font-heading text-base text-foreground leading-tight sm:text-xl">
               {total != null ? formatINR(total) : (
                 <span className="text-sm font-medium text-status-made-order">Not priced</span>
               )}
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <QuantitySelector
-              quantity={quantity}
-              onChange={onQuantityChange}
-              maxQty={QUANTITY_CEILING}
-            />
 
-            {/* Add to Cart — always enabled regardless of stock vs quantity,
-                EXCEPT when there's no price: the item couldn't be priced
-                live, and adding it would silently put a ₹0 line item into a
-                real sale. */}
+          <div className='flex items-center gap-3'>
+
+            <div className="shrink-0 sm:ml-auto">
+              <QuantitySelector
+                quantity={quantity}
+                onChange={onQuantityChange}
+                maxQty={QUANTITY_CEILING}
+              />
+            </div>
             <AddToCartButton
               product={product}
               quantity={quantity}
@@ -109,6 +108,7 @@ export default function ProductStickyActionBar({
               stockStatus={stockStatus}
               pricedItem={pricedItem}
               disabled={unitPrice == null}
+              className="w-full sm:w-auto"
             />
           </div>
         </div>

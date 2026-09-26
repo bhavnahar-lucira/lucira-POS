@@ -17,10 +17,6 @@ const initialState = {
   appliedPromos:       [],    // { promoCode, promoDetails, discountAmount }[] — multiple promos
                                // can stack; discountAmount is derived (see recalculateTotals)
   discountAmount:      0,     // derived from appliedPromos against the current subtotal
-  // "Lucira Coins" (Nector loyalty) redemption — mutually exclusive with appliedPromos.
-  // Requested amount in rupees (1 Coin = 1 Rupee), not clamped to the order total since
-  // that moves as pricing/promos resolve; consumers derive min(redeemedCoins, payableTotal).
-  redeemedCoins:       0,
   subtotal:            0,
   taxAmount:           0,     // GST on the taxable value (subtotal - discount), rate from APP_CONFIG
   total:               0,
@@ -143,7 +139,6 @@ const cartSlice = createSlice({
       if (state.customerId && state.customerId !== customerId && state.items.length > 0) {
         state.items              = [];
         state.appliedPromos      = [];
-        state.redeemedCoins      = 0;
         state.discountAmount     = 0;
         state.subtotal           = 0;
         state.taxAmount          = 0;
@@ -182,16 +177,6 @@ const cartSlice = createSlice({
       const promoCode = action.payload;
       state.appliedPromos = state.appliedPromos.filter((p) => p.promoCode !== promoCode);
       recalculateTotals(state);
-    },
-
-    // Mutual exclusivity with appliedPromos is enforced by the caller
-    // (useCart.js, usePromoValidation), not here — this just sets the requested amount.
-    applyLoyaltyCoins: (state, action) => {
-      state.redeemedCoins = action.payload;
-    },
-
-    removeLoyaltyCoins: (state) => {
-      state.redeemedCoins = 0;
     },
 
     // Clear the entire cart — called after successful order creation
@@ -290,8 +275,6 @@ export const {
   detachCustomer,
   applyPromo,
   removePromo,
-  applyLoyaltyCoins,
-  removeLoyaltyCoins,
   clearCart,
   clearCartKeepCustomer,
   restoreCart,
@@ -309,7 +292,6 @@ export const selectCartCustomerName   = (state) => state.cart.customerName;
 export const selectCartCustomerMobile = (state) => state.cart.customerMobile;
 export const selectCartCustomerAddress = (state) => state.cart.customerAddress;
 export const selectAppliedPromos      = (state) => state.cart.appliedPromos;
-export const selectRedeemedCoins      = (state) => state.cart.redeemedCoins;
 export const selectIsCartEmpty        = (state) => state.cart.items.length === 0;
 export const selectFulfillmentOrderId = (state) => state.cart.fulfillmentOrderId;
 export const selectFulfillmentOrderNo = (state) => state.cart.fulfillmentOrderNo;
