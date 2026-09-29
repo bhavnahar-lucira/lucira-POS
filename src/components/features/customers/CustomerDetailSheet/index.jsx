@@ -13,11 +13,13 @@
 // update payload is always complete (OrnaVerse requires full record on update).
 
 import { useState, useEffect } from 'react';
+import { useSelector } from 'react-redux';
+import { selectIsSuperAdmin } from '@/store/slices/authSlice';
 import {
   Phone, Mail, MapPin, CreditCard, UserCircle, History,
   Loader2,
 } from 'lucide-react';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
 
@@ -26,9 +28,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import LocationSelect from '@/components/shared/LocationSelect';
+import PhoneNumberField from '@/components/shared/PhoneNumberField';
 import PillTabs from '@/components/shared/PillTabs';
 
 import { updateCustomerSchema } from '@/validators/customerSchema';
+import { storedValueToPhone } from '@/lib/normalizers/customer';
 import { useRetrieveCustomer } from '@/hooks/customer/useRetrieveCustomer';
 import { useUpdateCustomer } from '@/hooks/customer/useUpdateCustomer';
 import { useCountries, useStates, useCities } from '@/hooks/settings/useLocation';
@@ -42,7 +46,7 @@ const TAB_LABELS = { profile: 'Profile', edit: 'Edit' };
 // Masking it again client-side just hid real data staff already have full
 // Retrieve access to, for no actual privacy benefit.
 function ProfileTab({ customer, onAttach, isAttached, onClose }) {
-  const { customerName, customerMobile, customerEmail, customerAddress, customerPan, taxNo, raw } = customer;
+  const { customerName, customerMobile, customerPhone, customerEmail, customerAddress, customerPan, taxNo, raw } = customer;
   const partyCode = raw?.party_code && raw.party_code !== 'NA' ? raw.party_code : null;
   // ROLLED BACK 2026-09-08 — the full-profile links below used to build a
   // name-first slug (/customers/tahir-kutty-12345); reverted to the plain
@@ -60,6 +64,12 @@ function ProfileTab({ customer, onAttach, isAttached, onClose }) {
           <div className="flex items-center gap-2 text-muted-foreground">
             <Phone size={15} className="shrink-0 text-muted-foreground/70" />
             {customerMobile}
+          </div>
+        )}
+        {customerPhone && (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Phone size={15} className="shrink-0 text-muted-foreground/70" />
+            {customerPhone} <span className="text-xs">(phone)</span>
           </div>
         )}
         {customerEmail && (
@@ -179,7 +189,8 @@ function EditTab({ customer }) {
     // the instant this tab opened, before the operator touched anything.
     defaultValues: {
       party_name: customer.customerName ?? '',
-      mobile: customer.customerMobile ?? '',
+      mobile: storedValueToPhone(customer.customerMobile),
+      phone: storedValueToPhone(customer.customerPhone),
       email: customer.customerEmail ?? '',
       pan_no: customer.customerPan ?? '',
       tax_no: customer.taxNo ?? '',
@@ -201,7 +212,8 @@ function EditTab({ customer }) {
     const r = fullCustomer.raw;
     reset({
       party_name: r.party_name ?? '',
-      mobile: r.mobile ?? '',
+      mobile: storedValueToPhone(r.mobile),
+      phone: storedValueToPhone(r.phone),
       email: r.email && r.email !== 'NA' ? r.email : '',
       pan_no: r.pan_no && r.pan_no !== 'NA' ? r.pan_no : '',
       tax_no: r.tax_no && r.tax_no !== 'NA' ? r.tax_no : '',
@@ -242,19 +254,18 @@ function EditTab({ customer }) {
 
   const onSubmit = async (formChanges) => {
     if (!raw) return;
-    // Fields are now always pre-filled with the real value (see above), so
-    // a blank mobile/email/address here means the operator genuinely
-    // cleared it. Falling back to the original raw value is still the
-    // right call — Update requires the full record, and submitting an
-    // empty string for a required field would corrupt it rather than
-    // reflect an intentional "clear this" edit (there's no UI affordance
-    // here for actually removing one of these three fields).
+    // mobile no longer needs a raw-value fallback here (FIXED 2026-09-26) —
+    // it's a mandatory, validated field now (updateCustomerSchema's
+    // mobileSchema), so a blank submission can no longer reach this point
+    // at all. email/address stay optional, so a genuinely blank one still
+    // falls back to the original rather than corrupting a required-shaped
+    // OrnaVerse field with an empty string (there's no UI affordance here
+    // for actually clearing either).
     await updateCustomer.mutateAsync({
       partyId: customer.customerId,
       originalRaw: raw,
       formChanges: {
         ...formChanges,
-        mobile: formChanges.mobile || raw.mobile,
         email: formChanges.email || raw.email,
         address: formChanges.address || raw.address,
       },
@@ -278,11 +289,27 @@ function EditTab({ customer }) {
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="ds_mobile">Mobile</Label>
-          <Input
-            id="ds_mobile" type="tel" inputMode="numeric" {...register('mobile')} className="h-11"
+          <Label htmlFor="ds_mobile">Mobile <span className="text-destructive">*</span></Label>
+          <Controller
+            name="mobile"
+            control={control}
+            render={({ field }) => (
+              <PhoneNumberField id="ds_mobile" value={field.value} onChange={field.onChange} />
+            )}
           />
           {errors.mobile && <p className="text-sm text-destructive">{errors.mobile.message}</p>}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ds_phone">Phone <span className="text-muted-foreground text-xs">(optional)</span></Label>
+          <Controller
+            name="phone"
+            control={control}
+            render={({ field }) => (
+              <PhoneNumberField id="ds_phone" value={field.value} onChange={field.onChange} />
+            )}
+          />
+          {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -397,6 +424,7 @@ function EditTab({ customer }) {
 }
 
 export default function CustomerDetailSheet({ customer, isOpen, onClose, onAttach, isAttached }) {
+  const isSuperAdmin = useSelector(selectIsSuperAdmin);
   const [activeTab, setActiveTab] = useState('profile');
   // Tracks the (isOpen, customerId) signature activeTab was last reset
   // for — null while closed. Lets a render-time comparison detect "the
@@ -422,13 +450,18 @@ export default function CustomerDetailSheet({ customer, isOpen, onClose, onAttac
   // isAttached prop, which can change while this same sheet stays mounted
   // (e.g. tapping "Attach to Session" on the Profile tab without closing
   // the sheet first).
-  const tabs = isAttached ? ['profile', 'edit'] : ['profile'];
+  // Edit also requires the operator to be an admin (2026-09-28, explicit
+  // direction) — everyone else can create a customer but not edit an
+  // existing one. Enforced server-side too (see api/[...path]/route.js's
+  // ADMIN_ONLY_PATHS) — this is just the matching UI gate.
+  const canEdit = isAttached && isSuperAdmin;
+  const tabs = canEdit ? ['profile', 'edit'] : ['profile'];
 
   // Defensive: if isAttached flips false while Edit is the active tab
   // (attach state changing out from under an open sheet is an edge case,
   // not the normal path, but the tab must not stay selected once it's no
   // longer offered) — same "adjust during render" idiom as the reset above.
-  if (activeTab === 'edit' && !isAttached) {
+  if (activeTab === 'edit' && !canEdit) {
     setActiveTab('profile');
   }
 
@@ -472,7 +505,7 @@ export default function CustomerDetailSheet({ customer, isOpen, onClose, onAttac
             onClose={onClose}
           />
         )}
-        {activeTab === 'edit' && isAttached && (
+        {activeTab === 'edit' && canEdit && (
           <EditTab customer={customer} />
         )}
       </div>

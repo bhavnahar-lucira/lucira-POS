@@ -11,7 +11,6 @@ import RehydrationGuard from '@/components/shared/RehydrationGuard';
 import "./globals.css";
 
 const GA_MEASUREMENT_ID = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
-const WEBENGAGE_LICENSE_CODE = process.env.NEXT_PUBLIC_WEBENGAGE_LICENSE_CODE;
 
 export const metadata = {
   title: 'Lucira POS',
@@ -61,58 +60,16 @@ export default function RootLayout({ children }) {
         )}
 
         {/*
-          WebEngage — only rendered when NEXT_PUBLIC_WEBENGAGE_LICENSE_CODE
-          is set, same "analytics being unconfigured never breaks the app"
-          rule as GA4 above. Verbatim bootstrap snippet from WebEngage's own
-          docs (docs.webengage.com/docs/web-getting-started, Global/US data
-          center) — do not hand-edit the minified body; it looks up its own
-          script tag by the exact id below to insert the real SDK script
-          next to it. See src/lib/analytics/webengage.js for the dispatch
-          helpers every event goes through.
+          WebEngage — no client SDK loaded here anymore (2026-09-28). The
+          Web SDK bootstrap that used to live in this spot console-errored
+          on every single page load ("incorrectly configured" — this
+          tenant's domain was never registered for it) regardless of
+          whether any event ever fired. Both events and user-identity sync
+          now go entirely through our own REST relay
+          (src/lib/analytics/webengageServer.js /
+          src/app/api/analytics/webengage/**), which never touches the
+          browser at all beyond a same-origin fetch — see webengageBridge.js.
         */}
-        {WEBENGAGE_LICENSE_CODE && (
-          <Script id="_webengage_script_tag" strategy="afterInteractive">
-            {`
-              var webengage;
-              !function(w, e, b, n, g) {
-                function o(e, t) {
-                  e[t[t.length - 1]] = function() {
-                    r.__queue.push([t.join("."), arguments])
-                  }
-                }
-                var i, s, r = w[b],
-                  z = " ",
-                  l = "init options track screen onReady".split(z),
-                  a = "feedback survey notification".split(z),
-                  c = "options render clear abort".split(z),
-                  p = "Open Close Submit Complete View Click".split(z),
-                  u = "identify login logout setAttribute".split(z);
-                if (!r || !r.__v) {
-                  for (w[b] = r = {
-                      __queue: [],
-                      __v: "6.0",
-                      user: {}
-                    }, i = 0; i < l.length; i++) o(r, [l[i]]);
-                  for (i = 0; i < a.length; i++) {
-                    for (r[a[i]] = {}, s = 0; s < c.length; s++) o(r[a[i]], [a[i], c[s]]);
-                    for (s = 0; s < p.length; s++) o(r[a[i]], [a[i], "on" + p[s]])
-                  }
-                  for (i = 0; i < u.length; i++) o(r.user, ["user", u[i]]);
-                  setTimeout(function() {
-                    var f = e.createElement("script"),
-                      d = e.getElementById("_webengage_script_tag");
-                    f.type = "text/javascript",
-                      f.async = !0,
-                      f.src = ("https:" == e.location.protocol ? "https://ssl.widgets.webengage.com" : "http://cdn.widgets.webengage.com") + "/js/webengage-min-v-6.0.js",
-                      d.parentNode.insertBefore(f, d)
-                  })
-                }
-              }(window, document, "webengage");
-
-              webengage.init('${WEBENGAGE_LICENSE_CODE}');
-            `}
-          </Script>
-        )}
         <Providers>
           {/*
             RehydrationGuard runs two jobs on mount (client-side only):

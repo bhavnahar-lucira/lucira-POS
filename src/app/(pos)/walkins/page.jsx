@@ -1,25 +1,40 @@
 'use client';
 
-// Walk-ins directory — this app's own log of customer matches (OrnaVerse's
-// WalkIn/Lookup and /Register have no listing mode, so there's nothing
-// server-side to browse). Scoped to the active store via company_id from
-// Redux; date filtering happens server-side (api/customers/walkins/route.js),
-// not client-side like orders/invoices. Read-only by design: walkInCustomerId
-// is a CRM-level id, not a party_id, so no "Attach"/"View Profile" action
-// exists here — this list is for retargeting contact info, not re-entering a sale.
+// Walk-ins directory — two tabs, BOTH fetched live from OrnaVerse, no local
+// DB (2026-09-28, explicit direction — the old Mongo-backed walkins_POS log
+// was removed entirely):
+//   Visit Log — Services/CRM/CustomerVisits/List, filtered server-side to
+//     the active store (EqualityFilter:{company_id}, confirmed live: narrows
+//     a 3,009-row tenant-wide table to 199 for one store). Real OrnaVerse
+//     visit history, not just the subset this app happened to catch via a
+//     mobile-search match.
+//   Leads — Services/CRM/Customer/List, filtered to rows with no party_id
+//     yet (a genuinely open lead) — see useCrmLeads.js's own header.
+// Both read-only by design: their ids are CRM-level (customer_id), never a
+// billing party_id — see normalizeCrmVisit/normalizeCrmLead.
 
 import { useState } from 'react';
 import { useSelector } from 'react-redux';
-import { Footprints, X } from 'lucide-react';
+import { Footprints, UserPlus, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import EmptyState from '@/components/shared/EmptyState';
 import ErrorState from '@/components/shared/ErrorState';
 import InlineLoader from '@/components/shared/InlineLoader';
 import { StaggerList } from '@/components/shared/StaggerList';
-import { useWalkInsList } from '@/hooks/customer/useWalkInsList';
+import BottomSheet from '@/components/shared/BottomSheet';
+import PillTabs from '@/components/shared/PillTabs';
+import ErrorBoundary from '@/components/shared/ErrorBoundary';
+import CrmLeadsList from '@/components/features/customers/CrmLeadsList';
+import WalkInRegisterForm from '@/components/features/customers/WalkInRegisterForm';
+import { useCrmVisits } from '@/hooks/customer/useCrmVisits';
 import { selectActiveStoreId, selectActiveStoreName } from '@/store/slices/storeSlice';
 import { todayDateString } from '@/lib/dateUtils';
+
+const TABS = [
+  { key: 'visits', label: 'Visit Log' },
+  { key: 'leads',  label: 'Leads' },
+];
 
 function fmtVisitedAt(iso) {
   if (!iso) return '—';
@@ -31,19 +46,19 @@ function fmtVisitedAt(iso) {
   });
 }
 
-function WalkInRow({ walkIn }) {
+function VisitRow({ visit }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3">
       <div className="min-w-0">
         <p className="text-sm font-semibold text-foreground truncate">
-          {walkIn.customerName ?? 'Unknown customer'}
+          {visit.customerName ?? 'Unknown customer'}
         </p>
         <p className="text-xs text-muted-foreground mt-0.5">
-          {walkIn.mobile ?? '—'}
+          {visit.mobile ?? '—'}{visit.source ? ` · ${visit.source}` : ''}
         </p>
       </div>
       <p className="text-xs text-muted-foreground shrink-0 text-right">
-        {fmtVisitedAt(walkIn.createdAt)}
+        {fmtVisitedAt(visit.visitedAt)}
       </p>
     </div>
   );
@@ -53,11 +68,26 @@ export default function WalkInsPage() {
   const companyId   = useSelector(selectActiveStoreId);
   const companyName = useSelector(selectActiveStoreName);
 
+  const [activeTab, setActiveTab] = useState('visits');
+  const [isRegisterOpen, setIsRegisterOpen] = useState(false);
+
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate]     = useState('');
   const hasFilters = !!fromDate || !!toDate;
 
-  const { items, isLoading, isError, refetch } = useWalkInsList(companyId, { fromDate, toDate });
+  const { visits, isLoading, isError, refetch } = useCrmVisits(companyId);
+
+  // Client-side date narrowing over the fetched window — CustomerVisits/List
+  // has no date-range param of its own (only EqualityFilter, used above for
+  // company_id), so this filters what's already loaded rather than
+  // re-querying OrnaVerse per date change.
+  const filteredVisits = visits.filter((v) => {
+    if (!v.visitedAt) return !hasFilters;
+    const day = v.visitedAt.slice(0, 10);
+    if (fromDate && day < fromDate) return false;
+    if (toDate && day > toDate) return false;
+    return true;
+  });
 
   const handleClearAll = () => {
     setFromDate('');
@@ -66,76 +96,102 @@ export default function WalkInsPage() {
 
   return (
     <div className="flex flex-col gap-4 max-w-3xl mx-auto w-full p-4 md:p-6">
-      <div>
-        <h1 className="text-lg font-bold text-foreground">Walk-ins</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          {companyName ? `Logged for ${companyName}` : 'Logged for the active store'}
-        </p>
-      </div>
-
-      <div className="flex flex-col gap-2 md:flex-row md:items-center">
-        <div className="flex items-center gap-2 flex-1">
-          <Input
-            type="date"
-            value={fromDate}
-            max={todayDateString()}
-            onChange={(e) => setFromDate(e.target.value)}
-            aria-label="From date"
-            className="flex-1 min-w-0"
-          />
-          <span className="text-muted-foreground text-sm shrink-0">to</span>
-          <Input
-            type="date"
-            value={toDate}
-            max={todayDateString()}
-            onChange={(e) => setToDate(e.target.value)}
-            aria-label="To date"
-            className="flex-1 min-w-0"
-          />
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-bold text-foreground">Walk-ins</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {companyName ? `Logged for ${companyName}` : 'Logged for the active store'}
+          </p>
         </div>
-
-        {hasFilters && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleClearAll}
-            className="gap-1.5 shrink-0 w-full md:w-auto"
-            aria-label="Clear date filter"
-          >
-            <X size={14} aria-hidden="true" />
-            Clear
-          </Button>
-        )}
+        <Button type="button" onClick={() => setIsRegisterOpen(true)} className="gap-1.5 shrink-0">
+          <UserPlus size={16} aria-hidden="true" />
+          Register Walk-in
+        </Button>
       </div>
 
-      {!isLoading && !isError && (
-        <p className="text-xs text-muted-foreground -mt-1">
-          {items.length} walk-in{items.length !== 1 ? 's' : ''}{hasFilters ? ' in this range' : ''}
-        </p>
-      )}
+      <PillTabs
+        tabs={TABS}
+        value={activeTab}
+        onChange={setActiveTab}
+        getKey={(t) => t.key}
+        getLabel={(t) => t.label}
+      />
 
-      <StaggerList className="flex flex-col gap-1.5">
-        {isLoading ? (
-          <InlineLoader label="Loading walk-ins…" />
-        ) : isError ? (
-          <ErrorState title="Failed to load walk-ins." onRetry={() => refetch()} />
-        ) : items.length === 0 ? (
-          <EmptyState
-            icon={Footprints}
-            title={hasFilters ? 'No walk-ins in this range.' : 'No walk-ins logged yet.'}
-            description={
-              hasFilters
-                ? undefined
-                : 'A walk-in is logged automatically the first time a customer is matched by mobile search at this store.'
-            }
-          />
+      <ErrorBoundary
+        resetKey={activeTab}
+        fallbackTitle={activeTab === 'leads' ? 'Could not display leads.' : 'Could not display the visit log.'}
+      >
+        {activeTab === 'leads' ? (
+          <CrmLeadsList />
         ) : (
-          items.map((walkIn) => (
-            <WalkInRow key={walkIn._id ?? `${walkIn.mobile}-${walkIn.createdAt}`} walkIn={walkIn} />
-          ))
+          <>
+            <div className="flex flex-col gap-2 md:flex-row md:items-center">
+              <div className="flex items-center gap-2 flex-1">
+                <Input
+                  type="date"
+                  value={fromDate}
+                  max={todayDateString()}
+                  onChange={(e) => setFromDate(e.target.value)}
+                  aria-label="From date"
+                  className="flex-1 min-w-0"
+                />
+                <span className="text-muted-foreground text-sm shrink-0">to</span>
+                <Input
+                  type="date"
+                  value={toDate}
+                  max={todayDateString()}
+                  onChange={(e) => setToDate(e.target.value)}
+                  aria-label="To date"
+                  className="flex-1 min-w-0"
+                />
+              </div>
+
+              {hasFilters && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleClearAll}
+                  className="gap-1.5 shrink-0 w-full md:w-auto"
+                  aria-label="Clear date filter"
+                >
+                  <X size={14} aria-hidden="true" />
+                  Clear
+                </Button>
+              )}
+            </div>
+
+            {!isLoading && !isError && (
+              <p className="text-xs text-muted-foreground -mt-1">
+                {filteredVisits.length} visit{filteredVisits.length !== 1 ? 's' : ''}{hasFilters ? ' in this range' : ''}
+              </p>
+            )}
+
+            <StaggerList className="flex flex-col gap-1.5">
+              {isLoading ? (
+                <InlineLoader label="Loading visits…" />
+              ) : isError ? (
+                <ErrorState title="Failed to load the visit log." onRetry={() => refetch()} />
+              ) : filteredVisits.length === 0 ? (
+                <EmptyState
+                  icon={Footprints}
+                  title={hasFilters ? 'No visits in this range.' : 'No visits logged for this store yet.'}
+                />
+              ) : (
+                filteredVisits.map((visit) => <VisitRow key={visit.visitId} visit={visit} />)
+              )}
+            </StaggerList>
+          </>
         )}
-      </StaggerList>
+      </ErrorBoundary>
+
+      <BottomSheet
+        isOpen={isRegisterOpen}
+        onClose={() => setIsRegisterOpen(false)}
+        title="Register Walk-in"
+      >
+        <WalkInRegisterForm onRegistered={() => { setIsRegisterOpen(false); setActiveTab('leads'); }} />
+      </BottomSheet>
     </div>
   );
 }

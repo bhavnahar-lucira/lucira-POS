@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSelector, useDispatch } from 'react-redux';
-import { useQueryClient } from '@tanstack/react-query';
 import { ShieldCheck } from 'lucide-react';
 import ConfirmDialog    from '@/components/shared/ConfirmDialog';
 import CheckoutCustomerSummary  from '@/components/features/checkout/CheckoutCustomerSummary';
@@ -31,8 +30,6 @@ import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import { setCheckoutInProgress } from '@/store/slices/uiSlice';
 import tracker from '@/lib/analytics/tracker';
 import EVENTS, { GA_ECOMMERCE_EVENTS } from '@/lib/analytics/events';
-import { performNectorRedemption } from '@/services/nectorService';
-import { QUERY_KEYS } from '@/constants/queryKeys';
 import { formatAmount } from '@/lib/priceUtils';
 import APP_CONFIG from '@/constants/appConfig';
 
@@ -41,7 +38,6 @@ const { LOYALTY_MODE_TYPE } = APP_CONFIG.PAYMENT_MODES;
 function CheckoutScreen() {
   const router  = useRouter();
   const dispatch = useDispatch();
-  const queryClient = useQueryClient();
   const { items, isEmpty, clearCartKeepCustomer, removeItem } = useCart();
   const { total }          = useCartTotals();
   const { customerId, customerMobile } = useCustomerSession();
@@ -192,21 +188,15 @@ function CheckoutScreen() {
     dispatch(setCheckoutInProgress(true));
 
     try {
-      const placed = isOrderMode ? await placeOrder(submission) : await placeInvoice(submission);
-      const loyaltyPayment = payments.find((p) => p.modeType === LOYALTY_MODE_TYPE);
-      if (loyaltyPayment && customerMobile && placed?.transactionId) {
-        performNectorRedemption({
-          mobile:           customerMobile,
-          amount:           payableTotal,
-          referenceOrderId: placed.transactionId,
-        }).then((result) => {
-          if (result.ok) {
-            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.NECTOR.LOYALTY(customerMobile) });
-          } else {
-            console.warn('[NectorLoyalty] best-effort debit did not succeed:', result.reason);
-          }
-        });
-      }
+      // No post-Create Nector "perform" call anymore (2026-09-28) — that
+      // targeted the Shopify storefront webhook, a completely different,
+      // unrelated Nector balance from the one this document actually
+      // redeemed against (see useNectorCheckoutInfo.js/nectorService.js's
+      // headers). OrnaVerse's own LoyaltyCheckout integration settles
+      // transactionally as part of Create itself once the receipt row
+      // (documentFields.js's Nector branch) is submitted — nothing further
+      // to call here.
+      await (isOrderMode ? placeOrder(submission) : placeInvoice(submission));
     } catch (error) {
       dispatch(setCheckoutInProgress(false));
       const message = error?.serverMessage ?? error?.message ?? null;
@@ -280,6 +270,7 @@ function CheckoutScreen() {
             onChange={setPayments}
             amountDue={payableTotal}
             allowPartial
+            lineItems={pricedLineItems ?? []}
           />
           
           {!isPricing && !!pricedLineItems && !isStockBacked && (

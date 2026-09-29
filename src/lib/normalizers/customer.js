@@ -133,6 +133,12 @@ export function normalizeCustomer(entity) {
     customerId:     entity.party_id,
     customerName:   entity.party_name,
     customerMobile: entity.mobile,
+    // Re-added 2026-09-26 (was dropped 2026-09-17 per explicit direction at
+    // the time) — confirmed live on UAT's own edit-customer form: Mobile and
+    // Phone are two separate fields there, Phone optional. See
+    // phoneToStoredValue/storedValueToPhone below for the E.164 <-> bare
+    // OrnaVerse-storage conversion these forms need at their boundary.
+    customerPhone:  entity.phone && entity.phone !== 'NA' ? entity.phone : null,
 
     // Nullable fields — treat "NA" and empty strings as null
     customerEmail:  entity.email  && entity.email  !== 'NA' ? entity.email  : null,
@@ -213,10 +219,38 @@ export function normalizeCustomer(entity) {
  * }} formValues
  * @returns {object} CustomerRow entity ready for { Entity: ... } payload
  */
+// The Mobile/Phone form fields hold a full E.164 string (e.g.
+// "+919812345670") — see PhoneNumberField's own header for why. OrnaVerse
+// itself, and every other system that reads this tenant's mobile field
+// (Nector, WebEngage, wishlist/abandoned-cart lookups), assumes a BARE
+// 10-digit Indian mobile with no country prefix — 100% of this tenant's
+// real data is shaped that way. So a +91 number is stripped back to bare
+// digits at this boundary to match; any OTHER country is kept in full E.164
+// form, since there's no bare-digit convention to match it to. That's a
+// known, deliberate ceiling: a genuinely international customer's number
+// won't be found by the Nector/WebEngage mobile-keyed lookups above — not
+// an oversight, there's simply nothing to match against for those today.
+function phoneToStoredValue(e164) {
+  if (!e164) return undefined;
+  return e164.startsWith('+91') ? e164.slice(3) : e164;
+}
+
+// The reverse direction — pre-fills PhoneNumberField from whatever
+// OrnaVerse already has on file. A bare 10-digit Indian mobile becomes
+// "+91XXXXXXXXXX"; anything already carrying a "+" (a genuinely
+// international number stored by a previous edit) passes through as-is.
+export function storedValueToPhone(raw) {
+  if (!raw || raw === 'NA') return '';
+  const value = String(raw);
+  if (value.startsWith('+')) return value;
+  return /^[6-9]\d{9}$/.test(value) ? `+91${value}` : value;
+}
+
 export function buildCustomerCreatePayload(formValues) {
   return {
     party_name:      formValues.party_name,
-    mobile:          formValues.mobile,
+    mobile:          phoneToStoredValue(formValues.mobile),
+    phone:           phoneToStoredValue(formValues.phone),
     email:           formValues.email          || undefined,
     pan_no:          formValues.pan_no         || undefined,
     tax_no:          formValues.tax_no         || undefined,
@@ -277,6 +311,19 @@ export function buildCustomerUpdatePayload(originalRaw, formChanges) {
 
   return {
     ...merged,
+    // formChanges.mobile/phone are E.164 strings from PhoneNumberField (see
+    // buildCustomerCreatePayload's own phoneToStoredValue comment for why
+    // these convert back to OrnaVerse's bare-digit convention here) — the
+    // plain spread above would otherwise send "+919812345670" straight
+    // through unconverted. mobile is schema-mandatory (never legitimately
+    // empty here); phone is optional, and CONFIRMED LIVE 2026-09-26 that
+    // sending an OMITTED phone key (phoneToStoredValue's own undefined
+    // result for '') does NOT clear a previously-set value — OrnaVerse just
+    // silently keeps the old one. Explicit "NA" (this schema's own established
+    // empty-string convention, per every other field's `!== 'NA'` check
+    // above) is what actually clears it — confirmed on the same live test.
+    mobile: 'mobile' in formChanges ? phoneToStoredValue(formChanges.mobile) : originalRaw.mobile,
+    phone:  'phone'  in formChanges ? (phoneToStoredValue(formChanges.phone) ?? 'NA') : originalRaw.phone,
     gender:         merged.gender         === 0 ? undefined : merged.gender,
     marital_status: merged.marital_status === 0 ? undefined : merged.marital_status,
     religion_id:    merged.religion_id    === 0 ? undefined : merged.religion_id,
@@ -316,5 +363,64 @@ export function normalizeWalkInCustomer(entity) {
     name:             name || null,
     mobileMasked:     entity.mobile ?? null,
     visitCount:       Array.isArray(entity.customer_visits) ? entity.customer_visits.length : 0,
+  };
+}
+
+/**
+ * A single real visit record — from Services/CRM/CustomerVisits/List
+ * (CONFIRMED LIVE 2026-09-28), replacing the old Mongo-backed walkins_POS
+ * log entirely. Flat rows (no nested arrays), already store-scoped by the
+ * caller's EqualityFilter — see crmService.js's getCustomerVisits.
+ */
+export function normalizeCrmVisit(entity) {
+  if (!entity) return null;
+  return {
+    visitId:      entity.id,
+    leadId:       entity.customer_id,
+    customerName: entity.customer_name?.trim() || null,
+    mobile:       entity.mobile ?? null,
+    email:        entity.email && entity.email !== 'NA' ? entity.email : null,
+    visitedAt:    entity.date ?? null,
+    companyName:  entity.company_name ?? null,
+    companyCode:  entity.company_code ?? null,
+    source:       entity.source ?? null,
+    notes:        entity.notes ?? null,
+  };
+}
+
+/**
+ * Full CRM lead detail — from Services/CRM/Customer/List, the same table
+ * WalkIn/Register writes into (see crmService.js's own header). Same
+ * customer_id identity space as normalizeWalkInCustomer above — never a
+ * party_id.
+ */
+export function normalizeCrmLead(entity) {
+  if (!entity) return null;
+
+  const name = [entity.first_name, entity.last_name].filter(Boolean).join(' ').trim();
+
+  return {
+    leadId:      entity.customer_id,
+    // CONFIRMED LIVE 2026-09-28: this table is the tenant's FULL CRM
+    // history (3,926 rows, unfiltered), not just open walk-in leads — most
+    // rows already carry a party_id, meaning they're a real, already-created
+    // billing customer, not someone still waiting to be converted. Carried
+    // through so useCrmLeads.js can filter to genuinely open leads only.
+    partyId:     entity.party_id ?? null,
+    name:        name || null,
+    mobile:      entity.mobile ?? null,
+    phone:       entity.phone && entity.phone !== 'NA' ? entity.phone : null,
+    email:       entity.email && entity.email !== 'NA' ? entity.email : null,
+    budget:      entity.budget || null,
+    sourceId:    entity.source_id || null,
+    // type_id array — same master as the catalog's own category filter.
+    interestTypeIds: Array.isArray(entity.interest)
+      ? entity.interest.map((i) => (typeof i === 'object' ? i.type_id : i)).filter((id) => id != null)
+      : [],
+    notes:       entity.notes ?? null,
+    isDisabled:  !!entity.is_disabled,
+    createdAt:   entity.creation_date ?? null,
+    visitCount:  Array.isArray(entity.customer_visits) ? entity.customer_visits.length : 0,
+    raw:         entity,
   };
 }

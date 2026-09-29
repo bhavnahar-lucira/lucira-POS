@@ -71,7 +71,7 @@ export default function CartDrawer({ isOpen, onClose }) {
               customerMobile={customerMobile}
               onDetach={detachCustomer}
             />
-            <DiscountSection />
+            <DiscountSection compact />
           </div>
 
           <div className="flex flex-col">

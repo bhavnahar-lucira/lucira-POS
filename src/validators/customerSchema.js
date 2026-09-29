@@ -5,6 +5,12 @@
 // city_id/state_id/country_id are numeric master IDs; gender/marital_status are enums.
 
 import { z } from 'zod';
+// react-phone-number-input's own re-exported isValidPhoneNumber uses its
+// bundled lightweight ("min") metadata, which only checks a loose possible
+// length range per country — it accepted 8- and 9-digit Indian numbers as
+// "valid" (confirmed 2026-09-28). libphonenumber-js/max ships the full
+// per-country number-pattern metadata and correctly rejects those.
+import { isValidPhoneNumber } from 'libphonenumber-js/max';
 
 // ── PAN ──────────────────────────────────────────────────────────────────────
 // Shared so checkout's ₹2,00,000 mandatory-PAN gate validates the exact same
@@ -19,12 +25,28 @@ export const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
 // business customer had nowhere to record their GSTIN.
 export const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
 
-// ── Mobile ─────────────────────────────────────────────────────────────────────
-// 10-digit Indian mobile, must start with 6-9
+// ── Mobile / Phone ───────────────────────────────────────────────────────────
+// Both fields hold a full E.164 string ("+919812345670") from
+// PhoneNumberField (see that component's own header) — validated via the
+// same library's own isValidPhoneNumber, not a hand-rolled regex, since the
+// field now supports any country's numbering plan, not just India's.
+//
+// Mobile is mandatory on both create AND edit — CONFIRMED live on UAT's own
+// edit-customer form (asterisk, and it genuinely refuses to save blank).
+// This app's own edit form previously allowed a blank save regardless of
+// the asterisk shown — see updateCustomerSchema's own history below.
 export const mobileSchema = z
   .string()
   .min(1, { message: 'Mobile number is required' })
-  .regex(/^[6-9]\d{9}$/, { message: 'Enter a valid 10-digit mobile number' });
+  .refine((v) => isValidPhoneNumber(v), { message: 'Enter a valid mobile number' });
+
+// Phone is optional everywhere (no asterisk on OrnaVerse's own form either)
+// — only checked for validity once something's actually been entered.
+export const phoneSchema = z
+  .string()
+  .optional()
+  .or(z.literal(''))
+  .refine((v) => !v || isValidPhoneNumber(v), { message: 'Enter a valid phone number' });
 
 // ── Identity documents ───────────────────────────────────────────────────────
 // Added 2026-09-17 to match OrnaVerse's own live Customer create form
@@ -63,6 +85,7 @@ export const customerSchema = z.object({
     .max(100, { message: 'Name is too long' }),
 
   mobile: mobileSchema,
+  phone:  phoneSchema,
 
   email: z
     .string()
@@ -122,23 +145,22 @@ export const customerSchema = z.object({
 // All fields optional — only changed fields need to be present in the form
 // But buildCustomerUpdatePayload() merges with original raw before sending
 //
-// mobile is blank-able here (unlike create) — EditTab pre-fills it with the real
-// value (OrnaVerse does not mask mobile/email/address on LIVE, confirmed 2026-09-08),
-// so blank means the operator genuinely cleared it; onSubmit falls back to the
-// original raw value regardless, since Update requires the full record.
+// FIXED 2026-09-26 (reported directly, and confirmed against OrnaVerse's own
+// UAT edit-customer form) — mobile used to be blank-able here, on the theory
+// that onSubmit's own `formChanges.mobile || raw.mobile` fallback made a
+// blank submission harmless (nothing actually gets cleared server-side).
+// That missed the actual problem: the form still let the operator "save"
+// what visually looks like a cleared, asterisk-marked mandatory field with
+// no error at all — OrnaVerse's own form genuinely refuses this outright.
+// Now required here too, same as create.
 export const updateCustomerSchema = z.object({
   party_name: z
     .string()
     .min(1, { message: 'Customer name is required' })
     .max(100, { message: 'Name is too long' }),
 
-  mobile: z
-    .string()
-    .optional()
-    .or(z.literal(''))
-    .refine((v) => !v || /^[6-9]\d{9}$/.test(v), {
-      message: 'Enter a valid 10-digit mobile number',
-    }),
+  mobile: mobileSchema,
+  phone:  phoneSchema,
 
   email: z
     .string()

@@ -72,8 +72,11 @@ export function useCreateCustomer() {
       }
     },
 
-    onError: () => {
-      toast.error(TOAST.CUSTOMER.CREATE_FAILED);
+    // See useUpdateCustomer.js's identical fix — same reasoning, same
+    // real repro (a duplicate mobile number returning a specific, useful
+    // OrnaVerse message that this used to silently discard).
+    onError: (error) => {
+      toast.error(error?.serverMessage ?? TOAST.CUSTOMER.CREATE_FAILED);
     },
   });
 

@@ -31,7 +31,15 @@ const RAW_EVENTS = {
   PRODUCT_VIEWED:        'product_viewed',
   PRODUCT_SEARCHED:      'product_searched',
   PRODUCT_SEARCH_EMPTY:  'product_search_empty',
+  // CATEGORY_FILTERED existed with zero call sites (confirmed by audit,
+  // 2026-09-29) — every catalog filter (sort/facets/out-of-stock) went
+  // completely untracked despite this constant reserved for it. Wired now —
+  // see useCatalogFilters.js. FILTER_APPLIED covers everything category
+  // doesn't (sort/shape/material/carat/weight/price/out-of-stock) — one
+  // event, `filter_name`/`filter_value` properties distinguish which.
   CATEGORY_FILTERED:     'category_filtered',
+  FILTER_APPLIED:        'filter_applied',
+  FILTERS_CLEARED:       'filters_cleared',
   BARCODE_SCANNED:       'barcode_scanned',
   BARCODE_SCAN_FAILED:   'barcode_scan_failed',
 
@@ -144,7 +152,7 @@ const RAW_EVENTS = {
   CUSTOMER_CREATED:      'customer_created',
   CUSTOMER_DETACHED:     'customer_detached',
   // Fires from useWalkInLookup.js the moment OrnaVerse reports a real
-  // walk-in match (found: true) — see lib/mongo/walkins.js.
+  // walk-in match (found: true).
   WALKIN_RECORDED:       'walkin_recorded',
 
   CLICK:                 'click',

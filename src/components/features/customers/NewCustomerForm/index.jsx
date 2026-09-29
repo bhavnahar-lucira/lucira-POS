@@ -13,7 +13,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import LocationSelect from '@/components/shared/LocationSelect';
+import PhoneNumberField from '@/components/shared/PhoneNumberField';
 import { customerSchema } from '@/validators/customerSchema';
+import { storedValueToPhone } from '@/lib/normalizers/customer';
 import { useCreateCustomer } from '@/hooks/customer/useCreateCustomer';
 import { useCountries, useStates, useCities } from '@/hooks/settings/useLocation';
 import { todayDateString } from '@/lib/dateUtils';
@@ -43,7 +45,10 @@ export default function NewCustomerForm({ defaultMobile = '', defaultName = '', 
     resolver: zodResolver(customerSchema),
     defaultValues: {
       party_name:     defaultName,
-      mobile:         defaultMobile,
+      // defaultMobile arrives as a bare 10-digit string (the raw search
+      // box input) — PhoneNumberField needs the E.164 shape.
+      mobile:         storedValueToPhone(defaultMobile),
+      phone:          '',
       email:          '',
       pan_no:         '',
       tax_no:         '',
@@ -118,16 +123,31 @@ export default function NewCustomerForm({ defaultMobile = '', defaultName = '', 
         <Label htmlFor="mobile">
           Mobile number <span className="text-destructive">*</span>
         </Label>
-        <Input
-          id="mobile"
-          type="tel"
-          inputMode="numeric"
-          {...register('mobile')}
-          className="h-11"
-          placeholder="10-digit mobile"
+        <Controller
+          name="mobile"
+          control={control}
+          render={({ field }) => (
+            <PhoneNumberField id="mobile" value={field.value} onChange={field.onChange} placeholder="Mobile number" />
+          )}
         />
         {errors.mobile && (
           <p className="text-sm text-destructive">{errors.mobile.message}</p>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="phone">
+          Phone <span className="text-muted-foreground text-xs">(optional)</span>
+        </Label>
+        <Controller
+          name="phone"
+          control={control}
+          render={({ field }) => (
+            <PhoneNumberField id="phone" value={field.value} onChange={field.onChange} placeholder="Phone number" />
+          )}
+        />
+        {errors.phone && (
+          <p className="text-sm text-destructive">{errors.phone.message}</p>
         )}
       </div>
 

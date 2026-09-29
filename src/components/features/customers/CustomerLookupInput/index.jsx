@@ -1,17 +1,17 @@
 'use client';
 
-// Free-text search + button for customer lookup: a 10-digit number
-// triggers an exact mobile lookup, any other text (2+ chars) triggers a
-// name search across the customer directory. Mirrors the search behavior
-// already used on the /customers directory page.
+// Live, debounced customer search input: a 10-digit number triggers an
+// exact mobile lookup, any other text (2+ chars) triggers a live API search
+// across the customer directory (see useCustomerSearch.js) — no submit step,
+// matching OrnaVerse's own search box (2026-09-28: replaced the old
+// submit-on-Enter form, which also meant clearing the box by hand left the
+// last submitted results on screen since nothing ever told the parent the
+// query was gone).
 
-import { useState } from 'react';
-import { Search } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Search, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 import APP_CONFIG from '@/constants/appConfig';
-
-const MOBILE_REGEX = /^\d{10}$/;
 
 /**
  * @param {{
@@ -21,49 +21,52 @@ const MOBILE_REGEX = /^\d{10}$/;
  */
 export default function CustomerLookupInput({ onSearch, isLoading = false }) {
   const [value, setValue] = useState('');
-  const [error, setError] = useState(null);
+  const debounceRef = useRef(null);
 
   const handleChange = (e) => {
-    setValue(e.target.value);
-    if (error) setError(null);
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const trimmed = value.trim();
-    const isMobile = MOBILE_REGEX.test(trimmed);
-    if (!isMobile && trimmed.length < APP_CONFIG.SEARCH.MIN_QUERY_LENGTH) {
-      setError('Enter a 10-digit mobile number or at least 2 characters of a name');
+    const val = e.target.value;
+    setValue(val);
+    clearTimeout(debounceRef.current);
+    if (val.trim() === '') {
+      onSearch('');
       return;
     }
-    onSearch(trimmed);
+    debounceRef.current = setTimeout(() => onSearch(val), APP_CONFIG.SEARCH.DEBOUNCE_MS);
   };
 
+  const handleClear = () => {
+    clearTimeout(debounceRef.current);
+    setValue('');
+    onSearch('');
+  };
+
+  useEffect(() => () => clearTimeout(debounceRef.current), []);
+
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <Input
-          type="text"
-          inputMode="search"
-          placeholder="Search by name or mobile number"
-          value={value}
-          onChange={handleChange}
-          aria-label="Customer name or mobile number"
-          aria-invalid={!!error}
-          className="h-11"
-        />
-        <Button
-          type="submit"
-          disabled={isLoading}
-          className="h-11 min-w-[44px] px-4"
-          aria-label="Search customer"
-        >
-          <Search size={18} aria-hidden="true" />
-        </Button>
-      </div>
-      {error && (
-        <p className="text-sm text-destructive" role="alert">{error}</p>
+    <div className="relative flex items-center">
+      <Search size={16} className="absolute left-3 text-muted-foreground pointer-events-none" aria-hidden="true" />
+      <Input
+        type="text"
+        inputMode="search"
+        placeholder="Search by name or mobile number"
+        value={value}
+        onChange={handleChange}
+        aria-label="Customer name or mobile number"
+        className="h-11 pl-9 pr-9"
+      />
+      {isLoading && (
+        <div className="absolute right-9 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" aria-hidden="true" />
       )}
-    </form>
+      {value.length > 0 && (
+        <button
+          type="button"
+          onClick={handleClear}
+          aria-label="Clear search"
+          className="absolute right-2 flex items-center justify-center h-7 w-7 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        >
+          <X size={16} />
+        </button>
+      )}
+    </div>
   );
 }

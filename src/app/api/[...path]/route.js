@@ -26,6 +26,11 @@ import { getCachedRead, setCachedRead, isCacheableReadPath } from '@/lib/securit
 
 const PUBLIC_PATH_PREFIXES = ['upload/'];
 
+// Customer editing is admin-only (2026-09-28, explicit direction) — hiding
+// the Edit UI for non-admins is a courtesy, this is the actual gate. Only
+// Update is blocked; Create stays open to every operator.
+const ADMIN_ONLY_PATHS = ['Services/POS/Customer/Update'];
+
 async function proxy(request, { params }) {
   const { path } = await params;
   const resolvedPath = path.join('/');
@@ -44,6 +49,13 @@ async function proxy(request, { params }) {
         { status: 401, headers: { 'Content-Type': 'application/json' } },
       );
     }
+    if (ADMIN_ONLY_PATHS.includes(resolvedPath) && !session.isSuperAdmin) {
+      return new Response(
+        JSON.stringify({ error: 'admin_only', error_description: 'Only an admin can edit customer details.' }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
     headers.set('Cookie', session.cookie);
     if (session.csrf) headers.set('X-CSRF-TOKEN', session.csrf);
   }

@@ -1,14 +1,21 @@
 'use client';
 
-const ALLOWED_CATEGORIES = [
-  'Rings',
-  'Earrings',
-  'Bracelets',
-  'Necklaces',
-  'Pendants',
-  'Mangalsutra',
-  'Bestsellers',
-];
+// Category chips are driven directly by Master/Type/List (2026-09-28,
+// explicit direction — was a hardcoded 7-name allowlist that needed a code
+// change for every new real category OrnaVerse added). Confirmed live: this
+// tenant has 32 type rows, and most genuinely are sellable jewelry
+// categories (Rings, Bangles, Chain, Gold Coin, Tie Pin, ...) that should
+// just show up automatically — a small denylist here is far cheaper to
+// maintain than an allowlist, and only needs touching for the rare non-shape
+// taxonomy row like the ones below, not every time a real category is added.
+//
+// Excluded: type_id 0 is a literal "NA" placeholder row, not a category.
+// The rest are loose-stone/raw-material classification entries (this
+// tenant's own naming), not a finished-jewelry shape a customer browses by —
+// distinct from the Diamond Shape facet in ProductFilterPanel, which already
+// covers actual stone shape on a finished piece.
+const EXCLUDED_TYPE_IDS = new Set([0]);
+const EXCLUDED_NAME_PATTERN = /^(metal|color diamond|cubic zirconia|lab ?grown? colou?r? ?stone|labgrown diamond|natural diamond|precious|semi[- ]precious|synthetic)$/i;
 
 function toSlug(name) {
   return name.toLowerCase().replace(/\s+/g, '-');
@@ -56,18 +63,12 @@ export default function CategoryFilter({
   onClearFilters,
   wrap = false,
 }) {
-  const visibleCategories = ALLOWED_CATEGORIES
-    .map((allowedName) => {
-      const allowed = allowedName.toLowerCase();
-      const match = categories.find((c) => {
-        const apiName = c.type_name?.toLowerCase() ?? '';
-        if (apiName === allowed) return true;
-        if (apiName.startsWith(allowed)) return true;
-        return false;
-      });
-      return match ? { ...match, displayName: allowedName } : null;
-    })
-    .filter(Boolean);
+  const visibleCategories = categories
+    .filter((c) => !c.is_disabled)
+    .filter((c) => !EXCLUDED_TYPE_IDS.has(c.type_id))
+    .filter((c) => !EXCLUDED_NAME_PATTERN.test(c.type_name?.trim() ?? ''))
+    .map((c) => ({ ...c, displayName: c.type_name }))
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
   return (
     <div className="relative">

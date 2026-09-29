@@ -27,13 +27,20 @@ export function walkInLookup(mobile) {
 }
 
 /**
+ * @param {{ take?: number, skip?: number, companyId?: number, containsText?: string }} params
+ *   containsText — CONFIRMED LIVE (2026-09-28): Customer/List's real free-text
+ *   filter (Serenity's ListRequest.ContainsText), matches partial name OR
+ *   mobile server-side (e.g. "8149" finds "8149639991") — this is what
+ *   powers real, API-backed partial search instead of filtering a
+ *   locally-cached directory snapshot.
  * Returns response.data — hooks read .Entities directly.
  */
-export async function getCustomerList({ take = 50, skip = 0, companyId }) {
+export async function getCustomerList({ take = 50, skip = 0, companyId, containsText } = {}) {
   const response = await axiosInstance.post(API.CUSTOMERS.LIST, {
-    Take:       take,
-    Skip:       skip,
-    company_id: companyId,
+    Take:         take,
+    Skip:         skip,
+    company_id:   companyId,
+    ContainsText: containsText || undefined,
   });
   return response.data;  // ← unwrapped so hooks do data?.Entities not data?.data?.Entities
 }

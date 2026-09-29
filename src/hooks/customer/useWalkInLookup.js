@@ -5,10 +5,12 @@
 // Best-effort: failures here never block the separate billing-customer
 // lookup that runs alongside it.
 //
-// Also logs to our own Mongo and fires a GA4/WebEngage event, since
-// OrnaVerse's WalkIn/Lookup has no way to list this data back out later
-// (it's a single-customer, mobile-keyed call only) — see lib/mongo/walkins.js.
-// Uses the real mobile the staff typed (react-query's `variables`), not
+// Fires a GA4/WebEngage analytics event on a match. No longer writes to this
+// app's own Mongo (2026-09-28, explicit direction: no DB for walk-in data —
+// the walkins_POS collection this used to log into, and the /walkins page
+// that read it back, are both gone; see useCrmVisits.js for the real,
+// live-fetched replacement, Services/CRM/CustomerVisits/List). Uses the real
+// mobile the staff typed (react-query's `variables`), not
 // `result.customer.mobileMasked` — OrnaVerse's response pre-masks the
 // customer's mobile (e.g. "******9991"), so the masked copy is unusable
 // for retargeting.
@@ -30,22 +32,8 @@ function maskMobile(mobile) {
   return `${'*'.repeat(digits.length - 4)}${digits.slice(-4)}`;
 }
 
-function logWalkIn({ mobile, customer, companyId, companyName, companyCode, agentUsername }) {
+function logWalkIn({ mobile, customer, companyId, companyName, companyCode }) {
   if (!companyId) return; // nothing to scope this record to
-
-  fetch('/api/customers/walkins', {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      mobile,
-      customerName:     customer.name,
-      walkInCustomerId: customer.walkInCustomerId,
-      company_id:       companyId,
-      companyName,
-      companyCode,
-      agentUsername,
-    }),
-  }).catch((err) => console.warn('[useWalkInLookup] walk-in log failed:', err));
 
   // GA4 gets only the PII-safe `properties` bag; real name/mobile go only in
   // webengageExtra (never reaches GA4 — see tracker.track()'s jsdoc).
@@ -69,7 +57,6 @@ export function useWalkInLookup() {
   const companyId    = useSelector(selectActiveStoreId);
   const companyName  = useSelector(selectActiveStoreName);
   const companyCode  = useSelector(selectActiveStoreCode);
-  const agentUsername = useSelector((state) => state.auth?.user?.username ?? null);
 
   const mutation = useMutation({
     mutationFn: async (mobile) => {
@@ -82,7 +69,7 @@ export function useWalkInLookup() {
     },
     onSuccess: (result, mobile) => {
       if (result.found && result.customer) {
-        logWalkIn({ mobile, customer: result.customer, companyId, companyName, companyCode, agentUsername });
+        logWalkIn({ mobile, customer: result.customer, companyId, companyName, companyCode });
       }
     },
   });

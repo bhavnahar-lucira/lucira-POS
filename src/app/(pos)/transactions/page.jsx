@@ -59,6 +59,7 @@ import {
   AlertCircle,
   Check,
   Ban,
+  Repeat,
 }                                          from 'lucide-react';
 
 import {
@@ -1457,16 +1458,34 @@ function TransactionsScreen() {
     <div className="p-4 pb-8 flex flex-col gap-4">
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm text-muted-foreground">Returns, refunds, and post-sale activity</p>
-        {storeId && (
-          <Button
-            size="sm"
-            variant={view === 'new' ? 'outline' : 'default'}
-            className="gap-1.5 shrink-0"
-            onClick={() => setView((v) => (v === 'new' ? 'list' : 'new'))}
-          >
-            {view === 'new' ? <><X className="w-3.5 h-3.5" /> Cancel</> : <><Plus className="w-3.5 h-3.5" /> New</>}
-          </Button>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Interstore Return entry point (2026-09-28, explicit direction) —
+              a cross-branch return is a fully separate feature (/transfers,
+              its own lifecycle/approval flow) that previously had no
+              affordance from this page at all, only the sidebar nav. Purely
+              additive: doesn't touch TABS, PillTabs, or the New/Cancel toggle
+              below, which stays about THIS store's own same-store returns. */}
+          {storeId && activeTab === 'returns' && view === 'list' && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => router.push('/transfers')}
+            >
+              <Repeat className="w-3.5 h-3.5" /> Interstore Return
+            </Button>
+          )}
+          {storeId && (
+            <Button
+              size="sm"
+              variant={view === 'new' ? 'outline' : 'default'}
+              className="gap-1.5"
+              onClick={() => setView((v) => (v === 'new' ? 'list' : 'new'))}
+            >
+              {view === 'new' ? <><X className="w-3.5 h-3.5" /> Cancel</> : <><Plus className="w-3.5 h-3.5" /> New</>}
+            </Button>
+          )}
+        </div>
       </div>
 
       {!storeId && (

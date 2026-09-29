@@ -9,15 +9,17 @@
 // Search behavior:
 //   - A 10-digit mobile number triggers an exact lookup via GetCustomer
 //     (same as the header Customer control).
-//   - Any other text (2+ chars) filters the full customer directory,
-//     fetched once in the background (useAllCustomers) and cached.
+//   - Any other text (2+ chars) hits Customer/List's own ContainsText
+//     filter live (useCustomerSearch) — matches partial name OR mobile,
+//     server-side, per search term (2026-09-28: replaced filtering a
+//     locally-cached directory snapshot, which could miss/lag real data).
 //   - Empty search shows the paginated browse list (50/page).
 //
 // "Edit customer" was requested but no update endpoint exists in
 // API_MAPPING.md (Customer/Generate is create-only) — flagged as a
 // blocker. The detail sheet is read-only with an Attach action.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Search, X, UserPlus, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -28,7 +30,7 @@ import CustomerDetailSheet from '@/components/features/customers/CustomerDetailS
 import NewCustomerForm from '@/components/features/customers/NewCustomerForm';
 import { useCustomerList } from '@/hooks/customer/useCustomerList';
 import { useCustomerLookup } from '@/hooks/customer/useCustomerLookup';
-import { useAllCustomers } from '@/hooks/customer/useAllCustomers';
+import { useCustomerSearch } from '@/hooks/customer/useCustomerSearch';
 import { useCart } from '@/hooks/cart/useCart';
 import APP_CONFIG from '@/constants/appConfig';
 
@@ -55,30 +57,15 @@ export default function CustomersPage() {
     { enabled: isMobileSearch }
   );
 
-  // Background fetch of the full directory (up to 5000 rows) — PERF
-  // (2026-09-08): was `enabled: true` unconditionally, so this fired on
-  // EVERY visit to this page, even for an operator who only ever pages
-  // through the browse list below and never searches by name. Gated on the
-  // RAW (un-debounced) input instead of isNameSearch/searchQuery, so it
-  // still starts the instant the first keystroke lands — well before the
-  // debounce lets a real name search go active — keeping the original "already
-  // cached by the time a search resolves" benefit without paying for it on
-  // every visit that never touches search at all.
-  const { allCustomers, isFetching: isAllFetching } = useAllCustomers({
-    enabled: inputVal.trim().length > 0,
+  // API-backed search (2026-09-28) — hits Customer/List's own ContainsText
+  // filter directly for every partial query, rather than filtering a
+  // locally-cached directory snapshot (see useCustomerSearch.js). Query-key'd
+  // per search term, so TanStack Query still avoids re-hitting the network
+  // for a term already fetched within STALE_TIME.CUSTOMER — same caching
+  // behavior any API call gets, not a local pre-load-everything shortcut.
+  const { results: nameResults, isLoading: isNameSearching } = useCustomerSearch(trimmed, {
+    enabled: isNameSearch,
   });
-
-  // Memoized (2026-09-08) — was a plain .filter() over up to 5000 rows
-  // re-run on every render of this page (e.g. opening/closing the detail
-  // sheet or the New Customer form), not just when the search term or the
-  // directory itself changed.
-  const nameResults = useMemo(
-    () => (isNameSearch
-      ? allCustomers.filter((c) => c.customerName?.toLowerCase().includes(trimmed.toLowerCase()))
-      : []),
-    [isNameSearch, allCustomers, trimmed],
-  );
-  const isNameSearching = isNameSearch && isAllFetching && allCustomers.length === 0;
 
   // ── Debounced search input ──────────────────────────────
   const handleChange = (e) => {

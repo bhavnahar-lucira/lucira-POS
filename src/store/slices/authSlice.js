@@ -9,6 +9,7 @@ import { createSlice } from '@reduxjs/toolkit';
 const initialState = {
   isAuthenticated: false,
   user: null,           // { username } — populated after login
+  isSuperAdmin: false,  // gates admin-only actions (e.g. customer edit) — see useAuth.js's login()
 };
 
 const authSlice = createSlice({
@@ -18,9 +19,10 @@ const authSlice = createSlice({
 
     // Called after a successful login
     setAuthenticated: (state, action) => {
-      const { username } = action.payload;
+      const { username, isSuperAdmin } = action.payload;
       state.isAuthenticated = true;
       state.user            = { username };
+      state.isSuperAdmin    = !!isSuperAdmin;
     },
 
     // Called on logout, or when the server rejects the session (expired,
@@ -28,6 +30,7 @@ const authSlice = createSlice({
     clearAuth: (state) => {
       state.isAuthenticated = false;
       state.user            = null;
+      state.isSuperAdmin    = false;
     },
 
   },
@@ -37,5 +40,6 @@ export const { setAuthenticated, clearAuth } = authSlice.actions;
 
 export const selectIsAuthenticated = (state) => state.auth.isAuthenticated;
 export const selectAuthUser        = (state) => state.auth.user;
+export const selectIsSuperAdmin    = (state) => state.auth.isSuperAdmin;
 
 export default authSlice.reducer;

@@ -36,6 +36,19 @@ import TOAST   from '@/constants/toastMessages';
 import tracker from '@/lib/analytics/tracker';
 import EVENTS  from '@/lib/analytics/events';
 
+// Reads ?next= off the CURRENT url (the /login page itself), not useSearchParams —
+// avoids requiring every useAuth() call site to sit inside a Suspense boundary
+// just for this. Only ever returns a same-origin path starting with a single
+// "/" (never "//host/..." or "https://...") — an open-redirect guard, since
+// this value ultimately comes from interceptors.js's forced-logout redirect,
+// which itself just echoes back whatever page the operator happened to be on.
+function getSafeNextPath() {
+  if (typeof window === 'undefined') return null;
+  const next = new URLSearchParams(window.location.search).get('next');
+  if (!next || !next.startsWith('/') || next.startsWith('//')) return null;
+  return next;
+}
+
 export function useAuth() {
   const dispatch = useDispatch();
   const router   = useRouter();
@@ -52,9 +65,9 @@ export function useAuth() {
     // old flow needed two for (an OAuth token, plus a separate cookie
     // session for printing): there's only one session, and it's the real
     // person's.
-    const { username: signedInAs } = await loginToOrnaverse(username, password);
+    const { username: signedInAs, isSuperAdmin } = await loginToOrnaverse(username, password);
 
-    dispatch(setAuthenticated({ username: signedInAs }));
+    dispatch(setAuthenticated({ username: signedInAs, isSuperAdmin }));
 
     // Store context is session-specific — never trust a store id persisted
     // from a previous login. Without this, a stale activeStoreId survives
@@ -151,18 +164,25 @@ export function useAuth() {
         throw wrapped;
       }
 
+      // Same shape as the multi-store branch below (2026-09-28, normalized
+      // for the WebEngage migration — the two branches used to send
+      // different fields, which would have made event_type "Agent_Login"
+      // carry an inconsistent attribute set depending on account type).
       tracker.trackAgent(EVENTS.AGENT_LOGIN, {
-        username: signedInAs,
-        storeId:   store.company_id,
-        storeName: store.mailing_name,
-        timestamp: new Date().toISOString(),
+        username:   signedInAs,
+        storeId:    store.company_id,
+        storeName:  store.mailing_name,
+        storeCount: 1,
+        timestamp:  new Date().toISOString(),
       });
 
       toast.success(TOAST.AUTH.LOGIN_SUCCESS);
-      router.replace('/dashboard');
+      router.replace(getSafeNextPath() ?? '/dashboard');
     } else {
       tracker.trackAgent(EVENTS.AGENT_LOGIN, {
-        username: signedInAs,
+        username:   signedInAs,
+        storeId:    undefined, // not chosen yet — /store-selection is next
+        storeName:  undefined,
         storeCount: stores.length,
         timestamp:  new Date().toISOString(),
       });
@@ -184,7 +204,11 @@ export function useAuth() {
     // Captured from the selectors above, BEFORE the dispatch(clearStore())
     // a few lines down wipes it — trackAgent() (unlike track()) has no
     // session to auto-derive fields from, so a caller has to pass its own.
+    // username added 2026-09-28 (was missing entirely) — without it, this
+    // event fell back to an anonymous WebEngage identity instead of landing
+    // on the same agent profile AGENT_LOGIN did.
     tracker.trackAgent(EVENTS.AGENT_LOGOUT, {
+      username:  user?.username,
       timestamp: new Date().toISOString(),
       storeId:   activeStoreId,
       storeName: activeStoreName,
@@ -254,7 +278,7 @@ export function useAuth() {
     queryClient.clear();
     toast.info(TOAST.AUTH.LOGOUT_SUCCESS);
     router.replace('/login');
-  }, [dispatch, router, activeStoreId, activeStoreName]);
+  }, [dispatch, router, activeStoreId, activeStoreName, user]);
 
   return {
     isAuthenticated,

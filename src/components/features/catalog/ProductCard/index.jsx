@@ -249,12 +249,22 @@ function ProductCard({
   const rawSrc  = image ?? image_url ?? image_1 ?? null;
   const imageSrc = !imgError ? resolveImageSrc(rawSrc) : null;
 
+  // `price` above is this card's live-calculated figure (useLiveCatalogPrices
+  // — same calculator checkout bills from, see this file's header), but
+  // buildProductAttributes only ever reads price_* off `pricedItem`, never a
+  // bare `product.price` — without this, every catalog card's tracked events
+  // silently sent price_sub_total/price_net_amount: null. sub_total AND
+  // net_amount both get the same figure since this is a single display
+  // price, not the full tax/metal/labour breakup only a real SetSalesItems
+  // row carries — see productAttributes.js's own no-fallback note.
+  const cardPricedItem = price != null ? { sub_total: price, net_amount: price } : null;
+
   function handleTap() {
     if (!item_id) return;
     if (similarProductsSurface) {
       tracker.track(EVENTS.SIMILAR_PRODUCT_CLICKED, {
         surface: similarProductsSurface,
-        ...buildProductAttributes({ product }),
+        ...buildProductAttributes({ product, pricedItem: cardPricedItem }),
       });
     }
     router.push(`/products/${item_id}`);
@@ -346,7 +356,7 @@ function ProductCard({
               tracker.track(EVENTS.SIMILAR_PRODUCTS_VIEWED, {
                 surface: 'sheet',
                 item_count: similarItems.length,
-                ...buildProductAttributes({ product }),
+                ...buildProductAttributes({ product, pricedItem: cardPricedItem }),
               });
               setIsSimilarOpen(true);
             }}

@@ -104,6 +104,7 @@ const API = {
   // WALK-IN
   // ─────────────────────────────────────────────────────────────────────────
   WALKIN: {
+    REGISTER: 'Services/POS/WalkIn/Register',
     LOOKUP: 'Services/POS/WalkIn/Lookup',
   },
 
@@ -314,7 +315,7 @@ const API = {
 
   // ─────────────────────────────────────────────────────────────────────────
   // CRM
-  // Promotions, gift vouchers
+  // Promotions, gift vouchers, walk-in leads/visits
   // ─────────────────────────────────────────────────────────────────────────
   CRM: {
     GET_PROMOTION:                'Services/CRM/Promotion/GetPromotion',
@@ -323,6 +324,27 @@ const API = {
     REVERSE_PROMOTION:            'Services/Helper/ReversePromotion',
     GIFT_VOUCHER_CHECK_UTILIZATION: 'Services/CRM/GiftVoucherTransactions/CheckUtilization',
     GIFT_VOUCHER_REDEEM:          'Services/CRM/GiftVoucherTransactions/CheckRedeem',
+    // Walk-in leads (2026-09-28) — merged in here rather than kept as a
+    // second top-level CRM key, which silently overwrote this one (the
+    // reported bug: every walk-in API call 404'd because CUSTOMER_LIST/
+    // SOURCES_LIST/CUSTOMER_VISITS_LIST were all undefined). Register writes
+    // into this same CRM.Customer table (confirmed live via OrnaVerse's own
+    // API reference) — WalkIn's own module has no listing mode, but this does.
+    CUSTOMER_LIST:                'Services/CRM/Customer/List',
+    SOURCES_LIST:                 'Services/CRM/Sources/List',
+    // CONFIRMED LIVE 2026-09-28: a real, lightweight, flat visit record (no
+    // nested customer_visits/activities/feedback like Customer/List above) —
+    // EqualityFilter:{company_id} genuinely narrows server-side (tested:
+    // 3009 tenant-wide -> 199 for one store).
+    CUSTOMER_VISITS_LIST:         'Services/CRM/CustomerVisits/List',
+    // OrnaVerse's OWN native Nector Loyalty integration (2026-09-28) — found
+    // by reading their live client bundle, confirmed live: their real POS
+    // screen calls THIS, never the Shopify "Custom Checkout Webhook" this
+    // app's /api/nector/checkout route was built against. Two completely
+    // independent balances for the same phone number, confirmed live
+    // (webhook: 500, this: 1100) — see nectorService.js's own header.
+    LOYALTY_CHECKOUT_SETTINGS:    'Services/CRM/LoyaltyCheckout/GetSettings',
+    LOYALTY_CHECKOUT_PREVIEW:     'Services/CRM/LoyaltyCheckout/Preview',
   },
 
   // ─────────────────────────────────────────────────────────────────────────

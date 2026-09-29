@@ -75,6 +75,11 @@ const TOAST = {
     LOADED_FROM_ORDER: (orderNo) => `Loaded ${orderNo} into a new invoice.`,
   },
 
+  WALKIN: {
+    REGISTERED:      'Walk-in registered.',
+    REGISTER_FAILED: 'Could not register walk-in. Please try again.',
+  },
+
   CUSTOMER: {
     FOUND:                    (name) => `Customer ${name} logged in.`,
     NOT_FOUND:                'No customer found with this mobile number.',

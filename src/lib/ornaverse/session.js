@@ -34,9 +34,37 @@
 //
 // So this is now the ONLY authentication this app performs. There is no
 // OAuth client, no access/refresh token, nothing token-shaped in Redux or
-// localStorage — just this httpOnly session cookie on our own origin,
-// mapping (via ornaverseSessions.js, Mongo-backed so it survives across
-// separate serverless invocations) to the real OrnaVerse cookie jar.
+// localStorage — just this httpOnly session cookie (or several, see
+// CHUNKING below) on our own origin.
+//
+// ── NO DATABASE DEPENDENCY (2026-09-26) ─────────────────────────────────────
+//
+// This used to map an opaque id to the real OrnaVerse cookie jar via
+// ornaverseSessions.js (Mongo-backed, so it'd survive across separate
+// serverless invocations). Reported directly: a Mongo/DNS hiccup then took
+// down LOGIN ITSELF — even though login only ever needs to talk to
+// OrnaVerse, a transient failure persisting the result to an unrelated
+// database surfaced as "wrong username or password". Login has no business
+// depending on our own DB at all.
+//
+// Fix: skip the DB entirely — the real OrnaVerse cookie jar + CSRF token is
+// stored DIRECTLY in this app's own httpOnly cookie(s), encoded as JSON.
+// Every request already carries our cookies for free; a proxied call just
+// reads the jar straight off the incoming request instead of looking it up
+// anywhere. Zero DB dependency for authentication, ever, at any point.
+//
+// CHUNKING: a browser caps a single cookie at ~4KB. ASP.NET Core's own
+// cookie-auth middleware anticipates exactly this — it automatically splits
+// an oversized auth cookie into several numbered cookies. This mirrors that:
+// the encoded payload is split across pos_orna_session_0, _1, _2, ... (see
+// CHUNK_SIZE/MAX_CHUNKS below), so no single cookie risks the browser limit
+// regardless of how large OrnaVerse's own cookie jar turns out to be.
+//
+// No signing/encryption layer: OrnaVerse itself is the sole authority that
+// validates this cookie's authenticity on every upstream call (exactly as
+// it already did when the jar lived in Mongo — we never re-validated it
+// ourselves either way) — a tampered cookie just fails upstream, the same
+// outcome tampering with the old opaque Mongo-lookup id would have had.
 //
 // ── WHY NO STORED PASSWORD ─────────────────────────────────────────────────
 //
@@ -59,11 +87,54 @@
 //   instead of failing obscurely, the same trade-off this file already
 //   made when it only covered printing.
 
-import { createSession, getSession, deleteSession } from '@/lib/mongo/ornaverseSessions';
 import { UPSTREAM } from '@/lib/ornaverse/upstream';
 
-/** Name of the httpOnly cookie carrying the session id on OUR origin. */
-export const SESSION_COOKIE = 'pos_session_id';
+/** Prefix for the httpOnly cookie(s) carrying the real OrnaVerse session
+ *  jar on OUR origin — one cookie per chunk, see CHUNKING above. */
+export const SESSION_COOKIE_PREFIX = 'pos_orna_session_';
+// Encoded chars per cookie — conservative vs. the ~4096-byte browser limit
+// (leaves headroom for the cookie's own name + attributes).
+const CHUNK_SIZE = 3000;
+// Ceiling against a corrupt/runaway payload (~24,000 encoded chars) — real
+// OrnaVerse session jars are a handful of cookies, nowhere near this.
+export const MAX_CHUNKS = 8;
+const isProd = process.env.NODE_ENV === 'production';
+
+function cookieHeader(name, value, { clear = false } = {}) {
+  const attrs = `Path=/; HttpOnly; SameSite=Lax${isProd ? '; Secure' : ''}`;
+  return clear ? `${name}=; ${attrs}; Max-Age=0` : `${name}=${value}; ${attrs}`;
+}
+
+/**
+ * Builds the Set-Cookie header values for a freshly-created session —
+ * chunks the encoded {cookie, csrf, username} payload across as many
+ * pos_orna_session_N cookies as it takes, and explicitly clears any
+ * higher-index chunk a PREVIOUS, larger session might have left behind.
+ * @param {{ cookie: string, csrf: string|null, username: string }} session
+ * @returns {string[]}
+ */
+export function buildSessionCookieHeaders(session) {
+  const encoded = encodeURIComponent(JSON.stringify(session));
+  const chunks = [];
+  for (let i = 0; i < encoded.length; i += CHUNK_SIZE) {
+    chunks.push(encoded.slice(i, i + CHUNK_SIZE));
+  }
+
+  const headers = chunks.map((chunk, i) => cookieHeader(`${SESSION_COOKIE_PREFIX}${i}`, chunk));
+  for (let i = chunks.length; i < MAX_CHUNKS; i++) {
+    headers.push(cookieHeader(`${SESSION_COOKIE_PREFIX}${i}`, '', { clear: true }));
+  }
+  return headers;
+}
+
+/** Set-Cookie header values that clear every possible session chunk — logout. */
+export function buildClearSessionCookieHeaders() {
+  const headers = [];
+  for (let i = 0; i < MAX_CHUNKS; i++) {
+    headers.push(cookieHeader(`${SESSION_COOKIE_PREFIX}${i}`, '', { clear: true }));
+  }
+  return headers;
+}
 
 /**
  * Pulls the cookie pairs we need out of a Set-Cookie header list, keyed by
@@ -98,9 +169,10 @@ function parseCookies(response) {
 
 /**
  * Exchanges the operator's credentials for a real OrnaVerse cookie session
- * and returns an opaque id for it, persisted in Mongo (see
- * lib/mongo/ornaverseSessions.js). The credentials are used here and
- * discarded.
+ * and returns the raw {cookie, csrf, username} jar — the caller (see
+ * api/auth/session/route.js) encodes it straight into this app's own
+ * cookies via buildSessionCookieHeaders above. Nothing is persisted
+ * anywhere server-side; the credentials are used here and discarded.
  *
  * Requires ASP.NET Core's antiforgery token: a bare POST with no prior GET
  * is rejected with an EMPTY 400 (no body, no cookie at all). The login
@@ -114,7 +186,7 @@ function parseCookies(response) {
  * genuine login failure).
  *
  * @param {{ username: string, password: string }} params
- * @returns {Promise<string>} session id, to be stored in an httpOnly cookie
+ * @returns {Promise<{ cookie: string, csrf: string|null, username: string }>}
  */
 export async function createOrnaverseSession({ username, password }) {
   if (!username || !password) {
@@ -182,34 +254,82 @@ export async function createOrnaverseSession({ username, password }) {
   const { pairs: authedPairs, csrf: authedCsrf } = parseCookies(authedPage);
   for (const [name, pair] of authedPairs) merged.set(name, pair);
 
-  return createSession({
-    cookie: [...merged.values()].join('; '),
-    csrf: authedCsrf ?? authCsrf ?? pageCsrf,
+  const finalCookie = [...merged.values()].join('; ');
+  const finalCsrf = authedCsrf ?? authCsrf ?? pageCsrf;
+
+  return {
+    cookie: finalCookie,
+    csrf: finalCsrf,
     username,
-  });
+    isSuperAdmin: await checkIsSuperAdmin({ cookie: finalCookie, csrf: finalCsrf }, username),
+  };
+}
+
+// Customer editing is admin-only (2026-09-28, explicit direction) —
+// Administration/User/List is the only place OrnaVerse exposes
+// is_super_admin, and it's itself gated behind the Administration:Security
+// permission: confirmed live that a non-admin login (pune) gets a real
+// AccessDenied trying to call it, even for its own row — there's no
+// self-service "who am I" endpoint that works for every account. So this
+// call, made with the session that was JUST created, doubles as the check
+// itself: it only succeeds for an account that actually holds that
+// permission, and any failure (denied or otherwise) is treated as "not an
+// admin" rather than surfaced as a login error.
+async function checkIsSuperAdmin({ cookie, csrf }, username) {
+  try {
+    const res = await fetch(`${UPSTREAM}/Services/Administration/User/List`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: cookie,
+        ...(csrf ? { 'X-CSRF-TOKEN': csrf } : {}),
+      },
+      body: JSON.stringify({ Take: 0 }),
+      cache: 'no-store',
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    const rows = data?.Entities ?? [];
+    const own = rows.find((u) => u.username?.toLowerCase() === username.toLowerCase());
+    return !!own?.is_super_admin;
+  } catch {
+    return false;
+  }
 }
 
 /**
- * @param {string|undefined} id
- * @returns {Promise<{ cookie: string, csrf: string|null, username: string }|null>}
- */
-export async function getOrnaverseSession(id) {
-  return getSession(id);
-}
-
-/**
- * Resolves the current request's session cookie straight to its OrnaVerse
- * cookie/CSRF pair — what every route that talks to OrnaVerse (the
- * Services/* proxy and the handful of internal routes that call OrnaVerse
- * directly, e.g. api/customers/sync) actually needs.
+ * Resolves the current request's own session cookie chunks straight to the
+ * real OrnaVerse cookie/CSRF pair — what every route that talks to
+ * OrnaVerse (the Services/* proxy and the handful of internal routes that
+ * call OrnaVerse directly, e.g. api/customers/sync) actually needs. No
+ * lookup anywhere — the request already carries the whole thing.
+ *
+ * Declared async (even though the work itself is synchronous) so every
+ * existing `await getSessionFromRequest(request)` call site keeps working
+ * unchanged — awaiting a plain value just resolves immediately.
  *
  * @param {Request} request
  * @returns {Promise<{ cookie: string, csrf: string|null, username: string }|null>}
  */
 export async function getSessionFromRequest(request) {
-  const id = request.cookies?.get?.(SESSION_COOKIE)?.value
-    ?? parseCookieHeader(request.headers.get('cookie'))[SESSION_COOKIE];
-  return getOrnaverseSession(id);
+  const getCookie = (name) => request.cookies?.get?.(name)?.value
+    ?? parseCookieHeader(request.headers.get('cookie'))[name];
+
+  const parts = [];
+  for (let i = 0; i < MAX_CHUNKS; i++) {
+    const chunk = getCookie(`${SESSION_COOKIE_PREFIX}${i}`);
+    if (chunk == null) break;
+    parts.push(chunk);
+  }
+  if (!parts.length) return null;
+
+  try {
+    return JSON.parse(decodeURIComponent(parts.join('')));
+  } catch {
+    // Corrupt/truncated cookie (e.g. a stale set from a previous version of
+    // this code) — treat exactly like no session at all.
+    return null;
+  }
 }
 
 function parseCookieHeader(header) {
@@ -219,9 +339,4 @@ function parseCookieHeader(header) {
     if (name) out[name] = rest.join('=');
   }
   return out;
-}
-
-/** Drop a session — on sign-out, or when OrnaVerse rejects its cookie. */
-export async function destroyOrnaverseSession(id) {
-  await deleteSession(id);
 }

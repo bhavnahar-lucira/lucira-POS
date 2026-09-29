@@ -1,9 +1,9 @@
 // Establishes (POST) or tears down (DELETE) the operator's real OrnaVerse
 // cookie session — this app's ONE authentication mechanism as of the
-// 2026-09 auth rewire (see lib/ornaverse/session.js for the full why). The
-// session id goes back as an httpOnly cookie on our own origin so the
-// browser attaches it to every subsequent request automatically and no
-// script can read the underlying OrnaVerse cookie.
+// 2026-09 auth rewire (see lib/ornaverse/session.js for the full why, and
+// its 2026-09-26 note for why this no longer touches any database). The
+// real OrnaVerse cookie jar goes back encoded directly into this app's own
+// httpOnly cookie(s) — no DB in the loop, at login or at any later request.
 //
 // Rate-limited the same way the old OAuth connect/token password grant was
 // (SEC-004) — this is now the one unauthenticated, credential-guessing call
@@ -11,18 +11,10 @@
 
 import {
   createOrnaverseSession,
-  destroyOrnaverseSession,
-  SESSION_COOKIE,
+  buildSessionCookieHeaders,
+  buildClearSessionCookieHeaders,
 } from '@/lib/ornaverse/session';
 import { checkRateLimit, getClientIp } from '@/lib/security/rateLimit';
-
-const COOKIE_OPTIONS = {
-  httpOnly: true,
-  sameSite: 'lax',
-  path:     '/',
-  // Dev runs on plain http://localhost, where a Secure cookie is dropped.
-  secure:   process.env.NODE_ENV === 'production',
-};
 
 export async function POST(request) {
   let payload;
@@ -48,14 +40,11 @@ export async function POST(request) {
   }
 
   try {
-    const sessionId = await createOrnaverseSession({ username, password });
-    const response = Response.json({ ok: true, username });
-    response.headers.append(
-      'Set-Cookie',
-      `${SESSION_COOKIE}=${sessionId}; HttpOnly; Path=/; SameSite=Lax${
-        COOKIE_OPTIONS.secure ? '; Secure' : ''
-      }`,
-    );
+    const session = await createOrnaverseSession({ username, password });
+    const response = Response.json({ ok: true, username: session.username, isSuperAdmin: session.isSuperAdmin });
+    for (const header of buildSessionCookieHeaders(session)) {
+      response.headers.append('Set-Cookie', header);
+    }
     return response;
   } catch (err) {
     // Deliberately terse: this endpoint receives a password, so its errors
@@ -66,25 +55,12 @@ export async function POST(request) {
   }
 }
 
-export async function DELETE(request) {
-  const sessionId = request.cookies?.get?.(SESSION_COOKIE)?.value
-    ?? parseCookieHeader(request.headers.get('cookie'))[SESSION_COOKIE];
-
-  await destroyOrnaverseSession(sessionId);
-
+// No lookup, no DB delete — there's nothing stored anywhere to tear down.
+// Clearing every possible session-chunk cookie IS the logout.
+export async function DELETE() {
   const response = Response.json({ ok: true });
-  response.headers.append(
-    'Set-Cookie',
-    `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`,
-  );
-  return response;
-}
-
-function parseCookieHeader(header) {
-  const out = {};
-  for (const part of (header ?? '').split(';')) {
-    const [name, ...rest] = part.trim().split('=');
-    if (name) out[name] = rest.join('=');
+  for (const header of buildClearSessionCookieHeaders()) {
+    response.headers.append('Set-Cookie', header);
   }
-  return out;
+  return response;
 }

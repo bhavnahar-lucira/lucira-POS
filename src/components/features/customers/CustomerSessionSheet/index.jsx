@@ -1,9 +1,11 @@
 'use client';
 
 // BottomSheet-based sheet for the header Customer Session control.
-// Flow: lookup by mobile (exact match) OR name (filters the customer
-// directory, may return several) -> show found customer(s) (attach/detach)
-// or "not found" -> NewCustomerForm.
+// Flow: lookup by mobile (exact match) OR name/partial-mobile (live API
+// search via Customer/List's ContainsText, may return several) -> show
+// found customer(s) (attach/detach) or "not found" -> NewCustomerForm.
+// Search is live as-you-type (2026-09-28, CustomerLookupInput) — no submit
+// step, and clearing the box immediately clears results too.
 //
 // Trust/session-hygiene: if the cart already has items when attaching a
 // different customer (or a guest cart when attaching anyone), the outgoing
@@ -34,11 +36,12 @@ import CustomerListItem from '../CustomerListItem';
 import NewCustomerForm from '../NewCustomerForm';
 import { Button } from '@/components/ui/button';
 import { useCustomerLookup } from '@/hooks/customer/useCustomerLookup';
-import { useAllCustomers } from '@/hooks/customer/useAllCustomers';
+import { useCustomerSearch } from '@/hooks/customer/useCustomerSearch';
 import { useCustomerSession } from '@/hooks/customer/useCustomerSession';
 import { useWalkInLookup } from '@/hooks/customer/useWalkInLookup';
 import { useCart } from '@/hooks/cart/useCart';
 import TOAST from '@/constants/toastMessages';
+import APP_CONFIG from '@/constants/appConfig';
 
 const MOBILE_REGEX = /^\d{10}$/;
 
@@ -57,7 +60,7 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
 
   const trimmed = (searchQuery ?? '').trim();
   const isMobileSearch = MOBILE_REGEX.test(trimmed);
-  const isNameSearch   = !!searchQuery && !isMobileSearch;
+  const isNameSearch   = !isMobileSearch && trimmed.length >= APP_CONFIG.SEARCH.MIN_QUERY_LENGTH;
 
   const { customer: mobileMatch, isLoading, isError, notFound } = useCustomerLookup(trimmed, {
     enabled: isMobileSearch,
@@ -71,14 +74,13 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
   const walkIn = useWalkInLookup();
   const walkInKnown = walkIn.result?.found ? walkIn.result.customer : null;
 
-  // Pre-warm the directory as soon as the sheet opens, so a name search
-  // doesn't show a loading state the first time the staff types one.
-  const { allCustomers, isFetching: isAllFetching } = useAllCustomers({ enabled: isOpen });
-
-  const nameResults = isNameSearch
-    ? allCustomers.filter((c) => c.customerName?.toLowerCase().includes(trimmed.toLowerCase()))
-    : [];
-  const isNameSearching = isNameSearch && isAllFetching && allCustomers.length === 0;
+  // API-backed search (2026-09-28) — hits Customer/List's own ContainsText
+  // filter directly per search term (name OR mobile, partial or full — e.g.
+  // "8149" finds "8149639991"), instead of filtering a locally-cached
+  // directory snapshot. See useCustomerSearch.js.
+  const { results: nameResults, isLoading: isNameSearching } = useCustomerSearch(trimmed, {
+    enabled: isNameSearch,
+  });
 
   // The customer currently under consideration for attach — either the
   // exact mobile match, or whichever name-search result was tapped.

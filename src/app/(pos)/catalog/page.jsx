@@ -15,17 +15,20 @@ import { useLiveCatalogPrices }  from '@/hooks/catalog/useLiveCatalogPrices';
 import { useCrossStoreStockCodes } from '@/hooks/catalog/useCrossStoreStockCodes';
 import { getStockPieceBySku, createItemEnquiry } from '@/services/inventoryService';
 
-import CategoryFilter        from '@/components/features/catalog/CategoryFilter';
 import ProductGrid           from '@/components/features/catalog/ProductGrid';
 import ProductSearchBar      from '@/components/features/catalog/ProductSearchBar';
 import CatalogSortDropdown   from '@/components/features/catalog/CatalogSortDropdown';
 import CatalogStoreSelector  from '@/components/features/catalog/CatalogStoreSelector';
-import OutOfStockToggle      from '@/components/features/catalog/OutOfStockToggle';
 import CatalogSkeleton       from '@/components/features/catalog/CatalogSkeleton';
 import OtherStoreSection     from '@/components/features/catalog/OtherStoreSection';
 import MobileSortFilterBar   from '@/components/features/catalog/MobileSortFilterBar';
+import ProductFilterPanel    from '@/components/features/catalog/ProductFilterPanel';
+import BottomSheet           from '@/components/shared/BottomSheet';
+import { Button }            from '@/components/ui/button';
+import { SlidersHorizontal } from 'lucide-react';
 
 import { stableSortProducts } from '@/lib/catalogSort';
+import { buildFacetOptions, applyFacetFilters, hasActiveFacets } from '@/lib/catalogFacets';
 import APP_CONFIG from '@/constants/appConfig';
 import tracker from '@/lib/analytics/tracker';
 import EVENTS from '@/lib/analytics/events';
@@ -80,6 +83,7 @@ function applySearchFilterOnly(allProducts, {
   activeCategoryId,
   showOutOfStock,
   categories,
+  facets,
 }) {
   let result = allProducts;
 
@@ -102,6 +106,10 @@ function applySearchFilterOnly(allProducts, {
       return false;
     });
   }
+
+  // Non-price facets only — price needs live prices merged in first, see
+  // page.jsx's own visibleDisplayProducts.
+  if (facets) result = applyFacetFilters(result, { ...facets, priceMin: null, priceMax: null });
 
   return result;
 }
@@ -131,10 +139,21 @@ function CatalogScreen() {
     sortBy,
     showOutOfStock,
     catalogStoreId,
+    facets,
   } = filters;
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
 
   const effectiveStoreId = catalogStoreId ?? reduxStoreId;
   const isSearchMode     = !!searchQuery && searchQuery.length >= SEARCH.MIN_QUERY_LENGTH;
+  // Non-price facets only — the price facet needs live prices merged in
+  // first (see visibleDisplayProducts below), so it can't gate mode
+  // selection here the same way.
+  const hasNonPriceFacets = hasActiveFacets({ ...facets, priceMin: null, priceMax: null });
+  // Any facet active (browse mode alone can't answer these — the small,
+  // paginated browse Take almost never contains every matching item, which
+  // is exactly the "filter doesn't work" bug reported) switches to the same
+  // full-store-sweep pool search mode already uses (useAllCatalog).
+  const isFacetMode      = hasNonPriceFacets || facets.priceMin != null || facets.priceMax != null;
 
   // Every other store the operator is assigned to, for the "Available at
   // other stores" lane (gated on the primary store's list running out).
@@ -186,23 +205,28 @@ function CatalogScreen() {
   // (see pricedDisplayProducts/sortedDisplayProducts below).
   const rawBrowseProducts = data?.products ?? [];
 
-  // ── Search mode ───────────────────────────────────────────────────────────
+  // ── Search / facet mode ───────────────────────────────────────────────────
   // Two sources, combined: useAllCatalog (full store inventory, paginated in
   // the background — can take a while for a large store) gives fully accurate
   // name + SKU search once ready; useSkuSearch (instant server-side SKU
   // search) covers the interim while (1) is still loading.
   //
-  // useAllCatalog is deferred until the user actually searches (a large store
-  // can burst hundreds of requests, and most visits never search at all).
-  // Once triggered it stays enabled regardless of isSearchMode, so clearing
-  // the search box mid-fetch doesn't cancel the sync already in flight.
-  // Latched via "adjust state during render" rather than an effect, so the
-  // enabled flag is correct in the same render isSearchMode first turns true.
-  const [hasSearched, setHasSearched]           = useState(isSearchMode);
-  const [prevIsSearchMode, setPrevIsSearchMode] = useState(isSearchMode);
-  if (isSearchMode !== prevIsSearchMode) {
-    setPrevIsSearchMode(isSearchMode);
-    if (isSearchMode) setHasSearched(true);
+  // useAllCatalog is deferred until the user actually searches OR applies a
+  // facet filter (a large store can burst hundreds of requests, and most
+  // visits never touch either). A facet needs the SAME full sweep search
+  // does, not the small paginated browse page — the browse Take almost
+  // never contains every matching item, which is exactly the "filter
+  // doesn't work properly" bug reported (2026-09-28). Once triggered it
+  // stays enabled regardless of isSearchMode/isFacetMode, so clearing either
+  // mid-fetch doesn't cancel the sync already in flight. Latched via "adjust
+  // state during render" rather than an effect, so the enabled flag is
+  // correct in the same render either mode first turns true.
+  const needsFullSweep = isSearchMode || isFacetMode;
+  const [hasSearched, setHasSearched]                 = useState(needsFullSweep);
+  const [prevNeedsFullSweep, setPrevNeedsFullSweep]   = useState(needsFullSweep);
+  if (needsFullSweep !== prevNeedsFullSweep) {
+    setPrevNeedsFullSweep(needsFullSweep);
+    if (needsFullSweep) setHasSearched(true);
   }
 
   const {
@@ -210,6 +234,11 @@ function CatalogScreen() {
     isLoading:   allLoading,
     isSuccess:   allReady,
     isError:     allError,
+    loadedCount, // rows swept so far — surfaced below so a facet filter's
+                 // first (slow, full-catalog) load reads as "in progress",
+                 // not "broken" (reported 2026-09-28 as "no products after
+                 // refresh" — a facet in the URL forces this same slow path
+                 // on every fresh load, same as it does for a text search).
   // showOutOfStock (2026-09-23) — without this, the toggle had zero effect
   // on text search: the shared sweep never contained an out-of-stock item
   // regardless of what the operator picked. See useAllCatalog's own header
@@ -238,9 +267,14 @@ function CatalogScreen() {
     data: categoryNameResults = [],
   } = useCategoryNameSearch(matchingTypeIds, effectiveStoreId, isSearchMode);
 
-  // UNSORTED — same reason as rawBrowseProducts above.
+  // UNSORTED — same reason as rawBrowseProducts above. Covers isFacetMode
+  // too, not just isSearchMode — a facet filter needs this exact same
+  // full-sweep pool; the SKU/category-name interim paths stay text-search-
+  // only (isSearchMode-gated at their own hook call sites), so a pure facet
+  // filter (no search text) simply shows nothing until the sweep resolves,
+  // same as a search would.
   const searchResults = useMemo(() => {
-    if (!isSearchMode) return [];
+    if (!needsFullSweep) return [];
 
     const categoryNameMatches = applyBasicFilterOnly(categoryNameResults, { activeCategoryId, showOutOfStock });
 
@@ -250,6 +284,7 @@ function CatalogScreen() {
         activeCategoryId,
         showOutOfStock,
         categories,           // ← passed so category name matching works
+        facets,
       });
       // Merge, don't replace — see this block's own header comment above
       // for why a reliable category-name match must never be dropped just
@@ -268,8 +303,8 @@ function CatalogScreen() {
     });
     return applyBasicFilterOnly(merged, { activeCategoryId, showOutOfStock });
   }, [
-    isSearchMode, allReady, allProducts, skuResults, categoryNameResults,
-    searchQuery, activeCategoryId, showOutOfStock, categories,
+    needsFullSweep, allReady, allProducts, skuResults, categoryNameResults,
+    searchQuery, activeCategoryId, showOutOfStock, categories, facets,
   ]);
 
   // ── Error toasts ──────────────────────────────────────────────────────────
@@ -282,7 +317,7 @@ function CatalogScreen() {
   // ── Derived ───────────────────────────────────────────────────────────────
   // Still unsorted at this point — see sortedDisplayProducts below, which is
   // what actually renders.
-  const displayProducts = isSearchMode ? searchResults : rawBrowseProducts;
+  const displayProducts = needsFullSweep ? searchResults : rawBrowseProducts;
 
   // The grid's own real rendered range (ProductGrid's rangeChanged, backed
   // by react-virtuoso) — see useLiveCatalogPrices' own doc comment on
@@ -316,9 +351,9 @@ function CatalogScreen() {
   // the sweep once ANY result exists, only when there's genuinely nothing
   // to show and the one source that could still find something hasn't
   // finished.
-  const isLoading       = isSearchMode ? (!allReady && searchResults.length === 0) : browseLoading;
-  const isFetchingMore  = !isSearchMode && isFetchingNextPage;
-  const hasMore         = !isSearchMode && !!hasNextPage;
+  const isLoading       = needsFullSweep ? (!allReady && searchResults.length === 0) : browseLoading;
+  const isFetchingMore  = !needsFullSweep && isFetchingNextPage;
+  const hasMore         = !needsFullSweep && !!hasNextPage;
   const showStockBadge  = true; // always show — badge content reflects actual stock status
 
   // Live (SetSalesItems) prices for items the fast tier couldn't price,
@@ -433,10 +468,18 @@ function CatalogScreen() {
   // their badge. Only takes effect within the live-checked window (see
   // STOCK_CHECK_WINDOW); anything beyond it still relies on the
   // (occasionally wrong) snapshot, same as before this fix.
-  const visibleDisplayProducts = useMemo(
-    () => (showOutOfStock ? pricedDisplayProducts : pricedDisplayProducts.filter((p) => p.has_stock === true)),
-    [pricedDisplayProducts, showOutOfStock]
-  );
+  // Price facet applies here, not alongside the other facets in
+  // applySearchFilterOnly — `price` doesn't exist on a catalog row until
+  // useLiveCatalogPrices merges it in above, so it's the one facet that has
+  // to wait until after pricing settles rather than narrowing the pool
+  // upfront (only relevant once at least one item has actually priced).
+  const visibleDisplayProducts = useMemo(() => {
+    let result = showOutOfStock ? pricedDisplayProducts : pricedDisplayProducts.filter((p) => p.has_stock === true);
+    if (facets.priceMin != null || facets.priceMax != null) {
+      result = applyFacetFilters(result, { priceMin: facets.priceMin, priceMax: facets.priceMax });
+    }
+    return result;
+  }, [pricedDisplayProducts, showOutOfStock, facets.priceMin, facets.priceMax]);
 
   // Compared after building both maps, in a plain loop rather than a flag
   // mutated inside the .map() callback above — this repo's lint
@@ -479,7 +522,7 @@ function CatalogScreen() {
   // sortedDisplayProducts — without it here, a stock-only change (price
   // unchanged) would never look different enough to escape the frozen
   // stableSort.order carried over from the previous tick.
-  const sortResetKey = `${sortBy}|${activeCategoryId ?? ''}|${showOutOfStock}|${effectiveStoreId ?? ''}|${isSearchMode}|${searchQuery}`;
+  const sortResetKey = `${sortBy}|${activeCategoryId ?? ''}|${showOutOfStock}|${effectiveStoreId ?? ''}|${needsFullSweep}|${searchQuery}|${JSON.stringify(facets)}`;
   const pricedSignature = useMemo(
     () => visibleDisplayProducts.map((p) => `${p.item_id}:${p.price ?? ''}:${p.has_stock}`).join('|'),
     [visibleDisplayProducts]
@@ -561,12 +604,47 @@ function CatalogScreen() {
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   // ── Count label ───────────────────────────────────────────────────────────
+  // While isLoading, a facet/search filter's first sweep of a cold cache can
+  // take a while (it pages the ENTIRE tenant catalog) — surfacing progress
+  // here instead of staying silent is the fix for "refresh shows no
+  // products" reading as broken (2026-09-28): it's genuinely still loading,
+  // same as a text search always was, just not visibly so before this.
   const countLabel = useMemo(() => {
-    if (isLoading) return null;
+    if (isLoading) {
+      return needsFullSweep && loadedCount > 0 ? `Scanning catalog… ${loadedCount} checked so far` : null;
+    }
     const n = displayProducts.length;
     if (isSearchMode) return `${n} result${n !== 1 ? 's' : ''} for "${searchQuery}"`;
     return `${n} product${n !== 1 ? 's' : ''}${hasActiveFilters ? ' matching filters' : ''}`;
-  }, [isLoading, displayProducts.length, isSearchMode, searchQuery, hasActiveFilters]);
+  }, [isLoading, needsFullSweep, loadedCount, displayProducts.length, isSearchMode, searchQuery, hasActiveFilters]);
+
+  // ── Facet options ─────────────────────────────────────────────────────────
+  // Computed from category+stock scope only (not the other active facets) —
+  // options and counts reflect "what's available in this category", not a
+  // fully cross-narrowed facet count (that needs a per-facet exclusion pass,
+  // not built here). Needs the full sweep, same as isFacetMode's pool —
+  // before that's loaded (or if nothing's been searched/filtered yet), falls
+  // back to whatever the small browse page already has so the panel isn't
+  // empty the very first time it's opened.
+  const facetSourcePool = allReady ? allProducts : (rawBrowseProducts.length ? rawBrowseProducts : displayProducts);
+  const facetOptions = useMemo(
+    () => buildFacetOptions(applyBasicFilterOnly(
+      // Price needs live-priced rows — pricedDisplayProducts once available,
+      // same fallback chain otherwise.
+      pricedDisplayProducts.length ? pricedDisplayProducts : facetSourcePool,
+      { activeCategoryId, showOutOfStock },
+    )),
+    [facetSourcePool, pricedDisplayProducts, activeCategoryId, showOutOfStock],
+  );
+
+  // A single batched actions.setFacets() call — see that action's own
+  // comment in useCatalogFilters.js for the race this replaced (calling
+  // several per-field actions here in sequence, each rebuilding the URL
+  // from window.location.search on its own, meant a later call in the same
+  // patch could clobber an earlier one before its router.replace() landed).
+  const handleFacetsChange = useCallback((patch) => {
+    actions.setFacets(patch);
+  }, [actions]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -581,14 +659,19 @@ function CatalogScreen() {
           z-10) because ProductCard's wishlist heart is also `absolute z-10`
           with no stacking context of its own — equal z-index would let it
           show through the bar on tie-break.
-          Desktop-only (lg+) — below lg this took up roughly half the mobile
-          viewport on its own (reported directly); MobileSortFilterBar's
-          floating pill + bottom sheets replace it below that breakpoint. */}
-      <div className="hidden lg:block sticky top-0 z-20 px-4 pt-4 pb-3 md:px-6 md:pt-5 bg-muted border-b border-border">
+          Desktop+tablet (md+) — below md this took up roughly half the
+          mobile viewport on its own (reported directly); MobileSortFilterBar's
+          floating pill + bottom sheets replace it below that breakpoint.
+          Widened from lg to md (2026-09-28, explicit direction) — tablet
+          should get the same "Filters" button as desktop, not the mobile
+          floating pill. */}
+      <div className="hidden md:block sticky top-0 z-20 px-4 pt-4 pb-3 md:px-6 md:pt-5 bg-muted border-b border-border">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          {/* Search — left, grows on wide screens but caps out so it doesn't
-              dominate the row; always full-width on its own line below lg */}
-          <div className="w-full min-w-0 lg:max-w-md lg:flex-1">
+          {/* Search — left, grows to fill whatever space the controls on the
+              right don't need (no cap, 2026-09-28: a fixed max-w-md left a
+              wide gap of dead space on anything wider than a small laptop,
+              reported directly) — always full-width on its own line below lg. */}
+          <div className="w-full min-w-0 lg:flex-1">
             <ProductSearchBar
               value={searchQuery ?? ''}
               onSearch={handleSearch}
@@ -596,10 +679,14 @@ function CatalogScreen() {
             />
           </div>
 
-          {/* Filters — right on desktop; below sm, store+sort share a row and
-              the toggle spans full width so the row uses all available space
-              instead of stacking three narrow boxes with dead space beside them */}
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center lg:ml-auto lg:shrink-0">
+          {/* Store / Sort / Filters — every control here is h-11 (2026-09-28:
+              Filters used to default to the plain Button's h-9, visibly
+              smaller than its neighbors, reported directly). The search bar
+              on the left (lg:flex-1, no cap) takes up whatever room this
+              group doesn't need, so the row fills the bar's actual width
+              instead of leaving a dead gap between a capped search box and a
+              tightly-clustered right-aligned group. */}
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-stretch lg:shrink-0">
             <CatalogStoreSelector
               catalogStoreId={catalogStoreId}
               onStoreChange={actions.setCatalogStore}
@@ -608,42 +695,77 @@ function CatalogScreen() {
               sortBy={sortBy}
               onSortChange={actions.setSortBy}
             />
-            <div className="col-span-2 sm:col-auto sm:contents">
-              <OutOfStockToggle
-                showOutOfStock={showOutOfStock}
-                onToggle={actions.setShowOutOfStock}
-              />
-            </div>
+            {/* Category AND Out of Stock moved INSIDE the Filters panel
+                (2026-09-28, explicit direction) — Category used to sit alone
+                as its own always-visible chip row below this bar, Out of
+                Stock as its own standalone toggle here; both are now just
+                more sections alongside Diamond Shape/Carat/Weight/Material/Price. */}
+            <Button
+              type="button"
+              variant="outline"
+              className="col-span-2 sm:col-auto h-11! w-full gap-2 rounded-lg flex-1 border-border bg-card px-4 text-sm font-medium text-foreground hover:bg-muted sm:w-auto sm:shrink-0"
+              onClick={() => setIsFilterPanelOpen(true)}
+            >
+              <SlidersHorizontal size={16} />
+              Filters
+              {hasActiveFilters && <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />}
+            </Button>
           </div>
-        </div>
-
-        <div className="mt-4 pt-3 border-t border-border">
-          <CategoryFilter
-            categories={categories}
-            activeCategorySlug={activeCategorySlug}
-            hasActiveFilters={hasActiveFilters}
-            onSelectCategory={actions.selectCategory}
-            onClearFilters={handleClearFilters}
-          />
         </div>
       </div>
 
       <MobileSortFilterBar
         sortBy={sortBy}
         onSortChange={actions.setSortBy}
-        searchQuery={searchQuery}
-        onSearch={handleSearch}
-        onBarcodeDetected={handleBarcodeDetected}
-        catalogStoreId={catalogStoreId}
-        onStoreChange={actions.setCatalogStore}
-        showOutOfStock={showOutOfStock}
-        onShowOutOfStockChange={actions.setShowOutOfStock}
-        categories={categories}
-        activeCategorySlug={activeCategorySlug}
         hasActiveFilters={hasActiveFilters}
-        onSelectCategory={actions.selectCategory}
-        onClearFilters={handleClearFilters}
+        onOpenFilters={() => setIsFilterPanelOpen(true)}
       />
+
+      <BottomSheet
+        isOpen={isFilterPanelOpen}
+        onClose={() => setIsFilterPanelOpen(false)}
+        title="Filters"
+        footerClassName="p-0"
+        // Static label (2026-09-28, reported: this used to show "Show 100
+        // products" from browse mode's unfiltered page size even before any
+        // filter was touched, reading as a real result count when it wasn't one).
+        footer={
+          <Button type="button" className="w-full min-h-14 rounded-none" onClick={() => setIsFilterPanelOpen(false)}>
+            Apply Filters
+          </Button>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          {/* Search/store live in the desktop+tablet sticky bar already
+              (hidden md:block, above) — only needed here below md, where
+              that bar doesn't render at all and this sheet is the sole way
+              to reach them (previously MobileSortFilterBar's own separate
+              sheet). Out of Stock moved into ProductFilterPanel itself
+              (2026-09-28) — it's a filter, not page chrome. */}
+          <div className="md:hidden flex flex-col gap-3">
+            <ProductSearchBar
+              value={searchQuery ?? ''}
+              onSearch={handleSearch}
+              onBarcodeDetected={handleBarcodeDetected}
+            />
+            <CatalogStoreSelector catalogStoreId={catalogStoreId} onStoreChange={actions.setCatalogStore} />
+            <div className="border-t border-border" />
+          </div>
+
+          <ProductFilterPanel
+            categories={categories}
+            activeCategorySlug={activeCategorySlug}
+            onSelectCategory={actions.selectCategory}
+            facetOptions={facetOptions}
+            facets={facets}
+            onFacetsChange={handleFacetsChange}
+            showOutOfStock={showOutOfStock}
+            onShowOutOfStockChange={actions.setShowOutOfStock}
+            hasActiveFilters={hasActiveFilters}
+            onClearFilters={handleClearFilters}
+          />
+        </div>
+      </BottomSheet>
 
       <div className="p-4 pb-28 md:p-6 lg:pb-6">
         {countLabel && (
@@ -670,7 +792,7 @@ function CatalogScreen() {
         {/* Only shown once this store's catalog has genuinely run out (never
             during search) and the primary grid has settled, so it doesn't
             flash in ahead of real results on first paint. */}
-        {!isSearchMode && !isLoading && !hasMore && otherStores.length > 0 && (
+        {!needsFullSweep && !isLoading && !hasMore && otherStores.length > 0 && (
           <div className="flex flex-col gap-5 pt-2">
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Available at other stores

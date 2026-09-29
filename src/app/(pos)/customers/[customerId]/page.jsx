@@ -16,8 +16,11 @@ import {
   ClipboardList, BookOpen,
   ShoppingCart, FileText, RotateCcw, ArrowLeftRight, Coins, Gem, Receipt, Star, Info, Heart,
 } from 'lucide-react';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useSelector } from 'react-redux';
+import PhoneNumberField from '@/components/shared/PhoneNumberField';
+import { selectIsSuperAdmin } from '@/store/slices/authSlice';
 
 import { Button }   from '@/components/ui/button';
 import { Input }    from '@/components/ui/input';
@@ -29,6 +32,7 @@ import ErrorState from '@/components/shared/ErrorState';
 import InlineLoader from '@/components/shared/InlineLoader';
 
 import { updateCustomerSchema }   from '@/validators/customerSchema';
+import { storedValueToPhone }     from '@/lib/normalizers/customer';
 import { useRetrieveCustomer }    from '@/hooks/customer/useRetrieveCustomer';
 import { useUpdateCustomer }      from '@/hooks/customer/useUpdateCustomer';
 import { useCustomerEnrollments } from '@/hooks/customer/useCustomerEnrollments';
@@ -184,7 +188,8 @@ function EditTab({ customer, onSaved }) {
     resolver: zodResolver(updateCustomerSchema),
     defaultValues: {
       party_name:  raw?.party_name  ?? '',
-      mobile:      raw?.mobile      ?? '',
+      mobile:      storedValueToPhone(raw?.mobile),
+      phone:       storedValueToPhone(raw?.phone),
       email:       raw?.email && raw.email !== 'NA' ? raw.email : '',
       pan_no:      raw?.pan_no && raw.pan_no !== 'NA' ? raw.pan_no : '',
       tax_no:      raw?.tax_no && raw.tax_no !== 'NA' ? raw.tax_no : '',
@@ -205,7 +210,8 @@ function EditTab({ customer, onSaved }) {
   useEffect(() => {
     reset({
       party_name:  raw?.party_name  ?? '',
-      mobile:      raw?.mobile      ?? '',
+      mobile:      storedValueToPhone(raw?.mobile),
+      phone:       storedValueToPhone(raw?.phone),
       email:       raw?.email && raw.email !== 'NA' ? raw.email : '',
       pan_no:      raw?.pan_no && raw.pan_no !== 'NA' ? raw.pan_no : '',
       tax_no:      raw?.tax_no && raw.tax_no !== 'NA' ? raw.tax_no : '',
@@ -262,8 +268,26 @@ function EditTab({ customer, onSaved }) {
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="ep_mobile">Mobile <span className="text-destructive">*</span></Label>
-        <Input id="ep_mobile" type="tel" inputMode="numeric" {...register('mobile')} className="h-11" />
+        <Controller
+          name="mobile"
+          control={control}
+          render={({ field }) => (
+            <PhoneNumberField id="ep_mobile" value={field.value} onChange={field.onChange} />
+          )}
+        />
         {errors.mobile && <p className="text-sm text-destructive">{errors.mobile.message}</p>}
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="ep_phone">Phone <span className="text-muted-foreground text-xs">(optional)</span></Label>
+        <Controller
+          name="phone"
+          control={control}
+          render={({ field }) => (
+            <PhoneNumberField id="ep_phone" value={field.value} onChange={field.onChange} />
+          )}
+        />
+        {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -659,14 +683,23 @@ export default function CustomerDetailPage() {
   // still show it immediately without needing the URL itself to carry it.
   const fallbackCustomerName = searchParams.get('name');
 
+  // Edit is admin-only (2026-09-28, explicit direction) — everyone else
+  // can create a customer but not edit an existing one. Enforced
+  // server-side too (see api/[...path]/route.js's ADMIN_ONLY_PATHS); this
+  // is the matching UI gate.
+  const isSuperAdmin = useSelector(selectIsSuperAdmin);
+  const visibleTabs = isSuperAdmin ? TABS : TABS.filter((t) => t !== 'edit');
+
   // Default to Edit tab so staff can immediately update details — unless
   // arrived via a deep link (e.g. CustomerDetailSheet's "Customer 360"
-  // button, ?tab=360), in which case honor that instead. Read once at mount
-  // (useState initializer), not synced afterward — same one-shot pattern as
-  // any other query-param-seeded initial state in this app.
+  // button, ?tab=360), in which case honor that instead, or the operator
+  // isn't an admin (falls back to Profile). Read once at mount (useState
+  // initializer), not synced afterward — same one-shot pattern as any
+  // other query-param-seeded initial state in this app.
   const [activeTab, setActiveTab] = useState(() => {
     const requested = searchParams.get('tab');
-    return TABS.includes(requested) ? requested : 'edit';
+    if (requested && visibleTabs.includes(requested)) return requested;
+    return isSuperAdmin ? 'edit' : 'profile';
   });
 
   const { customer, isLoading, isError, refetch } = useRetrieveCustomer(partyId, {
@@ -753,7 +786,7 @@ export default function CustomerDetailPage() {
               always actually was: a compact, scrollable, content-hugging
               strip. */}
           <PillTabs
-            tabs={TABS}
+            tabs={visibleTabs}
             value={activeTab}
             onChange={setActiveTab}
             getKey={(t) => t}
@@ -765,7 +798,7 @@ export default function CustomerDetailPage() {
 
           <div>
             {activeTab === 'profile' && <ProfileTab customer={customer} />}
-            {activeTab === 'edit'    && <EditTab customer={customer} onSaved={handleSaved} />}
+            {activeTab === 'edit'    && isSuperAdmin && <EditTab customer={customer} onSaved={handleSaved} />}
             {activeTab === 'schemes' && <SchemesTab customerId={customer.customerId} />}
             {activeTab === 'points'  && <PointsTab customerMobile={customer.customerMobile} />}
             {activeTab === '360'     && <Customer360Tab customerId={customer.customerId} />}

@@ -1,12 +1,29 @@
 // Client-side service for Nector product reviews + loyalty points.
-// Calls our own /api/nector proxy — never Nector directly — so the API key
-// never reaches the browser. See src/app/api/nector/[...path]/route.js for
-// the confirmed response shapes (Nector's own docs don't specify them).
 //
-// Every function here is fail-safe: none of them throw, all return safe
-// empty defaults on any error, so a Nector outage never breaks whatever
-// screen is asking for reviews or points around it.
+// Two INDEPENDENT Nector integrations exist, confirmed live 2026-09-28 —
+// don't conflate them:
+//   1. Everything above getLoyaltyCheckoutSettings — calls our own
+//      /api/nector proxy (the Shopify storefront's "Custom Checkout Webhook",
+//      NECTOR_WEBHOOK_KEY) — never Nector directly, API key never reaches
+//      the browser. Fail-safe: none of these throw.
+//   2. getLoyaltyCheckoutSettings/previewLoyaltyCheckout — OrnaVerse's OWN
+//      native Nector integration (Services/CRM/LoyaltyCheckout/*), the one
+//      their real POS screen actually uses for checkout redemption. Found by
+//      reading their live client bundle (chunk-YMLDVNPO.js) — no Nector
+//      credential of ours involved at all; OrnaVerse holds its own
+//      connection to Nector server-side and we just call OrnaVerse like any
+//      other Services/* endpoint (cookie session, axiosInstance).
+//
+// THESE REPORT DIFFERENT BALANCES FOR THE SAME CUSTOMER — confirmed live:
+// the webhook (path 1) said 500 available; LoyaltyCheckout/Preview (path 2)
+// said coin_value 1100 for the identical phone number, same moment. Path 2
+// is the one to trust for POS checkout — it's what OrnaVerse's own screen
+// uses and what actually gets redeemed when a document posts a receipt row
+// against it. Path 1 remains the source for the plain balance-display
+// lookup elsewhere (getCustomerLoyalty) until that's migrated too.
 
+import axiosInstance from '@/lib/axios/axiosInstance';
+import API from '@/constants/apiEndpoints';
 import { createConcurrencyQueue } from '@/lib/concurrencyQueue';
 
 const SOURCE = 'shopify';
@@ -216,5 +233,90 @@ export async function performNectorRedemption({ mobile, amount, referenceOrderId
   } catch (err) {
     console.warn('[nectorService] performNectorRedemption failed:', err);
     return { ok: false, reason: 'network_error' };
+  }
+}
+
+/**
+ * OrnaVerse's own native Nector Loyalty config for a store — real fields
+ * confirmed live 2026-09-28 (Pune/company_id 4):
+ *   { loyalty_provider: 1, third_party_provider: 1, enable_nector_credits: false,
+ *     block_sale_if_nector_unavailable: true, min_invoice_value: 10000,
+ *     item_groups: [101] }
+ * `item_groups` restricts which lines' taxable_amount counts toward
+ * eligibility (empty = whole cart counts) — see evaluateLoyaltyEligibility
+ * in lib/checkout/loyaltyEligibility.js, which mirrors their own client's
+ * `evaluateLoyaltyEligibility`/`W5e` exactly.
+ *
+ * @param {number} companyId
+ * @returns {Promise<object|null>}
+ */
+export async function getLoyaltyCheckoutSettings(companyId) {
+  if (!companyId) return null;
+  try {
+    const response = await axiosInstance.post(API.CRM.LOYALTY_CHECKOUT_SETTINGS, {
+      company_id: companyId,
+    });
+    return response.data?.Entity ?? null;
+  } catch (err) {
+    // A store with no LoyaltyCheckout config at all (or a real outage)
+    // degrades to "loyalty tile doesn't apply here" — isThirdPartyLoyalty(null)
+    // already returns false safely — never a crashed checkout screen.
+    console.warn('[nectorService] getLoyaltyCheckoutSettings failed:', err?.serverMessage ?? err?.message);
+    return null;
+  }
+}
+
+/**
+ * The REAL, live-checked redemption quote for this customer/cart — confirmed
+ * live 2026-09-28 to return a genuinely different (correct) balance than the
+ * Shopify webhook above (see this file's header). This is what OrnaVerse's
+ * own POS screen calls before letting an operator add a Loyalty payment row,
+ * and what the resulting receipt row (documentFields.js's Nector branch)
+ * must be built from — coin_value/credit_value here map directly onto that
+ * branch's fields.
+ *
+ * No separate "perform"/redeem call exists for this integration (only
+ * GetSettings + Preview were found in OrnaVerse's own client bundle) — the
+ * actual settlement happens transactionally when Create submits a receipt
+ * row referencing this quote, the same way any other tender settles.
+ *
+ * @param {{
+ *   companyId: number, partyId: number, documentNo?: string,
+ *   cartAmount: number, applyCoins?: boolean, applyCredits?: boolean,
+ *   mobile: string, netAmount: number, remainingDue: number,
+ *   lines: { item_group_id: number|null, taxable_amount: number }[],
+ * }} params
+ * @returns {Promise<{ success: boolean, error?: string, coin_value: number,
+ *   credit_value: number, cart_amount: number, wallet_type: number }|null>}
+ */
+export async function previewLoyaltyCheckout({
+  companyId, partyId, documentNo, cartAmount, applyCoins = true, applyCredits = false,
+  mobile, netAmount, remainingDue, lines,
+}) {
+  if (!companyId || !partyId || !mobile) return { success: false, error: 'Missing required fields.' };
+  try {
+    const response = await axiosInstance.post(API.CRM.LOYALTY_CHECKOUT_PREVIEW, {
+      company_id: companyId,
+      party_id: partyId,
+      document_no: documentNo ?? 'DRAFT',
+      cart_amount: cartAmount,
+      apply_coins: applyCoins,
+      apply_credits: applyCredits,
+      mobile,
+      net_amount: netAmount,
+      remaining_due: remainingDue,
+      lines: lines ?? [],
+    });
+    // Confirmed live 2026-09-28: a genuinely ineligible customer can come
+    // back as a 200 with Entity.success:false (their own client checks
+    // this) — normalize both shapes into one, below.
+    return response.data?.Entity ?? { success: false, error: 'Loyalty points could not be loaded.' };
+  } catch (err) {
+    // CONFIRMED LIVE 2026-09-28: a different real customer's ineligibility
+    // came back as an HTTP 400 "Insufficient balance", not a 200 with
+    // success:false — both shapes are real, both must degrade to the SAME
+    // normalized result so every customer gets consistent behavior, not
+    // just the one this was first tested against.
+    return { success: false, error: err?.serverMessage ?? 'Loyalty points could not be loaded.' };
   }
 }

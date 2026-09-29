@@ -86,7 +86,7 @@ export const QUERY_KEYS = {
     LOOKUP:   (mobile)    => ['customers', 'lookup', mobile],
     RETRIEVE: (partyId)   => ['customers', 'detail', partyId],
     LIST:     (params)    => ['customers', 'list', params],
-    ALL:      (companyId) => ['customers', 'all', companyId],
+    SEARCH:   (companyId, containsText) => ['customers', 'search', companyId, containsText],
     WISHLIST: (partyId) => ['customers', 'wishlist', partyId],
   },
   
@@ -192,6 +192,13 @@ export const QUERY_KEYS = {
     PROMOTION:              (promoCode)   => ['crm', 'promotion', promoCode],
     PROMOTION_LIST:         ()            => ['crm', 'promotion-list'],
     GIFT_VOUCHER_CHECK:     (voucherCode) => ['crm', 'gift-voucher-check', voucherCode],
+    // Walk-in leads/visits (2026-09-28) — merged in here rather than kept as
+    // a second top-level CRM key, which silently overwrote this one (the
+    // reported bug: QUERY_KEYS.CRM.VISITS was undefined because THIS object
+    // literal, defined later in the file, won).
+    LEADS:                  ()            => ['crm', 'leads'],
+    SOURCES:                ()            => ['crm', 'sources'],
+    VISITS:                 (companyId)   => ['crm', 'visits', companyId],
   },
 
   CUSTOMER_HISTORY: {
@@ -231,6 +238,12 @@ export const QUERY_KEYS = {
   NECTOR: {
     LOYALTY: (mobile) => ['nector', 'loyalty', mobile],
     CHECKOUT_INFO: (mobile, amount) => ['nector', 'checkout-info', mobile, amount],
+    // OrnaVerse's own native LoyaltyCheckout integration (2026-09-28) — see
+    // nectorService.js's header for why this is a separate, independent
+    // mechanism from CHECKOUT_INFO above, not a rename of it.
+    LOYALTY_CHECKOUT_SETTINGS: (companyId) => ['nector', 'loyalty-checkout-settings', companyId],
+    LOYALTY_CHECKOUT_PREVIEW:  (partyId, cartAmount, companyId) =>
+      ['nector', 'loyalty-checkout-preview', partyId, cartAmount, companyId],
   },
 
   // ── CUSTOM ─────────────────────────────────────────────────────

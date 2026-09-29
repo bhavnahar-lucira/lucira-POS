@@ -11,8 +11,7 @@
 import { UPSTREAM } from '@/lib/ornaverse/upstream';
 import {
   getSessionFromRequest,
-  destroyOrnaverseSession,
-  SESSION_COOKIE,
+  buildClearSessionCookieHeaders,
 } from '@/lib/ornaverse/session';
 
 /** Their login page comes back as HTML with this title when auth is refused. */
@@ -81,13 +80,19 @@ export async function POST(request) {
     const result = await render(session, form);
 
     // A rejected cookie doesn't 401 — it renders the login page with a 200.
+    // No server-side record to invalidate anymore (see session.js's
+    // 2026-09-26 note) — clearing the browser's own session cookies here is
+    // the equivalent: the next request has genuinely nothing to send, same
+    // end state as a destroyed Mongo record used to produce.
     if (isLoginPage(result.html)) {
-      const sessionId = request.cookies?.get?.(SESSION_COOKIE)?.value;
-      destroyOrnaverseSession(sessionId);
-      return Response.json(
+      const response = Response.json(
         { error: 'Your OrnaVerse print session is no longer valid. Sign out and back in to print invoices.' },
         { status: 401 },
       );
+      for (const header of buildClearSessionCookieHeaders()) {
+        response.headers.append('Set-Cookie', header);
+      }
+      return response;
     }
 
     if (isReportGenerationError(result.html)) {

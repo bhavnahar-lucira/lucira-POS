@@ -3,6 +3,11 @@
 // Both captured verbatim from OrnaVerse's own Order counter on 2026-08-05
 // (POS/Order/Create → EntityId 259, HO-RPO-08-26-00001).
 
+// Fixed ref_no constants OrnaVerse's own client sends for a Nector Loyalty
+// settlement row — see buildReceiptDetails's own header for where these were
+// confirmed (buildNectorLoyaltyReceipts, read from their live production bundle).
+const NECTOR_REF_NO = { credit: 'NECTOR-CREDITS', coin: 'NECTOR-COINS' };
+
 /**
  * `document_date` in the shape their client sends: LOCAL time, no timezone
  * suffix — e.g. "2026-08-05T20:29:29.533".
@@ -105,8 +110,34 @@ export function localDocumentDate(now = new Date()) {
  * never evidence against the other, and now this one is positively confirmed
  * working rather than just plausible.
  *
+ * NECTOR LOYALTY (`mode.nectorPromotion` present) — a THIRD, DIFFERENT shape
+ * again, confirmed 2026-09-28 by reading OrnaVerse's own live production
+ * bundle directly (`buildNectorLoyaltyReceipts` in their
+ * esm/_chunks/chunk-YMLDVNPO.js, fetched and grepped from the real LIVE
+ * host while investigating "Loyalty + Cash doesn't go through"). Their own
+ * client does NOT submit one plain tender row for this — it's neither the
+ * credit-row shape above (no ref_document_id/ref_transaction_id/
+ * document_ledger_id at all — there is no OrnaVerse-side source receipt to
+ * reference, Nector's balance lives entirely outside OrnaVerse) nor a plain
+ * tender row with the fetched PaymentReceiptMode's own name/blank ref_no
+ * (which is what this app was sending before this fix — the likely actual
+ * cause of the real-order rejection, not just the isFirst pre-fill bug
+ * fixed earlier the same day):
+ *
+ *   - UP TO TWO rows, one per Nector value type present on the redemption
+ *     (`credit_value` and/or `coin_value` — Nector's own "list" promotion
+ *     object), never one combined figure.
+ *   - `mode_name` is HARD-OVERRIDDEN to "Nector credits" / "Nector coins" —
+ *     never the PaymentReceiptMode row's own name ("Nector Loyalty").
+ *   - `ref_no` is a FIXED constant per type — "NECTOR-CREDITS" /
+ *     "NECTOR-COINS" — literal strings straight out of their bundle, never
+ *     blank.
+ *   - mode_id/mode_code/ledger_id still come from the real PaymentReceiptMode
+ *     row (mode_id 36/"NectorLoyalty"/ledger_id 135 on this tenant) — only
+ *     the name is swapped.
+ *
  * @param {{
- *   paymentModes: {modeId, modeCode, modeName, amount, refNo?: string, bankPosId?: number|null, raw?: object, creditRef?: object}[],
+ *   paymentModes: {modeId, modeCode, modeName, amount, refNo?: string, bankPosId?: number|null, raw?: object, creditRef?: object, nectorPromotion?: object}[],
  *   customerId:    number,
  *   activeStoreId: number,
  *   exchangeRate:  number,
@@ -117,7 +148,46 @@ export function localDocumentDate(now = new Date()) {
 export function buildReceiptDetails({
   paymentModes, customerId, activeStoreId, exchangeRate, headerConfig,
 }) {
-  return paymentModes.map((mode) => {
+  return paymentModes.flatMap((mode) => {
+    if (mode.nectorPromotion) {
+      const promo = mode.nectorPromotion;
+      const row = mode.raw ?? {};
+      const base = {
+        mode_id:            mode.modeId   ?? row.mode_id   ?? null,
+        mode_code:          mode.modeCode ?? row.mode_code ?? '',
+        mode_type:          row.mode_type ?? null,
+        mode_sub_type:      2,
+        ledger_id:          mode.ledgerId ?? row.ledger_id ?? null,
+        allow_partial:      false,
+        cheque_date:        '',
+        cheque_no:          '',
+        party_id:           customerId,
+        company_id:         activeStoreId,
+        financial_year_id:  headerConfig.financialYearId,
+        exchange_rate:      exchangeRate,
+      };
+      // credit_value/coin_value are Nector's own field names on the
+      // redemption promotion object — a genuinely absent one (undefined,
+      // not 0) means that type isn't part of this redemption at all, so no
+      // row for it. A promotion carrying neither (only a lump fiat_value,
+      // if that's ever the actual live shape) falls back to a single
+      // "credits" row with the full claimed amount — never silently drops
+      // the whole redemption.
+      const hasSplit = promo.credit_value != null || promo.coin_value != null;
+      const rows = [];
+      if (hasSplit) {
+        if (Number(promo.credit_value) > 0) {
+          rows.push({ ...base, mode_name: 'Nector credits', ref_no: NECTOR_REF_NO.credit, amount: Number(promo.credit_value) });
+        }
+        if (Number(promo.coin_value) > 0) {
+          rows.push({ ...base, mode_name: 'Nector coins', ref_no: NECTOR_REF_NO.coin, amount: Number(promo.coin_value) });
+        }
+      } else {
+        rows.push({ ...base, mode_name: 'Nector credits', ref_no: NECTOR_REF_NO.credit, amount: mode.amount });
+      }
+      return rows;
+    }
+
     if (mode.creditRef) {
       const credit = mode.creditRef;
       return {

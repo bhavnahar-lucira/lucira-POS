@@ -14,7 +14,6 @@ import { usePaymentModes } from '@/hooks/checkout/usePaymentModes';
 import { useBankPosAccounts } from '@/hooks/checkout/useBankPosAccounts';
 import { useInvoiceHelpers } from '@/hooks/checkout/useInvoiceHelpers';
 import { useCustomerSession } from '@/hooks/customer/useCustomerSession';
-import { useNectorLoyaltyPoints } from '@/hooks/customer/useNectorLoyaltyPoints';
 import { useNectorCheckoutInfo } from '@/hooks/checkout/useNectorCheckoutInfo';
 import { useSelector } from 'react-redux';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
@@ -69,7 +68,7 @@ function HelperBalanceRow({ label, amount, modeCode, rows, isApplied, onToggle, 
 }
 
 /**
- * @param {{ onChange: Function, amountDue?: number, allowPartial?: boolean }} props
+ * @param {{ onChange: Function, amountDue?: number, allowPartial?: boolean, lineItems?: object[] }} props
  *   amountDue — the live-priced total. Payment must be collected against
  *   this, not the cart's catalog estimate, which can omit stone value and
  *   leave the document short-paid. Falls back to the cart total only while
@@ -78,8 +77,11 @@ function HelperBalanceRow({ label, amount, modeCode, rows, isApplied, onToggle, 
  *   advance and the rest is due on collection. Only the wording changes: an
  *   unpaid remainder is a blocking error on an invoice and the normal case on
  *   an order, so it must not be shown in red as something to fix.
+ *   lineItems — the basket's priced lines (item_group_id/taxable_amount per
+ *   row) — needed to evaluate Nector Loyalty eligibility, which on this
+ *   tenant is restricted to a specific item group (see useNectorCheckoutInfo).
  */
-export default function CheckoutPaymentSection({ onChange, amountDue, allowPartial = false }) {
+export default function CheckoutPaymentSection({ onChange, amountDue, allowPartial = false, lineItems = [] }) {
   const { total: cartTotal } = useCartTotals();
   const total = amountDue ?? cartTotal;
   const { paymentModes, isLoading: modesLoading, isError: modesError } = usePaymentModes();
@@ -92,35 +94,36 @@ export default function CheckoutPaymentSection({ onChange, amountDue, allowParti
     companyId: activeStoreId,
   });
 
-  // Nector Loyalty — a real fetched payment mode (see usePaymentModes),
-  // but whether it's actually USABLE right now depends on this customer and
-  // this cart total, same two calls LucraCoinsSection used to make before
-  // loyalty moved from a cart-level redemption into a payment-mode tile.
-  // Disabled (not hidden) below whenever there's nothing to redeem — see
-  // loyaltyDisabledReason.
+  // Nector Loyalty — a real fetched payment mode (see usePaymentModes), but
+  // whether it's actually USABLE right now goes through OrnaVerse's OWN
+  // native LoyaltyCheckout integration (2026-09-28 — reported directly: a
+  // real redemption showed on OrnaVerse's own checkout screen for a customer
+  // this used to report as ineligible). The OLD gate here (useNectorLoyaltyPoints,
+  // the Shopify storefront webhook's balance) is DELIBERATELY not used to
+  // gate this anymore — confirmed live that it reports a different, unrelated
+  // balance for the same phone number. Disabled (not hidden) whenever
+  // there's nothing to redeem — see loyaltyDisabledReason.
   const loyaltyMode = paymentModes.find((m) => m.modeType === LOYALTY_MODE_TYPE) ?? null;
-  const { points: loyaltyBalance, isFound: loyaltyFound, isLoading: loyaltyBalanceLoading } =
-    useNectorLoyaltyPoints(customerMobile, { enabled: !!customerMobile });
   const {
-    promotion: loyaltyPromotion, isEligible: loyaltyEligible, isLoading: loyaltyEligibilityLoading,
-  } = useNectorCheckoutInfo(customerMobile, total, {
-    enabled: !!customerMobile && loyaltyFound && loyaltyBalance > 0 && total > 0,
-  });
-  const loyaltyClaimable = Number(loyaltyPromotion?.fiat_value) || 0;
+    promotion: loyaltyPromotion, isEligible: loyaltyEligible,
+    isLoading: loyaltyEligibilityLoading, ineligibleReason,
+  } = useNectorCheckoutInfo(
+    {
+      mobile: customerMobile, companyId: activeStoreId, partyId: customerId,
+      netAmount: total, remainingDue: total, lineItems,
+    },
+    { enabled: !!customerMobile && !!customerId && !!activeStoreId && total > 0 }
+  );
+  const loyaltyClaimable = (Number(loyaltyPromotion?.coin_value) || 0)
+    + (Number(loyaltyPromotion?.credit_value) || 0);
   const loyaltyDisabledReason = !customerMobile
     ? 'Attach a customer to redeem Nector Loyalty'
-    : loyaltyBalanceLoading
-    ? 'Checking Nector Loyalty balance…'
-    : !loyaltyFound
-    ? 'Not enrolled in Nector Loyalty'
-    : loyaltyBalance <= 0
-    ? 'No loyalty points available'
     : total <= 0
     ? 'Still pricing your cart'
     : loyaltyEligibilityLoading
     ? 'Checking what’s redeemable on this order…'
     : !loyaltyEligible
-    ? 'Not redeemable on this order yet'
+    ? (ineligibleReason ?? 'Not redeemable on this order yet')
     : null;
 
   // payments: { key, modeId?, modeCode, modeName, amount (string), isHelper?,
@@ -186,7 +189,17 @@ export default function CheckoutPaymentSection({ onChange, amountDue, allowParti
       const helperPaid = prev.filter((p) => p.isHelper)
         .reduce((s, p) => s + (Number(p.amount) || 0), 0);
       const remaining = Math.max(0, total - helperPaid - nonHelperPaid);
-      const isFirst   = prev.filter((p) => !p.isHelper).length === 0;
+      // FIXED (reported directly: "add Loyalty then Cash, payment doesn't go
+      // through") — this used to count Loyalty (isCredit, added first) as
+      // occupying the "first" slot, so Cash added right after it fell into
+      // the isFirst===false branch and got amount: '' instead of the real
+      // remaining balance. The operator never noticed the field was empty,
+      // Place Order's own total-must-balance check then failed silently.
+      // Must exclude isCredit here the same way the total-changed recompute
+      // effect below already correctly does — a Loyalty row is never a
+      // typed/pre-fillable tender itself, but it must not block the NEXT
+      // real tender from being recognized as "the first one to prefill".
+      const isFirst = prev.filter((p) => !p.isHelper && !p.isCredit).length === 0;
 
       tracker.track(EVENTS.PAYMENT_SELECTED, {
         modeId,
@@ -209,6 +222,11 @@ export default function CheckoutPaymentSection({ onChange, amountDue, allowParti
           amount:   isLoyalty ? String(Math.min(remaining, loyaltyClaimable)) : (isFirst ? String(remaining) : ''),
           isHelper: false,
           isCredit: isLoyalty,
+          // Carried through to buildReceiptDetails, which needs Nector's own
+          // credit_value/coin_value split (not just the clamped display
+          // amount above) to build the exact row shape OrnaVerse's own
+          // client sends — see documentFields.js's header.
+          nectorPromotion: isLoyalty ? loyaltyPromotion : null,
           bankPosId: null,
           refNo:    '',
         },
@@ -356,6 +374,11 @@ export default function CheckoutPaymentSection({ onChange, amountDue, allowParti
           // linkage (ref_no/ref_document_id/ref_transaction_id/mode_sub_type)
           // instead of a normal tender row — see its header comment.
           creditRef:    p.creditRef ?? null,
+          // Nector's own redemption promotion (credit_value/coin_value) —
+          // buildReceiptDetails needs this, not just the clamped display
+          // amount, to build the exact row shape OrnaVerse's own client
+          // sends. See documentFields.js's header.
+          nectorPromotion: p.nectorPromotion ?? null,
         };
       })
     );

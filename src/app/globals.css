@@ -403,3 +403,99 @@ select[aria-hidden="true"][tabindex="-1"] {
    instead of hiding/showing parts of our own page. Confirmed live that this
    is the same mechanism their own ERP toolbar's Print button uses, not a
    POS-only shortcut. */
+
+/* react-phone-number-input's country flag/dial-code picker (Mobile/Phone on
+   the customer create/edit forms, added 2026-09-26 to replicate OrnaVerse's
+   own edit-customer UI — reported as missing here). Aligns the library's
+   own flag-button chrome with this app's border/radius/height tokens
+   instead of shipping its bare default styling. */
+.pos-phone-input {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+.pos-phone-input .PhoneInputCountry {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  height: 2.75rem; /* matches h-11 inputs elsewhere on these forms */
+  padding: 0 0.625rem;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  background: transparent;
+}
+.pos-phone-input .PhoneInputCountryIcon {
+  width: 1.25rem;
+  height: 0.9rem;
+  box-shadow: none;
+}
+.pos-phone-input .PhoneInputInput {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Dual-thumb range slider (catalog Price filter) — two overlaid native
+   <input type="range"> elements sharing one visual track; each input's own
+   track is made invisible so only its thumb is interactive, letting both
+   sit on the same rail without one input's track hiding the other's thumb. */
+.pos-range-slider {
+  position: relative;
+  height: 1.25rem;
+  display: flex;
+  align-items: center;
+}
+.pos-range-slider input[type="range"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  margin: 0;
+  background: transparent;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.pos-range-slider input[type="range"]::-webkit-slider-runnable-track {
+  -webkit-appearance: none;
+  height: 4px;
+  background: transparent;
+}
+.pos-range-slider input[type="range"]::-moz-range-track {
+  height: 4px;
+  background: transparent;
+}
+.pos-range-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: var(--color-accent, #8a6d3b);
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  margin-top: -6px;
+}
+.pos-range-slider input[type="range"]::-moz-range-thumb {
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: var(--color-accent, #8a6d3b);
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+.pos-range-slider-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--color-border, #e5e0d8);
+}
+.pos-range-slider-fill {
+  position: absolute;
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--color-accent, #8a6d3b);
+}

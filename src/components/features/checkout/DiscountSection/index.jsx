@@ -1,14 +1,24 @@
 'use client';
 
 // Promo code entry + applied discount display, shared by the mini cart
-// drawer and full cart page (not the product detail page — a promo there
-// would have nothing priced yet to apply against). Pricing is fetched
-// here via useCheckoutPricing, which reads the cart/store directly, so
-// every screen rendering this shares one cached, server-priced query.
+// drawer, full cart page, and checkout (not the product detail page — a
+// promo there would have nothing priced yet to apply against). Pricing is
+// fetched here via useCheckoutPricing, which reads the cart/store directly,
+// so every screen rendering this shares one cached, server-priced query.
 //
 // Multiple promos can be applied at once, each with its own remove
 // action. "Similar" (same discount-type) conflicts are blocked in
 // usePromoValidation, not here.
+//
+// compact (mini cart drawer only, 2026-09-28, reported directly): the
+// manual "ENTER PROMO CODE" box is the ONLY way to reach a code_required
+// promotion (see useActivePromotions.js — those are deliberately excluded
+// from the "View available offers" ticket list). Surfacing that manual box
+// in the small drawer let an operator apply a code_required offer from
+// there too, which isn't where that flow is meant to live — direct
+// (non-picker) code entry belongs on the full checkout page. compact hides
+// PromoCodeInput and keeps only the offers-list button, so a code_required
+// promotion is reachable ONLY from checkout, never from the mini cart.
 
 import { useEffect } from 'react';
 import { useDispatch } from 'react-redux';
@@ -22,7 +32,11 @@ import PromoCodeSheet from '@/components/features/checkout/PromoCodeSheet';
 import AppliedPromoTag from '@/components/shared/AppliedPromoTag';
 import TOAST from '@/constants/toastMessages';
 
-export default function DiscountSection() {
+/**
+ * @param {{ compact?: boolean }} props — compact: true hides the manual
+ *   promo-code input (mini cart drawer only — see this file's header).
+ */
+export default function DiscountSection({ compact = false }) {
   const dispatch = useDispatch();
   const { appliedPromos, removePromo, isEmpty } = useCart();
   const {
@@ -60,8 +74,15 @@ export default function DiscountSection() {
   }, [isPricing, promotionDetails]);
 
   return (
-    <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm">
-      <h2 className="text-sm font-bold text-foreground">Discount</h2>
+    <div className="flex flex-col gap-3">
+      {/* Standalone trigger, not nested in a bordered "Discount" card
+          (reported directly — that box design is retired) — reads as its
+          own independent action, first thing in this section either way. */}
+      <PromoCodeSheet
+        onApply={validatePromo}
+        isApplying={isValidating}
+        appliedPromos={appliedPromos}
+      />
 
       {/* Muted styling (hasEffect=false) covers the one render between
           pricing settling and the effect above removing a no-longer-valid
@@ -81,13 +102,14 @@ export default function DiscountSection() {
         );
       })}
 
-      <PromoCodeInput
-        onApply={validatePromo}
-        isValidating={isValidating}
-        disabled={notReadyToCheck}
-        disabledHint={disabledHint}
-      />
-      <PromoCodeSheet onApply={validatePromo} isApplying={isValidating} appliedPromos={appliedPromos} />
-    </section>
+      {!compact && (
+        <PromoCodeInput
+          onApply={validatePromo}
+          isValidating={isValidating}
+          disabled={notReadyToCheck}
+          disabledHint={disabledHint}
+        />
+      )}
+    </div>
   );
 }

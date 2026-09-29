@@ -118,10 +118,19 @@ const handleLogout = (store) => {
   // (not immediate) so a mutation's own onError — e.g. useCreateOrder's
   // "Order created (ref #X) but couldn't be finalised" — has time to reach
   // the toast container and actually be seen before the page tears down.
+  //
+  // Carries the current path+query as ?next= (2026-09-28, reported: an
+  // OrnaVerse session expiring mid-task — e.g. while adjusting catalog
+  // filters — dropped the operator back on /dashboard after re-login,
+  // losing whatever they'd set up since filters/search/sort are all URL
+  // state). useAuth.js's login() honors this for a single-store account.
+  // Skipped when already on /login (nothing meaningful to return to).
   if (typeof window !== 'undefined') {
+    const current = window.location.pathname + window.location.search;
+    const next = current.startsWith('/login') ? '' : `?next=${encodeURIComponent(current)}`;
     setTimeout(() => {
       queryClient.clear();
-      window.location.href = '/login';
+      window.location.href = `/login${next}`;
     }, 2500);
   } else {
     queryClient.clear();

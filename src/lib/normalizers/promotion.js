@@ -12,12 +12,21 @@
  * @param {object} promotion — PromotionRow
  * @returns {boolean}
  */
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
 export function isPromotionActive(promotion) {
   if (!promotion?.is_approved || promotion?.is_disabled) return false;
 
   const now  = Date.now();
   const from = promotion.from_date ? new Date(promotion.from_date).getTime() : -Infinity;
-  const to   = promotion.to_date   ? new Date(promotion.to_date).getTime()   : Infinity;
+  // to_date is a bare midnight timestamp ("2026-09-28T00:00:00.000") meaning
+  // "valid THROUGH that whole calendar day", confirmed against OrnaVerse's
+  // own live picker (2026-09-28) — it still showed several "Valid until:
+  // 09/28/2026" offers well after midnight that same day. Treating to_date
+  // as an exact cutoff instant (the bug here before) wrongly expired every
+  // one of those at 00:00:00 instead of end of day — the entire gap between
+  // our count and OrnaVerse's (10 vs 15) traced to exactly this.
+  const to = promotion.to_date ? new Date(promotion.to_date).getTime() + ONE_DAY_MS - 1 : Infinity;
 
   return now >= from && now <= to;
 }

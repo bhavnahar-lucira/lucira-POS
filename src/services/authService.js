@@ -8,7 +8,7 @@
 /**
  * @param {string} username
  * @param {string} password
- * @returns {Promise<{ username: string }>}
+ * @returns {Promise<{ username: string, isSuperAdmin: boolean }>}
  */
 export async function login(username, password) {
   const response = await fetch('/api/auth/session', {
@@ -30,7 +30,7 @@ export async function login(username, password) {
     throw err;
   }
 
-  return { username: data.username ?? username };
+  return { username: data.username ?? username, isSuperAdmin: !!data.isSuperAdmin };
 }
 
 /** Tears down the operator's OrnaVerse session. Best-effort, never throws. */

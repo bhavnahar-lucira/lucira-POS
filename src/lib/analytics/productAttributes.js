@@ -49,6 +49,33 @@ function parseGemstoneAttribute(attribute) {
   return { shape: na(shape), color: na(color), size: na(size) };
 }
 
+// A loopback origin (dev server: http://localhost:3000 / 127.0.0.1) — confirmed
+// live (2026-09-28) that WebEngage's own ingest endpoint 403s the ENTIRE
+// event when any attribute value is a URL pointing at one (isolated via
+// direct testing: a localhost/127.0.0.1 URL 403s, an identical https:// or
+// even a private-LAN 192.168.x URL does not — a targeted anti-SSRF WAF rule,
+// not a generic "URL in payload" or attribute-count block). Retrying doesn't
+// help; this is deterministic. Only a real risk in local dev — a deployed
+// origin is a real domain — but must be guarded here since dev IS where this
+// gets tested. Returns null rather than sending an unreachable/blocked URL.
+function isLoopbackUrl(url) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(url);
+}
+
+// resolveImageSrc() (src/lib/resolveImageSrc.js) can return a root-relative
+// path ("/upload/..." or "/api/upload/...") — fine for a Next <Image> src,
+// but WebEngage's own servers can't resolve that without our origin. Already
+// an absolute http(s) URL (the NEXT_PUBLIC_ORNAVERSE_BASE_URL-prefixed case)
+// passes through untouched. Also applied to productUrl below — see
+// isLoopbackUrl's header for why a loopback result is dropped, not sent.
+function toAbsoluteUrl(src) {
+  if (!src) return null;
+  if (/^https?:\/\//.test(src)) return isLoopbackUrl(src) ? null : src;
+  if (typeof window === 'undefined') return src;
+  const absolute = `${window.location.origin}${src.startsWith('/') ? '' : '/'}${src}`;
+  return isLoopbackUrl(absolute) ? null : absolute;
+}
+
 /**
  * @param {{
  *   product?:    object|null, — item master (Items/Retrieve or ProductCatalogRow)
@@ -87,8 +114,8 @@ export function buildProductAttributes({
     item_name:   item.item_name ?? null,
     sku:         priced.sku ?? null, // per-piece SKU only ever lives on the priced row — see this file's header
     style_id:    item.style_id ?? null,
-    image:       image ?? item.image_url ?? item.image ?? null,
-    product_url: productUrl,
+    image:       toAbsoluteUrl(image ?? item.image_url ?? item.image ?? null),
+    product_url: toAbsoluteUrl(productUrl),
     has_stock:   hasStock,
 
     // Classification

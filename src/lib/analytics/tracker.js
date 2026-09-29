@@ -35,15 +35,18 @@
 // customerName/customerEmail to a sendToGA() payload.
 //
 // WebEngage is the deliberate OPPOSITE — it's a CRM platform whose purpose
-// IS identifying real people (see identifyWebEngageUser() in startSession()
-// below, which sends full name/phone GA4 never gets). sendToWebEngage()
-// itself still only gets event properties; identity is set once via
-// webengage.user.login()/setAttribute().
+// IS identifying real people (see upsertWebEngageUserServer() in
+// startSession() below, which sends full name/phone GA4 never gets).
 
 import { sendToGA } from './gtag';
-import {
-  sendToWebEngage, identifyWebEngageUser, logoutWebEngageUser,
-} from './webengage';
+// As of 2026-09-28, WebEngage identity AND events both go through the REST
+// API bridge — the old client Web SDK (webengage.js, now deleted) never
+// worked on this tenant's domain at all: it console-errored
+// ("incorrectly configured") on every single page load, independent of
+// whether any event ever fired. See webengageServer.js's header for the
+// full why and webengageBridge.js for the browser-side half of both calls.
+import { sendToWebEngageServer, upsertWebEngageUserServer } from './webengageBridge';
+import { toE164India } from './phoneFormat';
 import EVENTS from './events';
 
 // Applied to EVERY event sent to GA4/WebEngage — see "SOURCE TAGGING" above.
@@ -146,6 +149,31 @@ function maskMobile(mobile) {
   return `${'*'.repeat(digits.length - 4)}${digits.slice(-4)}`;
 }
 
+const ANON_ID_KEY = 'lucira_anon_id';
+
+// One stable pseudo-identity per BROWSER (localStorage, not sessionStorage —
+// survives reloads and new tabs on the same device), used as WebEngage's
+// anonymousId whenever there's no phone-derived webengageUserId (no customer
+// attached yet, or a customer with no mobile on file). Without this, every
+// such event fell back to the literal string 'anon' — meaning every agent on
+// every device browsing before attaching a customer landed on ONE shared
+// WebEngage profile (reported directly, confirmed a real gap, not by design).
+function getOrCreateAnonymousId() {
+  if (typeof window === 'undefined') return 'anon';
+  try {
+    let id = localStorage.getItem(ANON_ID_KEY);
+    if (!id) {
+      id = `anon_${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      localStorage.setItem(ANON_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    // Private-mode/blocked storage — same shared-bucket fallback as before,
+    // strictly no worse than the old behavior.
+    return 'anon';
+  }
+}
+
 // Prints every fired event to the browser console for manual QA — filter
 // devtools by "[POS Analytics]". Always on — internal staff tool, not a
 // public storefront, so console noise isn't a concern.
@@ -165,11 +193,25 @@ const tracker = {
    * Called when customer is attached to cart.
    */
   startSession({ customerId, customerName, customerMobile, agentUsername, storeId, storeName, storeCode }) {
+    // WebEngage identity is the customer's E.164 MOBILE NUMBER, not our own
+    // internal customerId (OrnaVerse's party_id) — confirmed live (2026-09-28)
+    // that keying by party_id creates a SEPARATE WebEngage profile per
+    // channel (this POS vs. the Shopify storefront's own integration), since
+    // party_id only exists inside our ERP and neither system can derive the
+    // other's internal id. Phone is the one identifier both channels can
+    // independently arrive at for the same real person, so events now land
+    // on whatever profile already exists for that number instead of forking
+    // a new one. Stored on the session (not recomputed per-event) so every
+    // event during this session agrees with the identity startSession()
+    // already told WebEngage about.
+    const webengageUserId = toE164India(customerMobile);
+
     const session = {
       sessionId:      `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       customerId,
       customerName,
       customerMobile,
+      webengageUserId,
       agentUsername,
       storeId,
       storeName,
@@ -187,7 +229,9 @@ const tracker = {
     // Identify the customer to WebEngage BEFORE the SESSION_START event
     // fires, so that event (and everything after it) is already attached
     // to the right profile. GA4 never gets this call — see the PII note above.
-    identifyWebEngageUser({ customerId, customerName, customerMobile });
+    if (webengageUserId) {
+      upsertWebEngageUserServer({ userId: webengageUserId, customerName, customerMobile });
+    }
 
     this.track(EVENTS.SESSION_START, {
       customerId,
@@ -250,12 +294,16 @@ const tracker = {
       ...properties,
     }));
 
-    // Same event, same properties, second destination. WebEngage already
-    // knows WHO this is via identifyWebEngageUser() in startSession();
+    // Same event, same properties, second destination — now via the REST
+    // API bridge (see this file's top import comment), not the client SDK.
     // customer_id/mobile here are for filtering this event stream without a
     // profile join. No PII restriction on this destination, so the full
     // (unmasked) mobile is fine here even though GA above gets a masked one.
-    sendToWebEngage(eventName, omitUndefined({
+    // userId identifies the WebEngage profile server-side (the customer's
+    // E.164 mobile — see startSession()) — falls back to a persistent
+    // per-browser anonymousId (getOrCreateAnonymousId() above) before any
+    // customer is attached, or for one with no mobile on file.
+    sendToWebEngageServer(eventName, omitUndefined({
       timestamp,
       session_id:      session?.sessionId,
       customer_id:     session?.customerId ?? GUEST_ID,
@@ -268,7 +316,10 @@ const tracker = {
       // caller) wins over the session-derived default above, never the
       // other way round.
       ...omitNullish(webengageExtra),
-    }));
+    }), {
+      userId:      session?.webengageUserId ?? undefined,
+      anonymousId: session?.webengageUserId ? undefined : getOrCreateAnonymousId(),
+    });
   },
 
   /**
@@ -291,7 +342,15 @@ const tracker = {
     logEvent(eventName, properties);
 
     sendToGA(eventName, omitUndefined({ timestamp, ...SOURCE_PROPS, ...properties }));
-    sendToWebEngage(eventName, omitUndefined({ timestamp, ...SOURCE_PROPS, ...properties }));
+    // Agent-level events have no customer session to derive an id from —
+    // identified by username when the caller included one (AGENT_LOGIN/
+    // AGENT_LOGOUT/AGENT_IDLE_LOGOUT all do), else an anonymous bucket
+    // rather than dropping the event.
+    const agentUsername = properties?.username ?? properties?.agentUsername ?? null;
+    sendToWebEngageServer(eventName, omitUndefined({ timestamp, ...SOURCE_PROPS, ...properties }), {
+      userId:      agentUsername ? `agent_${agentUsername}` : undefined,
+      anonymousId: agentUsername ? undefined : getOrCreateAnonymousId(),
+    });
   },
 
   /**
@@ -359,12 +418,11 @@ const tracker = {
         totalEvents: this.getEvents().length,
         customerId:  session.customerId,
       });
-      // Clears WebEngage's identity on THIS BROWSER now that the session is
-      // over — a POS counter is shared by many customers a day, and without
-      // this the next customer's events would be attributed to whoever was
-      // last logged in. Fired after the SESSION_END track() above, not
-      // before, so that event still lands on the outgoing customer's profile.
-      logoutWebEngageUser();
+      // No client-SDK "logout" call needed anymore — every REST event now
+      // carries its own explicit userId/anonymousId per call (see track()),
+      // so clearing the local session object below is what actually stops
+      // the next customer at this shared counter from being misattributed;
+      // there's no persisted client-side identity left to reset.
       // Removes the session object (customerId/name/mobile) from
       // sessionStorage on detach, not just on a full agent logout — a
       // shared counter must not leave a departing customer's data readable

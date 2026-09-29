@@ -181,14 +181,26 @@ function PaymentsTab({ enrollmentId }) {
   // Also fetched here (see matchedMonthNames) to resolve which month each receipt paid for.
   const { data: months = [], isLoading: monthsLoading } = useSchemeMonthlyDetails(enrollmentId);
 
-  if (receiptsLoading) return <LoadingRow />;
+  if (receiptsLoading || monthsLoading) return <LoadingRow />;
   if (receiptsError)   return <ErrorRow label="Failed to load payment history." />;
-  if (!receipts.length) return <EmptyRow icon={Receipt} label="No payments recorded yet." />;
+
+  // A month can be marked paid with no matching SchemeReceipt — confirmed
+  // live (2026-09-26): the first instalment is routinely collected as part
+  // of the enrollment's own invoice rather than a separate scheme receipt,
+  // so there's nothing in SchemeReceipt/List to show for it. Surface it
+  // from the schedule row itself instead of hiding it.
+  const unmatchedPaidMonths = months.filter(
+    (m) => m.isPaid && !receipts.some((r) => isSameCalendarDay(m.paidOnDate, r.documentDate))
+  );
+
+  if (!receipts.length && !unmatchedPaidMonths.length) {
+    return <EmptyRow icon={Receipt} label="No payments recorded yet." />;
+  }
 
   return (
     <div className="flex flex-col gap-2">
       {receipts.map((receipt) => {
-        const matchedMonths = monthsLoading ? [] : matchedMonthNames(receipt, months);
+        const matchedMonths = matchedMonthNames(receipt, months);
         return (
           <div
             key={receipt.id}
@@ -212,6 +224,22 @@ function PaymentsTab({ enrollmentId }) {
           </div>
         );
       })}
+      {unmatchedPaidMonths.map((month) => (
+        <div
+          key={`month-${month.id}`}
+          className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2.5"
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground">{formatMonthName(month.monthId)} instalment</p>
+            <p className="text-xs text-muted-foreground">
+              {formatDate(month.paidOnDate)} · Paid at enrollment
+            </p>
+          </div>
+          <span className="text-sm font-semibold text-foreground shrink-0">
+            {formatCurrency(month.amount)}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
