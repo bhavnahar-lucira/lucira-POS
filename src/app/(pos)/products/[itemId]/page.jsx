@@ -16,6 +16,7 @@ import { useStockByStores }     from '@/hooks/products/useStockByStores';
 import { useDesignVariants }    from '@/hooks/products/useDesignVariants';
 import { useShopifyProductImages } from '@/hooks/products/useShopifyProductImages';
 import { useVariantPricing }    from '@/hooks/products/useVariantPricing';
+import { useClaimableStock }    from '@/hooks/products/useClaimableStock';
 
 import ProductImageGallery   from '@/components/features/products/ProductImageGallery';
 import ProductSpecifications from '@/components/features/products/ProductSpecifications';
@@ -44,7 +45,7 @@ import tracker from '@/lib/analytics/tracker';
 import EVENTS, { GA_ECOMMERCE_EVENTS } from '@/lib/analytics/events';
 import { buildProductAttributes } from '@/lib/analytics/productAttributes';
 import { formatPrice } from '@/lib/priceUtils';
-import { Settings2, CheckCircle2, Copy, Check } from 'lucide-react';
+import { Settings2, CheckCircle2, Copy, Check, Info } from 'lucide-react';
 
 const selectActiveStoreId   = (s) => s.store.activeStoreId;
 const selectActiveStoreName = (s) => s.store.activeStoreName;
@@ -113,6 +114,26 @@ function ProductDetailScreen() {
     [storeStocks, activeStoreId]
   );
   const availableStock = currentStoreStock?.pieces > 0 ? currentStoreStock.pieces : 0;
+
+  // The count above is a raw piece count from a DIFFERENT, coarser source
+  // (GetStockByStores) than what checkout actually claims stock from
+  // (StockJournal/List, has_sku: true) — checked separately (only once
+  // there's something to check — no point querying when the raw count is
+  // already 0) so an operator sees the real, billable-today number here,
+  // not just an unexplained Made to Order at checkout. The gap between the
+  // two is deliberately measured against `availableStock` (what this page
+  // actually shows), not against however many StockJournal rows exist —
+  // confirmed live 2026-09-30 that those can disagree for a reason OTHER
+  // than allocation (item 73512 showed availableStock: 1 while StockJournal
+  // had ZERO has_sku rows at all, allocated or not — see useClaimableStock's
+  // own header for both live-confirmed cases this covers).
+  const { claimablePieces } = useClaimableStock(
+    selectedVariant?.item_id ?? product?.item_id,
+    activeStoreId,
+    { enabled: availableStock > 0 }
+  );
+  const hasUnclaimableStock = availableStock > 0 && claimablePieces != null && claimablePieces < availableStock;
+  const unclaimablePieces = hasUnclaimableStock ? availableStock - claimablePieces : 0;
 
   // ── Variants ──────────────────────────────────────────────────────────────
   const {
@@ -202,7 +223,7 @@ function ProductDetailScreen() {
     if (!sku) return;
     try {
       await navigator.clipboard.writeText(sku);
-      toast.success(TOAST.CATALOG.SKU_COPIED(sku));
+      toast.success(TOAST.CATALOG.ITEM_CODE_COPIED(sku));
       setSkuCopied(true);
       clearTimeout(skuCopyTimeoutRef.current);
       skuCopyTimeoutRef.current = setTimeout(() => setSkuCopied(false), 1500);
@@ -224,18 +245,28 @@ function ProductDetailScreen() {
     refetch:   refetchPricing,
   } = useVariantPricing(activeItem ?? null);
 
-  // sub_total is rate + labour, PRE-TAX (cart adds GST itself, so the
-  // display stays tax-exclusive and the cart total lands on invoice
-  // net_amount). Deliberately NO fallback to item_rate/sale_price/price/mrp
-  // — those are stale snapshots, and quoting one then billing the live
-  // figure is exactly the mismatch this path prevents. If pricing hasn't
-  // resolved, or the server prices it at 0 (currently every Silver925
-  // item), price stays null and AddToCartButton stays disabled.
+  // sub_total is rate + labour, PRE-TAX — kept as the figure added to cart
+  // and used for gating/analytics below. Cart/Checkout add GST themselves on
+  // top of this (see catalogService.js's getLivePricesForItems), so changing
+  // it here would double-tax the cart's own running subtotal. Deliberately
+  // NO fallback to item_rate/sale_price/price/mrp — those are stale
+  // snapshots, and quoting one then billing the live figure is exactly the
+  // mismatch this path prevents. If pricing hasn't resolved, or the server
+  // prices it at 0 (currently every Silver925 item), price stays null and
+  // AddToCartButton stays disabled.
   const numericUnitPrice = (livePricing?.sub_total ?? 0) > 0
     ? livePricing.sub_total
     : null;
 
-  const price = formatPrice(numericUnitPrice);
+  // Headline price shown to the customer IS tax-inclusive (net_amount) —
+  // reported directly (2026-09-29): the on-screen price must match what
+  // PriceBreakdown already labels "Total (incl. GST)" below it, and what
+  // OrnaVerse's own POS quotes as the sale price. Display-only: still gated
+  // on numericUnitPrice resolving (both come off the same livePricing row),
+  // so it flips to null/loading/error in lockstep with it.
+  const price = numericUnitPrice != null
+    ? formatPrice(livePricing.net_amount)
+    : null;
 
   // Scannable per-piece SKU — distinct from activeCode/product.item_code,
   // the catalog/style code. Only livePricing ever carries a genuine sku
@@ -462,6 +493,34 @@ function ProductDetailScreen() {
               </div>
             )}
 
+            {/* This store's raw piece count can include pieces that aren't
+                actually billable today — either already reserved by ANOTHER
+                transaction, or never given a real sellable stock SKU in the
+                first place (see useClaimableStock's own header for both
+                live-confirmed cases). Surfaced here so an operator knows up
+                front why this exact piece may book as Made to Order at
+                checkout, rather than discovering it unexplained after the
+                fact. Deliberately doesn't assert a specific cause (this
+                page can't tell them apart) — just the real, actionable
+                number. */}
+            {hasUnclaimableStock && (
+              <div className="flex items-center gap-2.5 rounded-xl bg-status-made-order/10 border border-status-made-order/20 px-4 py-3">
+                <Info size={18} className="shrink-0 text-status-made-order" aria-hidden="true" />
+                <div>
+                  <p className="text-sm font-medium text-status-made-order">
+                    {claimablePieces === 0
+                      ? `Not actually billable today`
+                      : `${unclaimablePieces} of ${availableStock} shown here ${unclaimablePieces === 1 ? "isn't" : "aren't"} billable today`}
+                  </p>
+                  <p className="text-xs text-status-made-order/70">
+                    {claimablePieces === 0
+                      ? `This piece can't be billed today — it may already be reserved by another sale, or not yet tagged for sale. It will book as Made to Order until that clears.`
+                      : `Only ${claimablePieces} of ${availableStock} can actually be billed today — the rest will book as Made to Order.`}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Always visible (base product, then confirmed variant) so
                 availability is never hidden behind an interaction. */}
             {(activeDetailsLine || activeCode) && (
@@ -594,6 +653,7 @@ function ProductDetailScreen() {
 
       <ProductStickyActionBar
         unitPrice={numericUnitPrice}
+        displayUnitPrice={numericUnitPrice != null ? livePricing.net_amount : null}
         quantity={quantity}
         onQuantityChange={setQuantity}
         availableStock={availableStock}

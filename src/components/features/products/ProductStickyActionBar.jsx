@@ -32,6 +32,10 @@ const QUANTITY_CEILING = 99;
 /**
  * @param {{
  *   unitPrice: number|null,
+ *   displayUnitPrice?: number|null, — tax-inclusive (net_amount) figure for
+ *     the "Total" text below, separate from `unitPrice` (pre-tax, still what
+ *     actually gets added to cart — see page.jsx's own comment on why those
+ *     two must stay different values). Falls back to `unitPrice` if omitted.
  *   quantity: number,
  *   onQuantityChange: (n: number) => void,
  *   availableStock?: number,
@@ -39,7 +43,9 @@ const QUANTITY_CEILING = 99;
  *   product: object,
  *   selectedSizeId?: number|null,
  *   selectedSizeName?: string|null,
- *   stockStatus?: string|null,
+ *   stockStatus?: string|null, — item-level (any stock at all); this
+ *     component derives the actual QUANTITY-aware verdict from it plus
+ *     madeToOrderQty before handing it to AddToCartButton (see cartStockStatus).
  *   primaryImage?: object|null,
  *   pricedItem?: object|null, — live-priced SetSalesItems row (see
  *     productAttributes.js's own header) — forwarded straight through to
@@ -48,6 +54,7 @@ const QUANTITY_CEILING = 99;
  */
 export default function ProductStickyActionBar({
   unitPrice,
+  displayUnitPrice = unitPrice,
   quantity,
   onQuantityChange,
   availableStock = 0,
@@ -59,7 +66,19 @@ export default function ProductStickyActionBar({
   primaryImage,
   pricedItem = null,
 }) {
-  const total = unitPrice != null ? unitPrice * quantity : null;
+  const total = displayUnitPrice != null ? displayUnitPrice * quantity : null;
+
+  // `stockStatus` only asks "does this item have ANY stock at all", ignoring
+  // how many pieces were actually requested. A line asking for more than the
+  // shelf can supply is fulfilled as a whole Made-to-Order booking at
+  // checkout — see checkoutPricingService.js's buildPricedLineItems, which
+  // prices the ENTIRE quantity from the item master (not just the shortfall)
+  // the moment even one requested piece isn't available. So the cart line
+  // this Add to Cart click creates must carry that same verdict, not the
+  // item-level one — reported directly (2026-09-29): added qty 2 with only 1
+  // in stock, and the mini cart still showed a flat "In Stock" even though
+  // this bar's own notice above already said "1 more will be Made to Order".
+  const cartStockStatus = madeToOrderQty > 0 ? 'out_stock' : stockStatus;
 
   return (
     <div className="sticky bottom-0 left-0 right-0 z-20 border-t border-border bg-card px-4 py-3 md:px-6">
@@ -105,7 +124,7 @@ export default function ProductStickyActionBar({
               selectedSizeId={selectedSizeId}
               selectedSizeName={selectedSizeName}
               primaryImage={primaryImage}
-              stockStatus={stockStatus}
+              stockStatus={cartStockStatus}
               pricedItem={pricedItem}
               disabled={unitPrice == null}
               className="w-full sm:w-auto"

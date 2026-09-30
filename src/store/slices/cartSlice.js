@@ -14,8 +14,11 @@ const initialState = {
   customerMobile:      null,
   customerAddress:     null,  // { address, address1, city, state, country, zip } — used as
                                // shipping_address/billing_address at order creation
-  appliedPromos:       [],    // { promoCode, promoDetails, discountAmount }[] — multiple promos
-                               // can stack; discountAmount is derived (see recalculateTotals)
+  appliedPromos:       [],    // { promoCode, promoDetails, overrideAmount, discountAmount }[] —
+                               // multiple promos can stack; discountAmount is derived (see
+                               // recalculateTotals). overrideAmount is the operator-typed
+                               // "Override Amount" (OrnaVerse's own Enter Promo field) — null
+                               // unless set.
   discountAmount:      0,     // derived from appliedPromos against the current subtotal
   subtotal:            0,
   taxAmount:           0,     // GST on the taxable value (subtotal - discount), rate from APP_CONFIG
@@ -94,14 +97,30 @@ const cartSlice = createSlice({
       recalculateTotals(state);
     },
 
+    // `quantity` (optional) removes only that many units, not the whole
+    // line — reported directly (2026-09-30): a cart line split across two
+    // documents (buildCartDisplayRows — part in stock, part made-to-order)
+    // renders as two rows sharing the same itemId/sizeId/styleId (there is
+    // only ONE real entry for that combination in state.items, holding the
+    // combined quantity), so deleting either row previously matched and
+    // dropped the WHOLE line — the other row's "different" portion was
+    // never a separate entry to begin with. Omitting `quantity` (every
+    // pre-existing caller) keeps deleting the whole line, unchanged.
     removeItem: (state, action) => {
-      const { itemId, sizeId, styleId } = action.payload;
-      state.items = state.items.filter(
+      const { itemId, sizeId, styleId, quantity } = action.payload;
+      const match = state.items.find(
         (item) =>
-          !(item.itemId  === itemId &&
-            item.sizeId  === sizeId &&
-            item.styleId === styleId)
+          item.itemId  === itemId &&
+          item.sizeId  === sizeId &&
+          item.styleId === styleId
       );
+      if (!match) return;
+
+      if (quantity != null && quantity < match.quantity) {
+        match.quantity -= quantity;
+      } else {
+        state.items = state.items.filter((item) => item !== match);
+      }
       recalculateTotals(state);
     },
 
@@ -165,11 +184,11 @@ const cartSlice = createSlice({
     // recalculateTotals derives it from promoDetails; it's kept on the action
     // only because analyticsMiddleware reports it.
     applyPromo: (state, action) => {
-      const { promoCode, promoDetails } = action.payload;
+      const { promoCode, promoDetails, overrideAmount } = action.payload;
       const alreadyApplied = state.appliedPromos.some((p) => p.promoCode === promoCode);
       if (alreadyApplied) return;
 
-      state.appliedPromos.push({ promoCode, promoDetails, discountAmount: 0 });
+      state.appliedPromos.push({ promoCode, promoDetails, overrideAmount: overrideAmount ?? null, discountAmount: 0 });
       recalculateTotals(state);
     },
 

@@ -37,11 +37,16 @@ export function useCart() {
   const fulfillmentOrderId  = useSelector(selectFulfillmentOrderId);
   const fulfillmentOrderNo  = useSelector(selectFulfillmentOrderNo);
 
-  const handleRemoveItem = (item) => {
+  // removeQuantity (optional) — pass a cart-display-row's own displayQuantity
+  // to remove only that split portion of the line (see cartSlice.removeItem's
+  // own header for why this can't just always delete the whole line).
+  // Omitted, this removes the whole line, same as always.
+  const handleRemoveItem = (item, removeQuantity) => {
     dispatch(removeItem({
-      itemId:  item.itemId,
-      sizeId:  item.sizeId,
-      styleId: item.styleId,
+      itemId:   item.itemId,
+      sizeId:   item.sizeId,
+      styleId:  item.styleId,
+      quantity: removeQuantity,
     }));
     toast.success(TOAST.CART.ITEM_REMOVED(item.itemName ?? 'Item'));
   };

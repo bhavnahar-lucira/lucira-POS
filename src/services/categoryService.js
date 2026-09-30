@@ -31,6 +31,23 @@ export async function getSubTypes() {
 }
 
 /**
+ * Fetches the sub-types belonging to a single category (Type). Distinct from
+ * getSubTypes() above — that endpoint's rows carry no type_id to scope them
+ * by category (see its own comment); this one takes type_id directly and
+ * returns just that category's own sub-types, matching the catalog Filters
+ * panel's "Sub Category" dropdown (disabled until a category is picked).
+ * Maps to: POST Services/Master/SubTypeDetails/List
+ * @param {number} typeId
+ */
+export async function getSubTypeDetails(typeId) {
+  const response = await axiosInstance.post(API.CATEGORIES.GET_SUBTYPE_DETAILS, {
+    type_id: typeId,
+    Take:    APP_CONFIG.PAGINATION.CATEGORIES_TAKE,
+  });
+  return response.data;
+}
+
+/**
  * Fetches all item groups from OrnaVerse.
  * Take: 0 returns the full list (small static dataset).
  * Maps to: POST Services/Master/ItemGroups/List

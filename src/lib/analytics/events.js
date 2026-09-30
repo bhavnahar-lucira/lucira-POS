@@ -76,7 +76,6 @@ const RAW_EVENTS = {
   PAYMENT_DECLINED:      'payment_declined',
   PROMO_APPLIED:         'promo_applied',
   PROMO_FAILED:          'promo_failed',
-  PROMO_SIMILAR_BLOCKED: 'promo_similar_blocked',
   ORDER_PLACED:          'order_placed',
   ORDER_FAILED:          'order_failed',
 

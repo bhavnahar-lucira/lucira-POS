@@ -13,7 +13,7 @@ import DiscountSection from '@/components/features/checkout/DiscountSection';
 import ProceedToCheckoutButton from '@/components/features/cart/ProceedToCheckoutButton';
 import { useCart } from '@/hooks/cart/useCart';
 import { useCheckoutPricing } from '@/hooks/checkout/useCheckoutPricing';
-import { mapPricedLinesToCart } from '@/services/checkoutPricingService';
+import { buildCartDisplayRows, combineGroupTotals } from '@/services/checkoutPricingService';
 import { useRedirectOnCustomerChange } from '@/hooks/checkout/useRedirectOnCustomerChange';
 
 export default function CartPage() {
@@ -31,12 +31,19 @@ export default function CartPage() {
 
   // Same pricing query DiscountSection uses (keyed on cart contents + applied
   // promo codes) — gives real per-line discounts instead of cartSlice's
-  // always-0 client-side estimate, with no extra requests on checkout.
-  const { lineItems: pricedLineItems, totals: pricedTotals, isLoading: isPricing } = useCheckoutPricing();
-  const pricedByCartIndex = useMemo(
-    () => mapPricedLinesToCart(items, pricedLineItems),
-    [items, pricedLineItems]
+  // always-0 client-side estimate, with no extra requests on checkout. A
+  // mixed-stock cart line still shows as two rows here (see
+  // buildCartDisplayRows) — the split is what it actually is, even before
+  // checkout — but the summary below stays ONE combined total; two separate
+  // documents only becomes a checkout-time concept.
+  const { invoice, order, isLoading: isPricing } = useCheckoutPricing();
+  const displayRows = useMemo(
+    () => buildCartDisplayRows(items, { invoice, order }),
+    [items, invoice, order]
   );
+  const pricedTotals = (invoice || order)
+    ? combineGroupTotals(invoice?.totals ?? null, order?.totals ?? null)
+    : null;
 
   return (
     <div className="flex flex-col gap-6 max-w-5xl mx-auto w-full pb-28 p-4 md:p-6">
@@ -53,16 +60,18 @@ export default function CartPage() {
           <DiscountSection />
 
           <div className="rounded-xl border border-border bg-card px-4">
-            {items.map((item, index) => (
+            {displayRows.map((row) => (
               <CartItemRow
-                key={`${item.itemId}-${item.sizeId}-${item.styleId}`}
-                item={item}
+                key={row.key}
+                item={row.item}
+                displayQuantity={row.displayQuantity}
                 onUpdateQuantity={updateQuantity}
                 onRemove={removeItem}
-                // Per-line discount breakdown, keyed by cart index (see CartItemRow).
-                priced={pricedByCartIndex.get(index) ?? null}
+                priced={row.priced}
                 // Full breakdown shown on this page only — mini cart drawer omits it.
                 showPriceBreakdown
+                // Component-level pcs/weight subtitles — cart and checkout only, not the mini cart drawer.
+                showComponentDetails
               />
             ))}
           </div>

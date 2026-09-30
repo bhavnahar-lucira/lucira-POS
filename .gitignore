@@ -49,3 +49,8 @@ next-env.d.ts
 # but listed here too so this repo is safe regardless of whose
 # machine/global config it's cloned onto.
 .claude/
+
+# Playwright MCP live-testing artifacts (console logs, page snapshots) —
+# accumulates real captured network/session data from live-testing against
+# OrnaVerse's own production tenant. Local scratch only, never committed.
+.playwright-mcp/

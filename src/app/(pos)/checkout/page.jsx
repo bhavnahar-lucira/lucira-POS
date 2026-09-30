@@ -22,7 +22,7 @@ import { useRedirectOnCustomerChange } from '@/hooks/checkout/useRedirectOnCusto
 import { useCreateInvoice }           from '@/hooks/checkout/useCreateInvoice';
 import { useCreateOrder }             from '@/hooks/checkout/useCreateOrder';
 import { useCheckoutPricing }         from '@/hooks/checkout/useCheckoutPricing';
-import { mapPricedLinesToCart }       from '@/services/checkoutPricingService';
+import { buildCartDisplayRows }       from '@/services/checkoutPricingService';
 import { useBackGuard } from '@/contexts/NavigationGuardContext';
 import { useSmartBack }  from '@/hooks/navigation/useSmartBack';
 import { checkoutSchema }             from '@/validators/checkoutSchema';
@@ -47,28 +47,33 @@ function CheckoutScreen() {
   const {
     placeInvoice,
     isPlacingInvoice,
-    invoiceResult,
   } = useCreateInvoice();
 
   const {
     placeOrder,
     isPlacingOrder,
-    orderResult,
   } = useCreateOrder();
 
   const {
-    lineItems: pricedLineItems,
-    totals: pricedTotals,
-    promotionDetails,
-    isStockBacked,
-    amountDue,
+    invoice, order,
     isLoading: isPricing,
     error: pricingError,
   } = useCheckoutPricing();
-  
-  const payableTotal = amountDue ?? total;
 
-  const [payments, setPayments]     = useState([]);
+  // Two documents, chosen for the operator per LINE rather than for the
+  // whole cart — see checkoutPricingService.buildPricedLineItems's own
+  // header for why (OrnaVerse's server structurally refuses to price a
+  // non-stock line against an Invoice, confirmed live 2026-09-29) and for
+  // how a genuinely mixed cart ends up with both non-null. OrnaVerse's own
+  // POS has no unified cart at all — an operator raises these as two
+  // entirely separate forms by hand; this mirrors that as two sections of
+  // one screen instead of forcing everything into a single Order the moment
+  // any one line falls short.
+  const hasInvoice = !!invoice;
+  const hasOrder   = !!order;
+
+  const [invoicePayments, setInvoicePayments] = useState([]);
+  const [orderPayments, setOrderPayments]     = useState([]);
   const [salesPersonId, setSalesPersonId] = useState(null);
   const { salesPersons } = useSalesPersonOptions(activeStoreId);
   const salesPersonName = salesPersons.find((p) => p.employee_id === salesPersonId)?.employee_name ?? null;
@@ -76,21 +81,34 @@ function CheckoutScreen() {
   const [isBackConfirmOpen, setIsBackConfirmOpen] = useState(false);
   const [isPaymentConfirmOpen, setIsPaymentConfirmOpen] = useState(false);
 
-  const pricedByCartIndex = useMemo(
-    () => mapPricedLinesToCart(items, pricedLineItems),
-    [items, pricedLineItems]
+  const displayRows = useMemo(
+    () => buildCartDisplayRows(items, { invoice, order }),
+    [items, invoice, order]
   );
 
-  const amountCollected = payments.reduce((sum, p) => sum + (p.amount ?? 0), 0);
-  const loyaltyApplied = payments.find((p) => p.modeType === LOYALTY_MODE_TYPE)?.amount ?? 0;
+  const invoiceAmountCollected = invoicePayments.reduce((sum, p) => sum + (p.amount ?? 0), 0);
+  const orderAmountCollected   = orderPayments.reduce((sum, p) => sum + (p.amount ?? 0), 0);
+  const amountCollected = invoiceAmountCollected + orderAmountCollected;
   const isSubmitting = isPlacingInvoice || isPlacingOrder;
-  const isPaidInFull = payableTotal > 0 && Math.abs(amountCollected - payableTotal) < 0.01;
-  const isOrderMode  = !isStockBacked || !isPaidInFull;
-  const documentType = isOrderMode ? 'order' : 'invoice';
-  const result = orderResult ?? invoiceResult;
-  const isConfirmed = !!result;
-  const confirmedType = orderResult ? 'order' : 'invoice';
-  
+  const documentType = hasInvoice && hasOrder ? 'split' : hasInvoice ? 'invoice' : 'order';
+  const payableTotal = (invoice?.amountDue ?? 0) + (order?.amountDue ?? 0);
+  // Nector Loyalty can only ever land on ONE of the two documents (see
+  // paymentAllocation.js's own header) — at most one of these two finds a
+  // row. Reported directly (2026-09-30): PlaceOrderButton kept showing the
+  // full, undiscounted amount after Loyalty was applied, while CartSummary's
+  // own "Total" right above it already subtracted the same credit — this is
+  // what lets the button match that figure instead of disagreeing with it.
+  const creditApplied =
+    (invoicePayments.find((p) => p.modeType === LOYALTY_MODE_TYPE)?.amount ?? 0) +
+    (orderPayments.find((p) => p.modeType === LOYALTY_MODE_TYPE)?.amount ?? 0);
+
+  // Set directly by handlePaymentConfirmed right before navigating away on a
+  // full success — a two-call sequence (invoice then order) can't be
+  // expressed as "some mutation's result is truthy" the way a single call
+  // could, since invoiceResult can be set while the order call is still
+  // in flight (or never happens at all, on an invoice-only cart).
+  const [isConfirmed, setIsConfirmed] = useState(false);
+
   const backGuard = useCallback(() => {
     if (items.length > 0 && !isConfirmed) {
       setIsBackConfirmOpen(true);
@@ -112,17 +130,7 @@ function CheckoutScreen() {
       router.replace('/cart');
     }
   }, [isEmpty, isConfirmed, router]);
-  
-  useEffect(() => {
-    if (isConfirmed && result) {
-      dispatch(setCheckoutInProgress(false));
-      if (!isEmpty) clearCartKeepCustomer();
-      router.replace(
-        `/order-success?transactionId=${result.transactionId}&documentType=${confirmedType}`
-      );
-    }
-  }, [isConfirmed, result, confirmedType, isEmpty, clearCartKeepCustomer, router, dispatch]);
-  
+
   useEffect(() => {
     if (isEmpty) return;
     tracker.trackEcommerce(GA_ECOMMERCE_EVENTS.BEGIN_CHECKOUT, EVENTS.CHECKOUT_STARTED, {
@@ -161,58 +169,115 @@ function CheckoutScreen() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [items.length, isConfirmed]);
   
-  const validation = checkoutSchema.safeParse({
-    customerId,
-    salesPersonId,
-    paymentModes: payments,
-    totalAmount:  payableTotal,
-    cartTotal:    payableTotal,
+  // Invoice can never be short-paid — checkoutSchema enforces that exactly
+  // (allowPartialPayment: false), scoped to just the invoice group's own
+  // amountDue. Order keeps the existing "any advance, including zero" rule.
+  const invoiceValidation = hasInvoice ? checkoutSchema.safeParse({
+    customerId, salesPersonId,
+    paymentModes: invoicePayments,
+    totalAmount:  invoice.amountDue,
+    cartTotal:    invoice.amountDue,
+    panNumber,
+    allowPartialPayment: false,
+  }) : { success: true };
+
+  const orderValidation = hasOrder ? checkoutSchema.safeParse({
+    customerId, salesPersonId,
+    paymentModes: orderPayments,
+    totalAmount:  order.amountDue,
+    cartTotal:    order.amountDue,
     panNumber,
     allowPartialPayment: true,
-  });
-  const isValid = validation.success && !!pricedLineItems && !isPricing && !pricingError;
-  
+  }) : { success: true };
+
+  const isValid = invoiceValidation.success && orderValidation.success
+    && (hasInvoice || hasOrder) && !isPricing && !pricingError;
+
   const handlePlaceOrderClick = () => {
     if (!isValid || isSubmitting) return;
     setIsPaymentConfirmOpen(true);
   };
-  
+
+  // No post-Create Nector "perform" call anymore (2026-09-28) — that
+  // targeted the Shopify storefront webhook, a completely different,
+  // unrelated Nector balance from the one this document actually redeemed
+  // against (see useNectorCheckoutInfo.js/nectorService.js's headers).
+  // OrnaVerse's own LoyaltyCheckout integration settles transactionally as
+  // part of Create itself once the receipt row (documentFields.js's Nector
+  // branch) is submitted — nothing further to call here.
   const handlePaymentConfirmed = async () => {
-    const submission = {
-      paymentModes: payments,
-      salesPersonId,
-      salesPersonName,
-      pricedLineItems,
-      promotionDetails,
-    };
     dispatch(setCheckoutInProgress(true));
 
-    try {
-      // No post-Create Nector "perform" call anymore (2026-09-28) — that
-      // targeted the Shopify storefront webhook, a completely different,
-      // unrelated Nector balance from the one this document actually
-      // redeemed against (see useNectorCheckoutInfo.js/nectorService.js's
-      // headers). OrnaVerse's own LoyaltyCheckout integration settles
-      // transactionally as part of Create itself once the receipt row
-      // (documentFields.js's Nector branch) is submitted — nothing further
-      // to call here.
-      await (isOrderMode ? placeOrder(submission) : placeInvoice(submission));
-    } catch (error) {
-      dispatch(setCheckoutInProgress(false));
-      const message = error?.serverMessage ?? error?.message ?? null;
-      const query = message ? `&message=${encodeURIComponent(message)}` : '';
-      router.push(`/order-failed?reason=error${query}`);
+    let invoiceOutcome = null;
+    if (hasInvoice) {
+      try {
+        invoiceOutcome = await placeInvoice({
+          paymentModes: invoicePayments, salesPersonId, salesPersonName,
+          pricedLineItems: invoice.lineItems, promotionDetails: invoice.promotionDetails,
+        });
+      } catch (error) {
+        dispatch(setCheckoutInProgress(false));
+        const message = error?.serverMessage ?? error?.message ?? null;
+        const query = message ? `&message=${encodeURIComponent(message)}` : '';
+        router.push(`/order-failed?reason=error${query}`);
+        return;
+      }
+    }
+
+    let orderOutcome = null;
+    if (hasOrder) {
+      try {
+        orderOutcome = await placeOrder({
+          paymentModes: orderPayments, salesPersonId, salesPersonName,
+          pricedLineItems: order.lineItems, promotionDetails: order.promotionDetails,
+        });
+      } catch (error) {
+        dispatch(setCheckoutInProgress(false));
+        const message = error?.serverMessage ?? error?.message ?? null;
+        const query = message ? `&message=${encodeURIComponent(message)}` : '';
+        if (invoiceOutcome) {
+          // PARTIAL SUCCESS — the invoice is real and posted, its stock
+          // already claimed; only the order side needs retrying. Trim the
+          // cart down to just the still-unbilled items so a retry from
+          // /order-failed doesn't re-attempt the piece that's already sold,
+          // and name the successful invoice so there's a real document to
+          // point the customer to in the meantime. Passing cartItem.quantity
+          // explicitly (not the default whole-line remove) matters whenever
+          // this line was actually split: without it, removing the invoiced
+          // PORTION would delete the still-unbilled order portion too — same
+          // bug as cartSlice.removeItem's own header describes.
+          invoice.cartItems.forEach((cartItem) => removeItem(cartItem, cartItem.quantity));
+          router.push(`/order-failed?reason=error&partialInvoiceId=${invoiceOutcome.transactionId}${query}`);
+          return;
+        }
+        router.push(`/order-failed?reason=error${query}`);
+        return;
+      }
+    }
+
+    dispatch(setCheckoutInProgress(false));
+    setIsConfirmed(true);
+    if (!isEmpty) clearCartKeepCustomer();
+    if (invoiceOutcome && orderOutcome) {
+      router.replace(
+        `/order-success?transactionId=${invoiceOutcome.transactionId}&documentType=invoice` +
+        `&secondTransactionId=${orderOutcome.transactionId}&secondDocumentType=order`
+      );
+    } else if (invoiceOutcome) {
+      router.replace(`/order-success?transactionId=${invoiceOutcome.transactionId}&documentType=invoice`);
+    } else if (orderOutcome) {
+      router.replace(`/order-success?transactionId=${orderOutcome.transactionId}&documentType=order`);
     }
   };
 
   const handlePaymentDeclined = () => {
     tracker.track(EVENTS.PAYMENT_DECLINED, {
       documentType,
-      value: isOrderMode ? amountCollected : payableTotal,
+      value: amountCollected,
     });
     router.push('/order-failed?reason=declined');
   };
-  
+
   if (isConfirmed) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -229,7 +294,14 @@ function CheckoutScreen() {
       <div className='grid grid-cols-1 items-start gap-5 lg:grid-cols-2'>
         <div className="flex flex-col gap-5 w-full">
           <CheckoutCustomerSummary />
-          <CheckoutPanCapture key={customerId} totalAmount={payableTotal} onPanResolved={setPanNumber} />
+          {/* Statutory PAN threshold (Rule 114B) applies per real document —
+              a split checkout raises two separate transactions, so this is
+              judged against whichever ONE of them is larger, not their sum. */}
+          <CheckoutPanCapture
+            key={customerId}
+            totalAmount={Math.max(invoice?.amountDue ?? 0, order?.amountDue ?? 0)}
+            onPanResolved={setPanNumber}
+          />
           <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
             <h2 className="text-sm font-bold text-foreground mb-2">
               Sales Person <span className="text-destructive">*</span>
@@ -245,41 +317,108 @@ function CheckoutScreen() {
         <div className="flex flex-col gap-5 w-full">
           <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
             <h2 className="text-sm font-bold text-foreground mb-1">
-              Order Items <span className="text-muted-foreground font-normal text-xs">({items.length} item{items.length !== 1 ? 's' : ''})</span>
+              Order Items <span className="text-muted-foreground font-normal text-xs">({displayRows.length} item{displayRows.length !== 1 ? 's' : ''})</span>
             </h2>
             <div>
-              {items.map((item, index) => (
+              {/* One row per cart line normally — TWO rows for a line
+                  buildCartDisplayRows had to split (part in stock, part
+                  not), each showing just its own portion (see that
+                  function's own header). */}
+              {displayRows.map((row) => (
                 <CartItemRow
-                  key={`${item.itemId}-${item.sizeId}-${item.styleId}`}
-                  item={item}
+                  key={row.key}
+                  item={row.item}
+                  displayQuantity={row.displayQuantity}
                   readOnly
                   onRemove={removeItem}
-                  priced={pricedByCartIndex.get(index) ?? null}
+                  priced={row.priced}
                   showPriceBreakdown
+                  showComponentDetails
                 />
               ))}
             </div>
           </section>
 
-          <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-            <h2 className="text-sm font-bold text-foreground mb-1">Order Summary</h2>
-            <CartSummary totals={pricedTotals} isPricing={isPricing} creditApplied={loyaltyApplied} />
-          </section>
-          <CheckoutPaymentSection
-            key={customerId}
-            onChange={setPayments}
-            amountDue={payableTotal}
-            allowPartial
-            lineItems={pricedLineItems ?? []}
-          />
-          
-          {!isPricing && !!pricedLineItems && !isStockBacked && (
+          {/* ONE "Order Summary" card, Invoice/Order as labeled sub-blocks
+              inside it — CONSOLIDATED 2026-09-30 (reported directly: two
+              separate top-level summary cards read as confusing, unrelated
+              totals rather than one sale's two documents). Still genuinely
+              two totals underneath (invoice.totals/order.totals stay
+              separate — a split cart really does produce two documents),
+              only the layout merged. */}
+          {(hasInvoice || hasOrder) && (
+            <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+              <h2 className="text-sm font-bold text-foreground mb-1">Order Summary</h2>
+              {hasInvoice && (
+                <div className={hasOrder ? 'pb-3 mb-1 border-b border-border' : ''}>
+                  {hasOrder && (
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      Invoice — pay in full
+                    </p>
+                  )}
+                  <CartSummary
+                    totals={invoice.totals}
+                    isPricing={isPricing}
+                    creditApplied={invoicePayments.find((p) => p.modeType === LOYALTY_MODE_TYPE)?.amount ?? 0}
+                  />
+                </div>
+              )}
+              {hasOrder && (
+                <div>
+                  {hasInvoice && (
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      Order — advance optional
+                    </p>
+                  )}
+                  <CartSummary
+                    totals={order.totals}
+                    isPricing={isPricing}
+                    creditApplied={orderPayments.find((p) => p.modeType === LOYALTY_MODE_TYPE)?.amount ?? 0}
+                  />
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* ONE unified payment section — REPLACED 2026-09-30 (reported
+              directly: two independent sections meant picking a tender and
+              typing an amount twice for one sale). Still genuinely two
+              independent Create calls underneath (see handlePaymentConfirmed)
+              — CheckoutPaymentSection now allocates the single combined
+              entry invoice-first via paymentAllocation.js, and emits both
+              arrays at once. */}
+          {(hasInvoice || hasOrder) && (
+            <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm">
+              <h2 className="text-sm font-bold text-foreground">Payment</h2>
+              <CheckoutPaymentSection
+                key={`payment-${customerId}`}
+                bare
+                invoiceAmountDue={invoice?.amountDue ?? 0}
+                orderAmountDue={order?.amountDue ?? 0}
+                lineItems={[...(invoice?.lineItems ?? []), ...(order?.lineItems ?? [])]}
+                onChange={({ invoicePayments: ip, orderPayments: op }) => {
+                  setInvoicePayments(ip);
+                  setOrderPayments(op);
+                }}
+              />
+            </section>
+          )}
+
+          {!isPricing && hasInvoice && hasOrder && (
+            <p className="rounded-lg border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
+              Part of this cart is in stock and part isn&apos;t — this will
+              raise a fully-paid invoice for what&apos;s in stock, and a
+              separate order (advance optional) for the rest, billed when
+              that piece arrives.
+            </p>
+          )}
+          {!isPricing && hasOrder && !hasInvoice && (
             <p className="rounded-lg border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
               Not in stock at this store — this will be booked as an order and
               billed when the piece arrives.
             </p>
           )}
-          
+
           {isPricing && (
             <p className="text-xs text-muted-foreground">
               Pricing items against today&apos;s rates…
@@ -303,6 +442,7 @@ function CheckoutScreen() {
             onPlaceOrder={handlePlaceOrderClick}
             amountDue={payableTotal}
             amountCollected={amountCollected}
+            creditApplied={creditApplied}
             isPricing={isPricing}
             documentType={documentType}
           />
@@ -329,7 +469,9 @@ function CheckoutScreen() {
         onOpenChange={setIsPaymentConfirmOpen}
         title="Confirm payment on terminal"
         description={
-          isOrderMode
+          documentType === 'split'
+            ? `Has ${formatAmount(amountCollected)} been completed on the payment terminal — ${formatAmount(invoiceAmountCollected)} for the invoice and ${formatAmount(orderAmountCollected)} advance for the order? Confirming will generate both — declining will not save anything.`
+            : documentType === 'order'
             ? `Has the advance of ${formatAmount(amountCollected)} been completed on the payment terminal? Confirming will place the order — declining will not save anything.`
             : `Has the payment of ${formatAmount(payableTotal)} been completed on the payment terminal? Confirming will generate the invoice — declining will not save anything.`
         }

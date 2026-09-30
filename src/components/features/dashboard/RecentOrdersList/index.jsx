@@ -4,10 +4,12 @@
 // shared PaymentStatusBadge (src/components/shared/PaymentStatusBadge)
 // so status colors stay consistent with the /orders page.
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Inbox } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import PaymentStatusBadge, { mapOrderStatus } from '@/components/shared/PaymentStatusBadge';
+import OrderDetailSheet from '@/components/features/orders/OrderDetailSheet';
 
 function getInitials(name) {
   if (!name) return '?';
@@ -70,6 +72,10 @@ function OrderRow({ order, onSelect }) {
  */
 export default function RecentOrdersList({ orders = [], isLoading }) {
   const router = useRouter();
+  // Was routing every click straight to the generic /orders list, ignoring
+  // which row was actually clicked (reported directly, 2026-09-29) — opens
+  // the SAME sheet /orders itself uses, in place, instead.
+  const [selectedOrder, setSelectedOrder] = useState(null);
 
   return (
     <div className="rounded-xl border border-border bg-card shadow-sm p-5 h-full">
@@ -109,11 +115,17 @@ export default function RecentOrdersList({ orders = [], isLoading }) {
             <OrderRow
               key={order.orderId ?? order.orderNo}
               order={order}
-              onSelect={() => router.push('/orders')}
+              onSelect={() => setSelectedOrder(order)}
             />
           ))}
         </div>
       )}
+
+      <OrderDetailSheet
+        order={selectedOrder}
+        isOpen={!!selectedOrder}
+        onClose={() => setSelectedOrder(null)}
+      />
     </div>
   );
 }

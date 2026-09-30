@@ -67,11 +67,25 @@ export function useActiveStore() {
    * one place, so no future call site can forget to keep the two in sync.
    * Awaited and allowed to throw — a caller that can't confirm the switch
    * on OrnaVerse's side should not proceed as if it succeeded.
+   *
+   * `refetchType: 'none'` (reported directly, 2026-09-30, both "from the
+   * header" and "on catalog" — this was the header path): every caller of
+   * switchStore immediately navigates away or re-renders into a whole new
+   * store context right after, so the page that's still mounted at the
+   * moment of the switch is on its way out. Without this, invalidateQueries'
+   * default 'active' refetch was live-confirmed to burst-refetch that
+   * OUTGOING page's entire store-scoped query set (catalog list, stock,
+   * pricing, per-item style/review lookups) right as it's being unmounted —
+   * pure wasted network competing with the next page's own load. Marking
+   * everything stale without eagerly refetching is still fully correct: the
+   * next page's queries are new mounts anyway and fetch fresh regardless of
+   * staleness.
    * @param {{ company_id, company_name, store_code }} store
    */
   const switchStore = useCallback(async (store) => {
     await switchCompany(store.company_id);
     queryClient.invalidateQueries({
+      refetchType: 'none',
       predicate: (query) => {
         const key = query.queryKey;
         // The two confirmed store-agnostic caches — see this function's own

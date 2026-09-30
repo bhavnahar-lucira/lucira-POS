@@ -24,6 +24,16 @@ export const getItemAttributes = (attributeTypeId) =>
   });
 
 /**
+ * Fetches every item size (ring/bangle/chain/etc, mixed together — no
+ * type_id-scoped variant exists, confirmed against OrnaVerse's own real
+ * client: its "Item Size" filter dropdown shows this same unfiltered list
+ * regardless of category). Used by the catalog Filters panel's "Item Size"
+ * dropdown.
+ */
+export const getItemSizes = () =>
+  axiosInstance.post(API.ITEMS.SIZES, { Take: 5000 });
+
+/**
  * Fetches all style variants for a given style_id.
  * Returns style_variants[] — each variant is a purchasable SKU
  * with its own item_id, karat, metal color, and size.

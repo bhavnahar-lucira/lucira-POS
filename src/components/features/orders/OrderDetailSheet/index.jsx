@@ -4,14 +4,17 @@ import { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 
 import BottomSheet from '@/components/shared/BottomSheet';
-import { splitGst } from '@/lib/gst';
+import { sumRealGst } from '@/lib/gst';
 import InvoiceReportButton from '@/components/features/checkout/InvoiceReportButton';
 import FulfillOrderAction from '@/components/features/orders/FulfillOrderAction';
 import { Button } from '@/components/ui/button';
 import { useCancelOrder } from '@/hooks/orders/useCancelOrder';
+import { useOrderDetail } from '@/hooks/checkout/useOrderDetail';
+import { useInvoiceDetail } from '@/hooks/checkout/useInvoiceDetail';
 import APP_CONFIG from '@/constants/appConfig';
 import { formatAmountOrNull as formatCurrency } from '@/lib/priceUtils';
 import { formatDateNumeric } from '@/lib/dateUtils';
+import { resolveImageSrc } from '@/lib/resolveImageSrc';
 
 function Row({ label, value, bold, border }) {
   if (value === null || value === undefined || value === '') return null;
@@ -36,7 +39,9 @@ function OrderContent({ raw, status }) {
 
   const lineItems = raw.line_items     ?? [];
   const payments  = raw.receipt_details ?? [];
-  const gst       = splitGst(raw.tax_amount);
+  // Real, per-line CGST/SGST straight off this posted document's own line
+  // items — never reconstructed (see lib/gst.js's own header).
+  const gst       = sumRealGst(lineItems);
 
   return (
     <div className="flex flex-col gap-2 text-sm">
@@ -49,21 +54,45 @@ function OrderContent({ raw, status }) {
       <Row label="Status"   value={STATUS_LABELS[status] ?? null} />
 
       {lineItems.length > 0 && (
-        <div className="border-t border-border pt-2 flex flex-col gap-1.5">
+        <div className="border-t border-border pt-2 flex flex-col gap-2">
           <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">Items</span>
-          {lineItems.map((item, i) => (
-            <div key={item.transaction_item_id ?? i} className="flex justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-foreground/80 truncate">{item.item_name}</p>
-                {item.item_code && (
-                  <p className="text-xs text-muted-foreground truncate">{item.item_code}</p>
-                )}
+          {lineItems.map((item, i) => {
+            const imageSrc = resolveImageSrc(item.image);
+            const specs = [
+              item.item_group_name,
+              item.karat_name,
+              item.metal_color_name,
+              item.weight ? `${item.weight}g` : null,
+              item.diamond_weight ? `${item.diamond_weight}ct` : null,
+            ].filter(Boolean).join(' · ') || null;
+
+            return (
+              <div key={item.transaction_item_id ?? i} className="flex items-start justify-between gap-2">
+                <div className="flex min-w-0 items-start gap-2">
+                  {imageSrc && (
+                    // eslint-disable-next-line @next/next/no-img-element -- small fixed thumbnail, not worth Next/Image's server-side optimization path here
+                    <img
+                      src={imageSrc}
+                      alt=""
+                      className="h-9 w-9 shrink-0 rounded-md border border-border object-cover"
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-foreground/80 truncate">{item.item_name}</p>
+                    {item.item_code && (
+                      <p className="text-xs text-muted-foreground truncate">{item.item_code}</p>
+                    )}
+                    {specs && (
+                      <p className="text-xs text-muted-foreground truncate">{specs}</p>
+                    )}
+                  </div>
+                </div>
+                <span className="font-medium text-foreground shrink-0">
+                  {formatCurrency(item.gross_amount ?? item.net_amount)}
+                </span>
               </div>
-              <span className="font-medium text-foreground shrink-0">
-                {formatCurrency(item.gross_amount ?? item.net_amount)}
-              </span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -129,7 +158,23 @@ function CancelConfirmBanner({ onConfirm, onDismiss, isPending }) {
 }
 
 export default function OrderDetailSheet({ order, isOpen, onClose }) {
-  const raw = order?.raw ?? null;
+  const isInvoice = order?.documentType === 'invoice';
+
+  // Order/List and Invoice/List (what feeds every list this sheet is opened
+  // from — /orders, the customer profile, the dashboard's Recent Orders)
+  // never include line_items/full tax+item detail, only header summary
+  // fields — confirmed live (2026-09-29): only Retrieve returns them.
+  // Reported directly: "no product data visible... unsure what exactly the
+  // payment is made for". Re-fetches the ONE full document by its
+  // transaction_id as soon as the sheet opens for it; react-query caches by
+  // id so re-opening the same order/invoice is instant on repeat views.
+  const { order: orderDetail }     = useOrderDetail(!isInvoice ? order?.orderId : null);
+  const { invoice: invoiceDetail } = useInvoiceDetail(isInvoice ? order?.orderId : null);
+
+  // Falls back to the summary row while the detail fetch is in flight (or if
+  // it fails) so the sheet never shows nothing — it just upgrades in place
+  // once the full record lands.
+  const raw = orderDetail ?? invoiceDetail ?? order?.raw ?? null;
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const cancelOrderMutation = useCancelOrder();

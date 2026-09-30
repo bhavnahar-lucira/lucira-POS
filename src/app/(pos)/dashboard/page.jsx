@@ -27,11 +27,6 @@ function DashboardScreen() {
     activityToday,
   } = useDashboardSummary();
 
-  // A failed summary must not render as "nothing happened today" — every
-  // KPI/list below is real-zero-shaped, so a backend outage and an idle
-  // store would otherwise be indistinguishable to staff. Loading takes
-  // priority (isError can be stale-true from a prior failed fetch while a
-  // fresh one is already in flight).
   if (isError && !isLoading) {
     return (
       <>
@@ -68,17 +63,11 @@ function DashboardScreen() {
 
   return (
     <>
-      {/* Highlighted rate strip, full-bleed under the header — matches
-          OrnaVerse's own POS dashboard placement (2026-08-27). Deliberately
-          OUTSIDE the max-w-6xl/px-4 wrapper below so it spans the full
-          content width edge-to-edge, not boxed in with the cards. */}
       <MetalRatesTicker />
 
       <div className="flex flex-col gap-6 max-w-6xl mx-auto w-full px-4 py-4 md:px-6">
 
         {/* ── ROW 1: KPI cards ───────────────────────────────────── */}
-        {/* Scheme Collections intentionally omitted — no data source yet (Phase 23) */}
-        {/* Only Today's Revenue carries the terracotta accent — keeps it a single signal */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <KPICard
             label="Today's Revenue"

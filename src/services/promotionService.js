@@ -48,6 +48,14 @@ export function listPromotions() {
  * 17,412.55 cumulative line discount, tax recomputed each round. Note the
  * response returns only the NEW promotion's row, so the caller accumulates.
  *
+ * `override_amount` — confirmed live 2026-09-30 from OrnaVerse's own "Enter
+ * Promo" dialog's "Override Amount" field: replaces this promotion's own
+ * Net/Gross-calculated discount with an operator-typed final-bill reduction.
+ * Only meaningful alongside a real promo code. Any cap is enforced entirely
+ * SERVER-SIDE via the promotion's own `promotion_rules[]` brackets (verified
+ * by requesting an amount above a bracket's cap and getting it clamped back)
+ * — this app does not add a separate cap on top of that.
+ *
  * @param {{
  *   selected_products: object[],
  *   promotion:         object,
@@ -55,12 +63,13 @@ export function listPromotions() {
  *   document_id:       number,
  *   exchange_rate?:    number,
  *   gift_voucher_number?: string,
+ *   override_amount?:  number|null,
  * }} params
  * @returns {Promise<import('axios').AxiosResponse>}
  */
 export function applyPromotions({
   selected_products, promotion, promotions = [],
-  document_id, exchange_rate = 1, gift_voucher_number = '',
+  document_id, exchange_rate = 1, gift_voucher_number = '', override_amount = null,
 }) {
   return axiosInstance.post(API.CRM.APPLY_PROMOTIONS, {
     selected_products,
@@ -69,6 +78,7 @@ export function applyPromotions({
     gift_voucher_number,
     exchange_rate,
     document_id,
+    ...(override_amount != null && { override_amount }),
   });
 }
 

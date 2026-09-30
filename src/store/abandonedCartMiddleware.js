@@ -10,11 +10,20 @@
 // FOUR responsibilities:
 //
 //   1. cart/attachCustomer — fetch this customer's saved abandoned cart
-//      from Mongo. Two outcomes, mutually exclusive:
-//        a. The live cart is EMPTY (the common case) and they have a saved
-//           one → restore it straight into the cart (cartSlice.restoreCart)
-//           and toast the operator so it's not a silent surprise.
-//        b. The live cart is NOT empty — this is now only the
+//      from Mongo. Three outcomes:
+//        a. The live cart is EMPTY and they have a saved one → restore it
+//           straight into the cart (cartSlice.restoreCart) and toast the
+//           operator so it's not a silent surprise.
+//        b. The live cart is NOT empty AND they have a saved one — a guest/
+//           walk-in basket built up before this customer was picked, or a
+//           re-attach of the same already-attached customer — MERGE the two
+//           item lists (mergeCartItems below) rather than either replacing
+//           the live cart or discarding the saved one. FIXED 2026-09-30:
+//           this used to always pick the live cart and never even look at
+//           the saved one in this branch, so a customer's real saved
+//           abandoned cart silently vanished the moment they were attached
+//           to any cart that already had something in it.
+//        c. The live cart is NOT empty and nothing is saved — this is the
 //           re-attaching-the-same-already-attached-customer case (removed
 //           2026-09-03: CustomerSessionSheet/customers page used to offer a
 //           "Keep Cart" choice that carried a DIFFERENT customer's items
@@ -60,6 +69,32 @@ import EVENTS from '@/lib/analytics/events';
 
 const SAVE_DEBOUNCE_MS = 1500;
 let saveTimer = null;
+
+// Same identity keys cartSlice's own addItem/removeItem match a line on.
+// Matching lines SUM quantities (mirrors addItem's own re-add behavior);
+// anything else is just kept. Reported directly (2026-09-30): attaching a
+// customer to a cart that already had items (a guest/walk-in basket built
+// up before picking who it's for, or re-attaching the same customer)
+// REPLACED those items outright with whatever that customer's saved
+// abandoned cart held — real, unsaved-yet items the operator had just
+// added were silently gone. This is what closes that — both item lists
+// survive, combined, instead of one winning outright.
+function mergeCartItems(existingItems, incomingItems) {
+  const merged = existingItems.map((item) => ({ ...item }));
+  for (const incoming of incomingItems) {
+    const match = merged.find((item) =>
+      item.itemId  === incoming.itemId &&
+      item.sizeId  === incoming.sizeId &&
+      item.styleId === incoming.styleId
+    );
+    if (match) {
+      match.quantity = (match.quantity ?? 1) + (incoming.quantity ?? 1);
+    } else {
+      merged.push({ ...incoming });
+    }
+  }
+  return merged;
+}
 
 const MUTATING_TYPES = new Set([
   'cart/addItem',
@@ -220,11 +255,23 @@ export const abandonedCartMiddleware = (store) => (next) => (action) => {
         // don't act on stale data for whoever's attached now.
         if (freshCart.customerId !== customerId) return;
 
-        if (freshCart.items.length > 0) {
-          // Items already in the cart at attach time — this customer was
-          // already attached and had items (re-attach, not a switch: a
-          // switch always detaches first — see 'cart/detachCustomer' —
-          // so the cart is empty by the time a DIFFERENT customer attaches).
+        if (freshCart.items.length > 0 && hasSaved) {
+          // Both a live cart (a guest/walk-in basket built up before this
+          // customer was picked, or a re-attach of the same customer who
+          // already had items) AND a saved abandoned cart for them — MERGE
+          // rather than picking one, so neither silently disappears.
+          const merged = mergeCartItems(freshCart.items, record.items);
+          store.dispatch(restoreCart({ items: merged }));
+          saveAbandonedCart(customerId, { ...freshCart, items: merged }, store.getState().store?.activeStoreId);
+          toast.success(
+            `Merged ${record.items.length} item${record.items.length === 1 ? '' : 's'} from a previous cart into this one`
+          );
+        } else if (freshCart.items.length > 0) {
+          // Items already in the cart at attach time, nothing saved to
+          // merge in — this customer was already attached and had items
+          // (re-attach, not a switch: a switch always detaches first — see
+          // 'cart/detachCustomer' — so the cart is empty by the time a
+          // DIFFERENT customer attaches).
           saveAbandonedCart(customerId, freshCart, store.getState().store?.activeStoreId);
         } else if (hasSaved) {
           store.dispatch(restoreCart({ items: record.items }));

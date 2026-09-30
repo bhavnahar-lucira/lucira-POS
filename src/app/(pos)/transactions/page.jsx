@@ -1,39 +1,5 @@
 'use client';
 
-// This page is the only place transactions are created or viewed — the
-// previously-separate /returns, /exchange, /buyback, /urd-purchase pages
-// (and their dedicated services/hooks) were deleted; everything here runs
-// on transactionService.js via useTransactionLists.js + useTransactionMutations.js.
-//
-// SCHEMA FACTS:
-//   - All transaction rows share: transaction_id, document_no,
-//     document_date, party_id, party_name, net_amount
-//   - normalizeTransaction (from useTransactionLists) maps these to:
-//     transactionId, documentNo, documentDate, customerId,
-//     customerName, amount
-//   - "NA" string values already nulled out by normalizer
-//   - company_id (NOT current_company_id) is the field OrnaVerse expects
-//     for POS transaction List/Create calls — current_company_id is the
-//     Inventory/ProductCatalog-specific convention, confirmed fixed in
-//     transactionService.js as part of this consolidation.
-//
-// RESOLVED 2026-07-16: RefundDetailsRow's ledger_id is now sourced from the
-// selected payment mode's own ledger_id (confirmed real field via
-// PaymentReceiptMode/List and Refund/List) — see RefundNewForm below.
-//
-// HEADER FIELDS (2026-07-28) — the "AccessDenied" framing below is STALE.
-// Confirmed live 2026-07-28 that Return/Create actually returns the same
-// generic 500 Order/Invoice/Create had before their header-field fix, not
-// AccessDenied — see [[pos-cash-checkout-status]] memory. Applied the same
-// fix here (financial_year_id/ledger_id/document_id/document_no/party
-// identity/aggregate weight/receipt+balance — see
-// transactionHeaderService.buildTransactionHeaderFields, useOrderHeaderConfig)
-// across all 6 flows below, UNVERIFIED LIVE per the user's explicit
-// direction to code this without a live round-trip per flow (unlike Order,
-// which went through 3 rounds of live retest-and-discover). Treat a
-// continued 500 on any of these as "run the same live-capture diagnostic
-// used for Order" rather than assuming AccessDenied again.
-
 import { Suspense, useState, useCallback } from 'react';
 import { useSelector }                     from 'react-redux';
 import { useRouter, useSearchParams }      from 'next/navigation';
@@ -107,9 +73,6 @@ import { Input }                           from '@/components/ui/input';
 import { Label }                           from '@/components/ui/label';
 import { Switch }                          from '@/components/ui/switch';
 
-// De-duplicated 2026-09-08 — identical copies existed in estimation/page.jsx
-// and repair/page.jsx; see lib/priceUtils.js's formatAmountOrDash and
-// lib/dateUtils.js's formatDatePadded for the shared versions.
 const formatINR = formatAmountOrDash;
 const formatDate = formatDatePadded;
 
@@ -131,24 +94,6 @@ function FormField({ label, required, error, children }) {
     </div>
   );
 }
-
-// REBUILT 2026-07-30 to match how a return actually works.
-//
-// The old form asked staff to type item_id / pieces / rate / net_amount by
-// hand and referenced the original invoice by typed transaction_id. That
-// could never succeed: Return/Create requires the ~186-field computed line
-// item from Helpers/SetReturnItems, and hand-built line items produced a
-// long run of opaque 500s. Confirmed by capturing OrnaVerse's own UAT
-// Returns journey — see returnItemsService.js.
-//
-// Real flow (theirs, now ours): pick from what the customer actually BOUGHT
-// (POS/InvoiceItems/List) → price it for return (SetReturnItems) → Create →
-// Post. This is also better UX: no typing item IDs off a printed bill, and
-// the customer can only return things they genuinely purchased.
-// Return and Buy Back are the SAME journey with a different pricing helper
-// and document type — which is exactly how OrnaVerse models it too (their
-// Returns screen has Return / Exchange / Buy Back as three modes sharing one
-// "Sold Item" picker). Configured here rather than duplicated.
 const SOLD_ITEM_FLOWS = {
   return: {
     documentTypeId: APP_CONFIG.DOCUMENT_TYPES.RETURN,
@@ -162,7 +107,6 @@ const SOLD_ITEM_FLOWS = {
     totalLabel:     'Total Return Amount',
     submitLabel:    'Submit Return',
     busyLabel:      'Processing Return…',
-    // A return reverses a sale, so backdating stays closed.
     allowBackdatedEntry: false,
   },
   buyback: {
@@ -177,16 +121,8 @@ const SOLD_ITEM_FLOWS = {
     totalLabel:     'Total Buy Back Amount',
     submitLabel:    'Submit Buy Back',
     busyLabel:      'Processing Buy Back…',
-    // Their captured BuyBack/Create sends allow_backdated_entry:true —
-    // a buyback can legitimately be dated to when the piece came in.
     allowBackdatedEntry: true,
   },
-  // Exchange is ONE-SIDED at the document level — confirmed live
-  // 2026-07-30. It does NOT carry a replacement item; completing it just
-  // raises the customer's credit (their balance rose by exactly the
-  // exchange value), and the replacement is then bought as a normal sale
-  // paid with that credit. Structurally identical to Return/Buy Back, so
-  // it belongs here rather than in the metal-weights form.
   exchange: {
     documentTypeId: APP_CONFIG.DOCUMENT_TYPES.EXCHANGE,
     priceItems:     calculateExchangeItems,
@@ -200,9 +136,6 @@ const SOLD_ITEM_FLOWS = {
     submitLabel:    'Submit Exchange',
     busyLabel:      'Processing Exchange…',
     allowBackdatedEntry: true,
-    // NOTE: unlike Return/Buy Back, Exchange's document type has
-    // auto_posting:FALSE — so the explicit Post step genuinely runs here.
-    // That's handled generically off headerConfig.autoPosting.
     helperText: 'This raises store credit for the customer. Ring up the replacement piece as a normal sale and pay with that credit.',
   },
 };
@@ -211,15 +144,9 @@ const soldItemFlowSchema = z.object({
   document_date: z.string().min(1, 'Required'),
   selected_keys: z.array(z.string()).min(1, 'Select at least one item'),
 });
-
-// A sold-item row has no single stable id, so identify it the way the
-// document itself does: original document + line number.
 const soldItemKey = (row) => `${row.document_no ?? ''}#${row.item_line_no ?? ''}`;
 
 function SoldItemFlowForm({ flow, onDone }) {
-  // The three flows are switchable in-place, mirroring OrnaVerse's own POS
-  // (their Returns screen offers Return / Exchange / Buy Back as modes over
-  // one "Sold Item" picker). The tab you arrived from just sets the default.
   const [mode, setMode] = useState(flow);
   const config         = SOLD_ITEM_FLOWS[mode];
   const storeId        = useSelector(selectActiveStoreId);
@@ -228,9 +155,6 @@ function SoldItemFlowForm({ flow, onDone }) {
   const headerConfig   = useOrderHeaderConfig(config.documentTypeId);
   const { soldItems, isLoading: soldLoading, isError: soldError, refetch: refetchSold } =
     useSoldItems(customerId);
-
-  // Hooks can't be called conditionally, so instantiate all three pairs and
-  // pick the active one by mode.
   const createReturnDoc   = useCreateReturn({ onSuccess: () => {} });
   const postReturnDoc     = usePostReturn({ onSuccess: () => onDone() });
   const createBuybackDoc  = useCreateBuyback({ onSuccess: () => {} });
@@ -268,13 +192,6 @@ function SoldItemFlowForm({ flow, onDone }) {
   const onSubmit = async (data) => {
     if (!customerId) return toast.error('Assign a customer to the session first.');
     if (!headerConfig.isReady) {
-      // isError means the underlying queries already exhausted their
-      // retries and are stuck — "try again in a moment" alone would never
-      // resolve on its own from there, so kick off a fresh attempt now
-      // rather than leave the operator with no path but a hard refresh.
-      // isConfigMissing is a THIRD, distinct case (confirmed live 2026-08-14
-      // for Credit Note specifically — zero DocumentNumbering rows exist
-      // for it on any store) — no amount of retrying will ever fix that.
       if (headerConfig.isError) headerConfig.refetch();
       return toast.error(
         headerConfig.isConfigMissing
@@ -286,25 +203,12 @@ function SoldItemFlowForm({ flow, onDone }) {
     }
     try {
       setIsPricing(true);
-      // Pass the sold-item rows through UNMODIFIED — the pricing helper needs
-      // the full nested shape (incl. the ref_* linkage to the original sale).
       const line_items = await config.priceItems({
         items: selectedRows,
         documentDate: new Date(data.document_date),
       });
       setIsPricing(false);
       if (!line_items.length) throw new Error('Could not price the selected items.');
-
-      // CONFIRMED LIVE 2026-09-22: SetExchangeItems/SetBuybackItems (unlike
-      // SetReturnItems) come back with `net_amount`/`sub_total` at 0 — the
-      // real priced value only lands in `base_net_amount`/`base_sub_total`.
-      // A real Exchange/BuyBack created before this fix would silently
-      // record zero credit for a customer's real item (verified: a live
-      // Exchange and BuyBack both created successfully with net_amount:0/
-      // balance_amount:0 against their real ~₹86,731/~₹45,827 items).
-      // Falling back to the base_* field is safe for every flow — Return's
-      // own net_amount already equals its base_net_amount, so this changes
-      // nothing there, only fixes the two that were actually broken.
       const sum = (f) => +line_items.reduce((s, li) => s + (li[f] || li[`base_${f}`] || 0), 0).toFixed(2);
       const subTotal = sum('sub_total');
       const taxAmount = sum('tax_amount');
@@ -325,18 +229,9 @@ function SoldItemFlowForm({ flow, onDone }) {
         }),
         line_items,
         remark: '',
-        // No receipt_details and no header-level ref_transaction_id — neither
-        // a Return nor a Buy Back carries them (the per-line ref_* fields
-        // already tie back to the original sale). Confirmed against their
-        // captured payloads; sending either is what previously 500'd.
       });
       const transactionId = createRes?.EntityId;
       if (!transactionId) throw new Error('Creation failed — no EntityId returned.');
-      // Only Post when the document type isn't already auto-posting.
-      // Confirmed live 2026-07-30: these document types have
-      // auto_posting:true, so Create ALSO posts (posting_date/posted_by come
-      // back populated) and a follow-up Post fails with
-      // {"Code":"AlreadyPosted","Message":"[pos].[return] is already posted!"}.
       if (!headerConfig.autoPosting) {
         await postDoc.mutateAsync(transactionId);
       }
@@ -354,12 +249,6 @@ function SoldItemFlowForm({ flow, onDone }) {
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
       <CustomerAttachedBanner customerId={customerId} customerName={customerName} />
-
-      {/* Return / Exchange / Buy Back all start from the same sold-item
-          picker and differ only in document type + pricing helper, so they're
-          modes here rather than three separate journeys — same as OrnaVerse's
-          own POS. Locked once items are chosen: the three produce different
-          documents, so a half-built selection can't carry across. */}
       <div className="flex flex-col gap-2">
         <Label>What&apos;s happening?</Label>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -479,13 +368,6 @@ function SoldItemFlowForm({ flow, onDone }) {
         </p>
       )}
 
-      {/* No refund/payout method picker here on purpose. Neither a Return
-          nor a Buy Back carries receipt_details (confirmed against
-          OrnaVerse's own payloads — sending them is rejected); both raise
-          the customer's credit instead. Settling that credit in cash is a
-          separate Refund / Credit Note document, so asking for a mode here
-          would collect a value we'd silently discard. */}
-
       <Button
         type="submit"
         disabled={isSubmitting || !customerId || selectedRows.length === 0}
@@ -497,31 +379,6 @@ function SoldItemFlowForm({ flow, onDone }) {
   );
 }
 
-// All three share the same weight/purity/rate shape, differing in how the
-// line item's `item_id` is resolved and whether a receipt (payout) section
-// is shown. Configured per type rather than duplicated three times.
-//
-// REBUILT 2026-07-16 — the original version invented `metal_type_id` +
-// freeform `item_name` fields that don't match OrnaVerse's real schema.
-// Confirmed via real Exchange/Buyback/URD Retrieve data: line items
-// reference a genuine master `item_id` (Exchange/Buyback: the actual piece
-// the customer is handing in, found by SKU search — see ItemSearchPicker;
-// URD: a fixed generic "URD GOLD" master item, see useURDMasterItem and
-// appConfig.js URD_MASTER_ITEMS for why it can't be searched). weight/
-// purity/item_rate are pre-filled from the resolved item but stay editable,
-// since a buyback/exchange appraisal rate can legitimately differ from the
-// item's original sale rate.
-
-// Only URD Purchase still belongs here. Returns, Buy Back and Exchange all
-// moved to SoldItemFlowForm on 2026-07-30: each is the store taking back a
-// piece it previously SOLD, so each needs the sold-item picker plus its own
-// Helpers/Set*Items pricing call — not hand-typed metal weights. That
-// mirrors OrnaVerse's own POS, where all three are modes of one Returns
-// screen sharing a single "Sold Item" picker.
-//
-// URD Purchase is genuinely different: old gold walks in off the street and
-// was never sold by us, so there's no sold-item record to price against and
-// hand-entered weight/purity/rate is the correct model.
 const METAL_TYPE_CONFIGS = {
   urd: {
     amountField: 'amount',
@@ -548,9 +405,6 @@ function buildMetalLineItemSchema(config) {
   return z.object(shape);
 }
 
-// No payout_mode_id here on purpose — see the note at the payout section in
-// the form body. A URD Purchase carries no receipt_details, so a payout mode
-// collected here could never be submitted.
 function buildMetalFormSchema(config) {
   return z.object({
     document_date: z.string().min(1, 'Required'),
@@ -589,9 +443,6 @@ function MetalLineItemForm({ type, onDone }) {
   const { fields, append, remove } = useFieldArray({ control, name: 'line_items' });
   const watchedItems = watch('line_items');
   const total = watchedItems.reduce((sum, i) => sum + (Number(i[config.amountField]) || 0), 0);
-
-  // Pre-fill weight/purity/item_rate from the picked item — still editable
-  // afterwards, since the appraised rate can differ from the item's own rate.
   const handleItemSelect = (index, item) => {
     setValue(`line_items.${index}.item`, item);
     setValue(`line_items.${index}.weight`, item.weight ?? item.net_weight ?? '');
@@ -605,13 +456,6 @@ function MetalLineItemForm({ type, onDone }) {
       return toast.error('URD Gold master item is still loading — try again in a moment.');
     }
     if (!headerConfig.isReady) {
-      // isError means the underlying queries already exhausted their
-      // retries and are stuck — "try again in a moment" alone would never
-      // resolve on its own from there, so kick off a fresh attempt now
-      // rather than leave the operator with no path but a hard refresh.
-      // isConfigMissing is a THIRD, distinct case (confirmed live 2026-08-14
-      // for Credit Note specifically — zero DocumentNumbering rows exist
-      // for it on any store) — no amount of retrying will ever fix that.
       if (headerConfig.isError) headerConfig.refetch();
       return toast.error(
         headerConfig.isConfigMissing
@@ -622,28 +466,6 @@ function MetalLineItemForm({ type, onDone }) {
       );
     }
     try {
-      // FIXED 2026-09-17 — full line_items shape below is reverse-engineered
-      // from a REAL, successfully posted URD Purchase on LIVE (transaction_id
-      // 109, the same fixed "URD GOLD" item_id 46875 this form always uses),
-      // read via a read-only Retrieve (no document created/changed to get
-      // it), then verified end-to-end on UAT (Create → auto-posted →
-      // Retrieve → Cancel, all succeeded — transaction_id 224). The
-      // PREVIOUS version of this code sent only item_id/item_code/item_name/
-      // weight/purity/item_rate/amount — nowhere near what URDPurchase's
-      // real Create handler expects; it needs the item's full classification
-      // (karat/metal/type/tax template/etc.), the same way a BOM component
-      // row does elsewhere in this app, not a bare transaction line.
-      //
-      // Two real, counter-intuitive findings from that reference record:
-      //   - `item_cost` is genuinely 0 on a real row — the actual amount
-      //     lives in sub_total/net_amount/taxable_amount/base_* instead
-      //     (unlike every OTHER document type here, where the analogous
-      //     field carries the real amount).
-      //   - karat_id is 1022 ("OldGold") — a distinct classification from
-      //     whatever karat the same item_id resolves to elsewhere. This is
-      //     the piece that was actually missing before (not the amount
-      //     field naming) — supplying `taxable_amount` without also
-      //     supplying this real classification is what crashed Create.
       const line_items = data.line_items.map((i) => {
         const resolvedItem = config.pickerMode === 'fixed' ? urdItem : i.item;
         const amount = Number(i[config.amountField]);
@@ -660,9 +482,6 @@ function MetalLineItemForm({ type, onDone }) {
           tax_template_id:   resolvedItem.tax_template_id,
           item_group_id:     resolvedItem.item_group_id,
           base_item_id:      resolvedItem.base_item_id,
-          // Confirmed on the real reference record, not present (or not
-          // reliably present) on every Items/Retrieve shape — real, fixed
-          // values for this tenant's "URD GOLD" master item specifically.
           karat_id:     resolvedItem.karat_id     ?? 1022,
           metal_id:     resolvedItem.metal_id     ?? 0,
           type_id:      resolvedItem.type_id      ?? 13,
@@ -685,8 +504,6 @@ function MetalLineItemForm({ type, onDone }) {
           pure_weight: +(weight * purity).toFixed(3),
           item_rate: Number(i.item_rate),
           item_labour: 0,
-
-          // The real amount — item_cost genuinely stays 0 (see header note above).
           item_cost: 0,
           sub_total: amount,
           net_amount: amount,
@@ -702,7 +519,7 @@ function MetalLineItemForm({ type, onDone }) {
           diamond_pieces: 0, diamond_weight: 0, stone_pieces: 0, stone_weight: 0,
           other_pieces: 0, other_weight: 0, color_stone_pieces: 0, color_stone_weight: 0,
 
-          location_id: 1, // "Finish Goods" — matches every real URD Purchase record on this tenant.
+          location_id: 1,
           is_urd: true,
           is_finished: false,
           is_acknowledged: true,
@@ -740,33 +557,13 @@ function MetalLineItemForm({ type, onDone }) {
         receiptAmount: total,
         documentDate: data.document_date,
       });
-      // FIXED 2026-09-17, confirmed live on UAT: URDPurchaseRow has no
-      // `mobile` field (only `phone_code`, never populated by this Create
-      // call) and no `receipt_amount` field (only `balance_amount`) —
-      // buildTransactionHeaderFields's generic branch sends both
-      // unconditionally since Order/Invoice genuinely need them, but
-      // either one 500s URDPurchase/Create specifically. Stripped here
-      // rather than in the shared helper, since Order/Invoice (and likely
-      // Credit Note, once its own DocumentNumbering gets configured on
-      // this tenant — untestable until then) still need them.
       const payload = {
         ...headerFields,
         line_items,
-        // NO receipt_details. Confirmed live on UAT 2026-07-29 that the field
-        // exists ONLY on Order/Invoice; on URDPurchase every real record has
-        // it `undefined`, and sending it 500s the Create.
       };
       const createRes = await create.mutateAsync(payload);
       const transactionId = createRes?.EntityId;
       if (!transactionId) throw new Error('Creation failed — no EntityId returned.');
-      // Only Post when the document type isn't already auto-posting — same
-      // guard as Return/Exchange/Buyback/Credit Note above. This was the
-      // one flow that skipped it and called Post unconditionally.
-      // CONFIRMED live 2026-08-14 via DocumentNumbering/List (document_id
-      // 104): auto_posting:true on every company row for this tenant — so
-      // every successful URD Purchase was hitting AlreadyPosted and
-      // showing the cashier a failure toast for a transaction that had, in
-      // fact, already gone through.
       if (!headerConfig.autoPosting) {
         await post.mutateAsync(transactionId);
       }
@@ -859,22 +656,12 @@ function MetalLineItemForm({ type, onDone }) {
         </div>
       )}
 
-      {/* No "Payout Method" picker. A URD Purchase records the old gold
-          coming in and raises what the store owes the customer; it carries
-          no receipt_details (Order/Invoice only — confirmed live), so a mode
-          chosen here could never be submitted. Paying the customer is a
-          separate Refund, which settles this against a real payout mode. */}
-
       <Button type="submit" disabled={isSubmitting || !customerId} className="h-12 mt-1">
         {isSubmitting ? config.processingLabel : config.submitLabel}
       </Button>
     </form>
   );
 }
-
-// Issued as a lump-sum store credit rather than an itemised return — matches
-// CreditNoteRow, which supports a header net_amount without requiring
-// line_items to be populated for a simple issuance.
 
 const creditNoteSchema = z.object({
   document_date:      z.string().min(1, 'Required'),
@@ -888,9 +675,6 @@ function CreditNoteNewForm({ onDone }) {
   const customerId    = useSelector(selectCartCustomerId);
   const customerName  = useSelector(selectCartCustomerName);
   const customerMobile = useSelector(selectCartCustomerMobile);
-  // document_id 123 ("CRN") — CONFIRMED 2026-08-01 off OrnaVerse's own New
-  // CreditNote form. This previously reused RETURN's 55, on the assumption
-  // the two shared a type because their List rows looked alike. They don't.
   const headerConfig = useOrderHeaderConfig(APP_CONFIG.DOCUMENT_TYPES.CREDIT_NOTE);
 
   const create = useCreateCreditNote({ onSuccess: () => {} });
@@ -904,13 +688,6 @@ function CreditNoteNewForm({ onDone }) {
   const onSubmit = async (data) => {
     if (!customerId) return toast.error('Assign a customer to the session before submitting.');
     if (!headerConfig.isReady) {
-      // isError means the underlying queries already exhausted their
-      // retries and are stuck — "try again in a moment" alone would never
-      // resolve on its own from there, so kick off a fresh attempt now
-      // rather than leave the operator with no path but a hard refresh.
-      // isConfigMissing is a THIRD, distinct case (confirmed live 2026-08-14
-      // for Credit Note specifically — zero DocumentNumbering rows exist
-      // for it on any store) — no amount of retrying will ever fix that.
       if (headerConfig.isError) headerConfig.refetch();
       return toast.error(
         headerConfig.isConfigMissing
@@ -936,9 +713,6 @@ function CreditNoteNewForm({ onDone }) {
       });
       const transactionId = createRes?.EntityId;
       if (!transactionId) throw new Error('Credit note creation failed — no EntityId returned.');
-      // Document 123 has auto_posting TRUE, so Create already posted it —
-      // posting again returns AlreadyPosted. Only post when the store's own
-      // config says the document doesn't self-post.
       if (!headerConfig.autoPosting) await post.mutateAsync(transactionId);
       onDone();
       reset();
@@ -976,19 +750,6 @@ function CreditNoteNewForm({ onDone }) {
   );
 }
 
-// REBUILT 2026-07-31 after capturing the ERP's own Refund dialog.
-//
-// A refund PAYS OUT credit that a Return / Exchange / Buy Back already
-// raised — it is not a free-standing "give the customer money" document.
-// The old form asked for a bare amount + mode and fired THREE calls
-// (create → RefundDetails/Create → RefundReceipts/Create) with no link to
-// any credit at all, so it produced refunds that settled nothing.
-//
-// Real flow: pick which outstanding credit(s) to settle, say how the money
-// leaves, and Create ONCE with details[] + receipts[] nested. The receipt
-// MUST carry the credit's transaction_id — that FK is the settlement; two
-// hand-built refunds saved cleanly without it and left the credit open.
-// See refundService.js.
 const refundSchema = z.object({
   document_date: z.string().min(1, 'Required'),
   mode_id:       z.coerce.number().min(1, 'Select how the money is paid out'),
@@ -1027,13 +788,6 @@ function RefundNewForm({ onDone }) {
   const onSubmit = async (data) => {
     if (!customerId) return toast.error('Assign a customer to the session before submitting.');
     if (!headerConfig.isReady) {
-      // isError means the underlying queries already exhausted their
-      // retries and are stuck — "try again in a moment" alone would never
-      // resolve on its own from there, so kick off a fresh attempt now
-      // rather than leave the operator with no path but a hard refresh.
-      // isConfigMissing is a THIRD, distinct case (confirmed live 2026-08-14
-      // for Credit Note specifically — zero DocumentNumbering rows exist
-      // for it on any store) — no amount of retrying will ever fix that.
       if (headerConfig.isError) headerConfig.refetch();
       return toast.error(
         headerConfig.isConfigMissing
@@ -1051,8 +805,6 @@ function RefundNewForm({ onDone }) {
         activeStoreId: storeId,
         financialYearId: headerConfig.financialYearId,
         documentDate: data.document_date,
-        // settle each selected credit in full — the API supports partial
-        // (allow_partial:true) but there's no per-credit amount input yet.
         credits: selectedCredits.map((credit) => ({ credit, amount: credit.amount })),
         payout: {
           modeId:   Number(data.mode_id),
@@ -1151,12 +903,7 @@ function RefundNewForm({ onDone }) {
       >
         {isSubmitting ? 'Processing Refund…' : 'Submit Refund'}
       </Button>
-
-      {/* Confirmed live 2026-08-14 (see refundService.js's stampRefDocumentNo
-          header for the full repro): the payout is real and this does file
-          a refund record, but the underlying credit is NOT actually marked
-          settled afterward — its balance stays exactly where it was. Say so
-          plainly; this is a real-money gap, not a cosmetic one. */}
+      
       <p className="flex items-start gap-1.5 text-xs text-muted-foreground -mt-2">
         <AlertCircle size={13} className="shrink-0 mt-0.5 text-status-made-order" aria-hidden="true" />
         The selected credit(s) may still show as outstanding after this — OrnaVerse
@@ -1167,30 +914,6 @@ function RefundNewForm({ onDone }) {
   );
 }
 
-// ADDED 2026-09-16 — Cancel/Delete was fully implemented at the mutation-hook
-// level for all 6 transaction types (useCancelReturn/useDeleteRefund/
-// useCancelCreditNote/useCancelExchange/useCancelBuyback/useCancelURDPurchase
-// in useTransactionMutations.js) but had ZERO call sites anywhere — this
-// sheet was view-only, so a created document could never be voided from
-// this app once it existed. Wired here, generically, keyed by the active
-// tab's `type` so one detail sheet serves all 6 without six near-duplicate
-// components.
-//
-// CORRECTED 2026-09-17 against a real live Services/POS/*/List capture on
-// every one of these 6 types (plus Repair In/Out/Invoice and Invoice
-// itself): a real `document_status` field DOES exist on every row (a
-// previous comment here claimed otherwise — that was wrong, not just
-// unconfirmed). It's now surfaced in this sheet's own headerRows below.
-// Its enum meaning per type is still NOT confirmed (only ever observed as
-// 1 on posted-looking rows and 0 on one real RepairIn row that nonetheless
-// already had posting_date/posted_by set, so a simple "0 = draft, 1 =
-// posted" reading doesn't hold cleanly across types) — shown as a neutral
-// raw number, same convention SchemeCard already uses for an unconfirmed
-// enum, rather than guessing a label. The action button is still always
-// shown rather than guessed-hidden for this same reason; OrnaVerse's own
-// API remains the source of truth for rejecting a document that's already
-// in a state that can't be cancelled (surfaced via the mutation's existing
-// onError toast, same as every other action in this file).
 const CANCEL_LABEL_BY_TYPE = {
   returns:        'Cancel Return',
   refunds:        'Delete Refund',
@@ -1202,11 +925,6 @@ const CANCEL_LABEL_BY_TYPE = {
 
 function TransactionDetailSheet({ transaction, type, onClose }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
-
-  // Every type's mutation hook is called unconditionally (Rules of Hooks —
-  // this component can't call just one based on `type`), then the right
-  // one is picked below. Each hook call is cheap: useMutation does nothing
-  // until .mutate() actually runs.
   const cancelReturn     = useCancelReturn({ onSuccess: onClose });
   const deleteRefund     = useDeleteRefund({ onSuccess: onClose });
   const cancelCreditNote = useCancelCreditNote({ onSuccess: onClose });
@@ -1230,9 +948,6 @@ function TransactionDetailSheet({ transaction, type, onClose }) {
     { icon: Calendar,    label: 'Date',        value: formatDate(transaction.documentDate) },
     { icon: User,        label: 'Customer',    value: transaction.customerName ?? '—' },
     { icon: IndianRupee, label: 'Amount',      value: formatINR(transaction.amount) },
-    // Raw, unlabeled value — see this component's own header for why: the
-    // enum's meaning per document type isn't confirmed, so this shows what
-    // OrnaVerse reports rather than a guessed "Draft"/"Posted" string.
     ...(raw.document_status != null
       ? [{ icon: AlertCircle, label: 'Status', value: `${raw.document_status}${raw.posted_by_name ? ` · posted by ${raw.posted_by_name}` : ''}` }]
       : []),
@@ -1334,29 +1049,6 @@ function TransactionRow({ item, onSelect }) {
 function TransactionList({ hook: useHook, emptyMessage, type }) {
   const [skip, setSkip]         = useState(0);
   const [selected, setSelected] = useState(null);
-
-  // ADDED 2026-09-09 — "Show only my transactions" toggle, requested to
-  // mirror the customer profile page's own party-scoped view. Only offered
-  // when a customer is actually attached (same header-level attach state
-  // this file already reads for CustomerAttachedBanner above — global,
-  // independent of checkout, so it's available on this plain list view
-  // too). Off by default and reset per tab — TABS.map below mounts a fresh
-  // TransactionList per tab, so switching tabs never silently carries the
-  // filter over to a different transaction type.
-  //
-  // CLIENT-SIDE, not a server param — confirmed (useTransactionLists.js's
-  // own header + transactionService.js) none of the 6 List endpoints
-  // (Return/Refund/CreditNote/Exchange/BuyBack/URDPurchase) accept a
-  // party_id filter; they're store-scoped and paginated only. So this
-  // narrows whatever page is ALREADY loaded to this customer's own rows in
-  // it — the same page window as the unfiltered view, not a guaranteed
-  // search of this customer's entire history. That's a real, different
-  // (lesser) guarantee than the customer profile page's own 360 tab, which
-  // calls a genuinely party_id-scoped endpoint — see useCustomer360.js.
-  // Reusing that richer endpoint here instead would need per-tab mapping
-  // work (its response has no Refund/CreditNote arrays at all), so this
-  // stays a straightforward in-page filter for now, honestly presented as
-  // such via the "on this page" wording in the empty state below.
   const [showOnlyCustomer, setShowOnlyCustomer] = useState(false);
   const customerId   = useSelector(selectCartCustomerId);
   const customerName = useSelector(selectCartCustomerName);
@@ -1441,9 +1133,10 @@ function TransactionsScreen() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const initialTab = TABS.find((t) => t.id === searchParams.get('tab'))?.id ?? TABS[0].id;
+  const initialView = searchParams.get('new') === '1' ? 'new' : 'list';
 
   const [activeTab, setActiveTab] = useState(initialTab);
-  const [view, setView]           = useState('list'); // 'list' | 'new'
+  const [view, setView]           = useState(initialView); // 'list' | 'new'
   const storeId = useSelector((state) => state.store.activeStoreId);
 
   const activeTabConfig = TABS.find((t) => t.id === activeTab) ?? TABS[0];
@@ -1459,12 +1152,6 @@ function TransactionsScreen() {
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm text-muted-foreground">Returns, refunds, and post-sale activity</p>
         <div className="flex items-center gap-2 shrink-0">
-          {/* Interstore Return entry point (2026-09-28, explicit direction) —
-              a cross-branch return is a fully separate feature (/transfers,
-              its own lifecycle/approval flow) that previously had no
-              affordance from this page at all, only the sidebar nav. Purely
-              additive: doesn't touch TABS, PillTabs, or the New/Cancel toggle
-              below, which stays about THIS store's own same-store returns. */}
           {storeId && activeTab === 'returns' && view === 'list' && (
             <Button
               size="sm"

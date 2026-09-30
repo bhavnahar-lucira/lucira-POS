@@ -1,19 +1,30 @@
 'use client';
 
-// Full catalog filter panel (2026-09-28) — Category + Diamond Shape + Carat
-// + Weight (Gold|Diamond) + Material + Price, all in one place instead of
-// Category sitting alone as a top-row chip strip. Rendered as BottomSheet's
-// content — a right-side drawer on desktop/tablet, a bottom sheet on mobile
-// (BottomSheet itself picks the layout) — so this ONE component is the
-// whole filter UI on every breakpoint, no separate mobile/desktop
-// implementations to keep in sync. Color removed (2026-09-28, direction).
+// Full catalog filter panel — redesigned 2026-09-30 to match OrnaVerse's own
+// real Filters panel field-for-field, after directly cross-checking it live:
+// Category, Sub Category (disabled until a category is picked), Karat,
+// Metal Color, Diamond Shape, Item Size, Collection — each a checkbox list
+// with an inline search box for longer lists — then "Measurements" (Weight
+// (g) / Diamond Weight (ct) as plain From/To number pairs) and its own
+// independent "Price" section (a dual-thumb RangeSlider, not a From/To pair
+// — reported directly: wanted a slider "with the same logic", i.e. same
+// underlying priceMin/priceMax facet, just a different control and out of
+// Measurements). Rendered as BottomSheet's content (right-side drawer on
+// desktop, bottom sheet on mobile), same as before this redesign.
 //
-// Options are computed live from whatever's currently loaded (facetOptions
-// prop, from lib/catalogFacets.js's buildFacetOptions) — every checkbox
-// shows a real count and options that don't exist in the current store/
-// category never appear, rather than a static list that's often empty.
+// Every id-array field here (subTypeIds/karatIds/metalColorIds/shapeIds/
+// itemSizeIds/collectionIds) maps straight to a real ProductCatalog/List
+// server-side filter (sub_type_ids/karat_ids/metal_ids/shape_ids/
+// item_size_ids/collection_ids — see useCatalogProducts.js) — options come
+// from real master-data endpoints (see useCatalogFilterOptions.js), not
+// counted/computed from whatever happens to be loaded, same as OrnaVerse's
+// own dropdowns. Price is the one exception, still client-side — see
+// lib/catalogFacets.js's own header for why.
 
+import { useState } from 'react';
+import { Search } from 'lucide-react';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
+import { Input } from '@/components/ui/input';
 import RangeSlider from '@/components/shared/RangeSlider';
 import CategoryFilter from '@/components/features/catalog/CategoryFilter';
 import { formatAmountOrNull as formatINR } from '@/lib/priceUtils';
@@ -22,20 +33,124 @@ function toggle(arr, value) {
   return arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value];
 }
 
-function CheckboxRow({ label, count, checked, onChange }) {
+function CheckboxRow({ label, checked, onChange }) {
   return (
-    <label className="flex items-center justify-between gap-2 py-2 cursor-pointer select-none">
-      <span className="flex items-center gap-2.5 text-sm text-foreground">
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={onChange}
-          className="h-4 w-4 rounded border-border text-accent focus-visible:ring-2 focus-visible:ring-accent accent-accent"
-        />
-        {label}
-      </span>
-      {count != null && <span className="text-xs text-muted-foreground">({count})</span>}
+    <label className="flex items-center gap-2.5 py-2 cursor-pointer select-none text-sm text-foreground">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        className="h-4 w-4 rounded border-border text-accent focus-visible:ring-2 focus-visible:ring-accent accent-accent"
+      />
+      {label}
     </label>
+  );
+}
+
+// Search box only kicks in past this many options — a short list (Karat,
+// Metal Color) never needs one, matching OrnaVerse's own panel closely
+// enough without adding a search box nobody would use.
+const SEARCHABLE_THRESHOLD = 10;
+
+function CheckboxGroup({ options, selected, onToggle, isLoading, emptyLabel }) {
+  const [query, setQuery] = useState('');
+
+  if (isLoading) {
+    return <p className="py-2 text-xs text-muted-foreground">Loading…</p>;
+  }
+  if (!options.length) {
+    return <p className="py-2 text-xs text-muted-foreground">{emptyLabel ?? 'No options available.'}</p>;
+  }
+
+  const visible = options.length > SEARCHABLE_THRESHOLD && query.trim()
+    ? options.filter((o) => o.label.toLowerCase().includes(query.trim().toLowerCase()))
+    : options;
+
+  return (
+    <div className="flex flex-col">
+      {options.length > SEARCHABLE_THRESHOLD && (
+        <div className="relative mb-1">
+          <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search…"
+            className="h-9 pl-8 text-sm"
+          />
+        </div>
+      )}
+      <div className="max-h-56 overflow-y-auto pr-1">
+        {visible.map((opt) => (
+          <CheckboxRow
+            key={opt.value}
+            label={opt.label}
+            checked={selected.includes(opt.value)}
+            onChange={() => onToggle(opt.value)}
+          />
+        ))}
+        {options.length > SEARCHABLE_THRESHOLD && !visible.length && (
+          <p className="py-2 text-xs text-muted-foreground">No match.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Local state is the source of truth while the operator is actively
+// typing, committed through ONE onChange({ from, to }) call per keystroke —
+// reading the parent's fromValue/toValue PROPS directly inside each field's
+// own onChange (an earlier version of this) races when both fields are
+// edited in quick succession: the second field's onChange still closes over
+// the first field's PRE-edit prop (React/Next hasn't re-rendered from the
+// first edit's router.replace() yet) and silently overwrites it back to
+// blank — confirmed live (typing From then To dropped From entirely), same
+// underlying race useCatalogFilters.js's setFacets already documents for
+// weightMode+weightBuckets. Local state sidesteps it: it updates
+// synchronously within this component, so the second edit always reads the
+// first edit's real, just-typed value, not a stale prop.
+function RangePair({ label, unit, fromValue, toValue, onChange }) {
+  const [local, setLocal] = useState({ from: fromValue, to: toValue });
+
+  // Re-sync when the PARENT's values change for a reason other than this
+  // component's own edits (e.g. "Clear all") — mid-render adjustment, same
+  // idiom as CheckoutPaymentSection's lastPricedTotal.
+  const [lastProps, setLastProps] = useState({ from: fromValue, to: toValue });
+  if (lastProps.from !== fromValue || lastProps.to !== toValue) {
+    const wasInSync = local.from === lastProps.from && local.to === lastProps.to;
+    setLastProps({ from: fromValue, to: toValue });
+    if (wasInSync) setLocal({ from: fromValue, to: toValue });
+  }
+
+  const commit = (next) => {
+    setLocal(next);
+    onChange(next);
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-xs font-medium text-muted-foreground">
+        {label} {unit && <span className="text-muted-foreground/70">({unit})</span>}
+      </span>
+      <div className="flex items-center gap-2">
+        <Input
+          type="number"
+          inputMode="decimal"
+          value={local.from ?? ''}
+          onChange={(e) => commit({ from: e.target.value === '' ? null : Number(e.target.value), to: local.to })}
+          placeholder="From"
+          className="h-9 text-sm"
+        />
+        <span className="text-muted-foreground" aria-hidden="true">–</span>
+        <Input
+          type="number"
+          inputMode="decimal"
+          value={local.to ?? ''}
+          onChange={(e) => commit({ from: local.from, to: e.target.value === '' ? null : Number(e.target.value) })}
+          placeholder="To"
+          className="h-9 text-sm"
+        />
+      </div>
+    </div>
   );
 }
 
@@ -51,7 +166,16 @@ function Section({ title, children }) {
 /**
  * @param {{
  *   categories: object[], activeCategorySlug: string|null, onSelectCategory: (slug: string|null) => void,
- *   facetOptions: ReturnType<typeof import('@/lib/catalogFacets').buildFacetOptions>,
+ *   subCategoryOptions: {value:number,label:string}[], subCategoryLoading: boolean,
+ *   karatOptions: {value:number,label:string}[],
+ *   metalColorOptions: {value:number,label:string}[],
+ *   diamondShapeOptions: {value:number,label:string}[],
+ *   itemSizeOptions: {value:number,label:string}[],
+ *   collectionOptions: {value:number,label:string}[],
+ *   priceBounds: {min:number,max:number}|null — the Price slider's own
+ *     track bounds, live-computed from whatever's currently priced (see
+ *     lib/catalogFacets.js's getPriceBounds) — section hides while null
+ *     (nothing priced yet, or every price identical).
  *   facets: object, onFacetsChange: (patch: object) => void,
  *   showOutOfStock: boolean, onShowOutOfStockChange: (val: boolean) => void,
  *   hasActiveFilters: boolean, onClearFilters: () => void,
@@ -61,7 +185,14 @@ export default function ProductFilterPanel({
   categories,
   activeCategorySlug,
   onSelectCategory,
-  facetOptions,
+  subCategoryOptions,
+  subCategoryLoading,
+  karatOptions,
+  metalColorOptions,
+  diamondShapeOptions,
+  itemSizeOptions,
+  collectionOptions,
+  priceBounds,
   facets,
   onFacetsChange,
   showOutOfStock,
@@ -69,8 +200,6 @@ export default function ProductFilterPanel({
   hasActiveFilters,
   onClearFilters,
 }) {
-  const weightOptions = facets.weightMode === 'diamond' ? facetOptions.diamondWeightBuckets : facetOptions.goldWeightBuckets;
-
   return (
     <div className="flex flex-col gap-1">
       {hasActiveFilters && (
@@ -95,8 +224,21 @@ export default function ProductFilterPanel({
           />
         </Section>
 
-        {/* Moved in from the sticky bar's own standalone toggle (2026-09-28,
-            explicit direction) — it's a filter like any other here. */}
+        {/* Disabled until a category is picked — matches OrnaVerse's own
+            "Select a category first" placeholder exactly. */}
+        <Section title="Sub Category">
+          {!activeCategorySlug ? (
+            <p className="py-2 text-xs text-muted-foreground">Select a category first.</p>
+          ) : (
+            <CheckboxGroup
+              options={subCategoryOptions}
+              selected={facets.subTypeIds}
+              isLoading={subCategoryLoading}
+              onToggle={(value) => onFacetsChange({ subTypeIds: toggle(facets.subTypeIds, value) })}
+            />
+          )}
+        </Section>
+
         <Section title="Availability">
           <CheckboxRow
             label="Include out of stock"
@@ -105,98 +247,87 @@ export default function ProductFilterPanel({
           />
         </Section>
 
-        {facetOptions.priceMin != null && facetOptions.priceMax > facetOptions.priceMin && (
-          <Section title="Price">
+        {/* Independent section, not a From/To pair in Measurements — same
+            priceMin/priceMax facet as before, just a dual-thumb slider.
+            ALWAYS rendered (reported directly: hiding the whole section
+            whenever priceBounds was still null — nothing priced yet, or the
+            currently-visible page happens to be all unpriceable items, e.g.
+            Silver925 — made the filter appear to have vanished entirely).
+            Falls back to a message instead of the slider until real bounds
+            exist, same convention as CheckboxGroup's own loading/empty states. */}
+        <Section title="Price">
+          {priceBounds ? (
             <RangeSlider
-              min={Math.floor(facetOptions.priceMin)}
-              max={Math.ceil(facetOptions.priceMax)}
+              min={priceBounds.min}
+              max={priceBounds.max}
               value={[
-                facets.priceMin ?? Math.floor(facetOptions.priceMin),
-                facets.priceMax ?? Math.ceil(facetOptions.priceMax),
+                facets.priceMin ?? priceBounds.min,
+                facets.priceMax ?? priceBounds.max,
               ]}
               onChange={(lo, hi) => onFacetsChange({ priceMin: lo, priceMax: hi })}
               formatValue={formatINR}
             />
-          </Section>
-        )}
+          ) : (
+            <p className="py-2 text-xs text-muted-foreground">
+              Waiting for prices to load…
+            </p>
+          )}
+        </Section>
 
-        {facetOptions.caratBuckets.length > 0 && (
-          <Section title="Carat Range">
-            {facetOptions.caratBuckets.map((opt) => (
-              <CheckboxRow
-                key={opt.value}
-                label={opt.label}
-                count={opt.count}
-                checked={facets.caratBuckets.includes(opt.value)}
-                onChange={() => onFacetsChange({ caratBuckets: toggle(facets.caratBuckets, opt.value) })}
-              />
-            ))}
-          </Section>
-        )}
+        <Section title="Karat">
+          <CheckboxGroup
+            options={karatOptions}
+            selected={facets.karatIds}
+            onToggle={(value) => onFacetsChange({ karatIds: toggle(facets.karatIds, value) })}
+          />
+        </Section>
 
-        {facetOptions.shapes.length > 0 && (
-          <Section title="Diamond Shape">
-            {facetOptions.shapes.map((opt) => (
-              <CheckboxRow
-                key={opt.value}
-                label={opt.label}
-                count={opt.count}
-                checked={facets.shapes.includes(opt.value)}
-                onChange={() => onFacetsChange({ shapes: toggle(facets.shapes, opt.value) })}
-              />
-            ))}
-          </Section>
-        )}
+        <Section title="Metal Color">
+          <CheckboxGroup
+            options={metalColorOptions}
+            selected={facets.metalColorIds}
+            onToggle={(value) => onFacetsChange({ metalColorIds: toggle(facets.metalColorIds, value) })}
+          />
+        </Section>
 
-        {(facetOptions.goldWeightBuckets.length > 0 || facetOptions.diamondWeightBuckets.length > 0) && (
-          <Section title="Weight">
-            <div className="flex gap-1 mb-3 rounded-lg bg-secondary p-1">
-              {['gold', 'diamond'].map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => onFacetsChange({ weightMode: mode, weightBuckets: [] })}
-                  className={`flex-1 rounded-md py-1.5 text-xs font-medium capitalize transition-colors ${
-                    facets.weightMode === mode ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground'
-                  }`}
-                >
-                  {mode}
-                </button>
-              ))}
-            </div>
-            {/* Diamond can legitimately have nothing to show (most catalog
-                rows carry no diamond weight at all) — a blank list under an
-                otherwise-working tab reads as broken, so say so explicitly. */}
-            {weightOptions.length === 0 && (
-              <p className="py-2 text-xs text-muted-foreground">
-                No {facets.weightMode} weight data in the current results.
-              </p>
-            )}
-            {weightOptions.map((opt) => (
-              <CheckboxRow
-                key={opt.value}
-                label={opt.label}
-                count={opt.count}
-                checked={facets.weightBuckets.includes(opt.value)}
-                onChange={() => onFacetsChange({ weightBuckets: toggle(facets.weightBuckets, opt.value) })}
-              />
-            ))}
-          </Section>
-        )}
+        <Section title="Diamond Shape">
+          <CheckboxGroup
+            options={diamondShapeOptions}
+            selected={facets.shapeIds}
+            onToggle={(value) => onFacetsChange({ shapeIds: toggle(facets.shapeIds, value) })}
+          />
+        </Section>
 
-        {facetOptions.materials.length > 0 && (
-          <Section title="Material Type">
-            {facetOptions.materials.map((opt) => (
-              <CheckboxRow
-                key={opt.value}
-                label={opt.label}
-                count={opt.count}
-                checked={facets.materials.includes(opt.value)}
-                onChange={() => onFacetsChange({ materials: toggle(facets.materials, opt.value) })}
-              />
-            ))}
-          </Section>
-        )}
+        <Section title="Item Size">
+          <CheckboxGroup
+            options={itemSizeOptions}
+            selected={facets.itemSizeIds}
+            onToggle={(value) => onFacetsChange({ itemSizeIds: toggle(facets.itemSizeIds, value) })}
+          />
+        </Section>
+
+        <Section title="Collection">
+          <CheckboxGroup
+            options={collectionOptions}
+            selected={facets.collectionIds}
+            onToggle={(value) => onFacetsChange({ collectionIds: toggle(facets.collectionIds, value) })}
+          />
+        </Section>
+
+        <Section title="Measurements">
+          <div className="flex flex-col gap-4">
+            <RangePair
+              label="Weight" unit="g"
+              fromValue={facets.weightFrom} toValue={facets.weightTo}
+              onChange={({ from, to }) => onFacetsChange({ weightFrom: from, weightTo: to })}
+            />
+            <RangePair
+              label="Diamond Weight" unit="ct"
+              fromValue={facets.diamondWeightFrom} toValue={facets.diamondWeightTo}
+              onChange={({ from, to }) => onFacetsChange({ diamondWeightFrom: from, diamondWeightTo: to })}
+            />
+          </div>
+        </Section>
       </Accordion>
     </div>
   );

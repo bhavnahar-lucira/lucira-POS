@@ -9,11 +9,13 @@ import { useCatalogFilters }     from '@/hooks/catalog/useCatalogFilters';
 import { useCatalogProducts }    from '@/hooks/catalog/useCatalogProducts';
 import { useAllCatalog }         from '@/hooks/catalog/useAllCatalog';
 import { useSkuSearch }          from '@/hooks/catalog/useSkuSearch';
+import { useExactSkuSearch }     from '@/hooks/catalog/useExactSkuSearch';
 import { useCategoryNameSearch } from '@/hooks/catalog/useCategoryNameSearch';
 import { useCategories }         from '@/hooks/catalog/useCategoryFilters';
+import { useSubTypeOptions, useAttributeOptions, useItemSizeOptions } from '@/hooks/catalog/useCatalogFilterOptions';
 import { useLiveCatalogPrices }  from '@/hooks/catalog/useLiveCatalogPrices';
 import { useCrossStoreStockCodes } from '@/hooks/catalog/useCrossStoreStockCodes';
-import { getStockPieceBySku, createItemEnquiry } from '@/services/inventoryService';
+import { useBarcodeLookup } from '@/hooks/catalog/useBarcodeLookup';
 
 import ProductGrid           from '@/components/features/catalog/ProductGrid';
 import ProductSearchBar      from '@/components/features/catalog/ProductSearchBar';
@@ -28,7 +30,7 @@ import { Button }            from '@/components/ui/button';
 import { SlidersHorizontal } from 'lucide-react';
 
 import { stableSortProducts } from '@/lib/catalogSort';
-import { buildFacetOptions, applyFacetFilters, hasActiveFacets } from '@/lib/catalogFacets';
+import { applyPriceFilter, getPriceBounds } from '@/lib/catalogFacets';
 import APP_CONFIG from '@/constants/appConfig';
 import tracker from '@/lib/analytics/tracker';
 import EVENTS from '@/lib/analytics/events';
@@ -77,13 +79,23 @@ function getMatchingTypeIds(q, categories) {
  * real price (price: null until useLiveCatalogPrices merges it in downstream),
  * so sorting at this stage would compare null against null. Sorting happens
  * once, in the page component, after live prices are merged (stableSortProducts).
+ *
+ * NOTE (2026-09-30): Sub Category/Karat/Metal Color/Diamond Shape/Item Size/
+ * Collection/Weight/Diamond Weight are NOT applied here — those are now real
+ * server-side ProductCatalog/List filters (see useCatalogProducts.js), which
+ * only narrows BROWSE mode's own query. A text search runs against the
+ * separate full-tenant sweep (useAllCatalog), which has no way to accept
+ * these ids either — combining a text search with one of these filters is
+ * therefore a known, accepted gap, same boundary the old bucket-facet system
+ * already had (isFacetMode forced the sweep for facets; a real search still
+ * wouldn't have known about a piece's karat/shape/etc there). Price still
+ * applies in both modes — see visibleDisplayProducts below.
  */
 function applySearchFilterOnly(allProducts, {
   searchQuery,
   activeCategoryId,
   showOutOfStock,
   categories,
-  facets,
 }) {
   let result = allProducts;
 
@@ -106,10 +118,6 @@ function applySearchFilterOnly(allProducts, {
       return false;
     });
   }
-
-  // Non-price facets only — price needs live prices merged in first, see
-  // page.jsx's own visibleDisplayProducts.
-  if (facets) result = applyFacetFilters(result, { ...facets, priceMin: null, priceMax: null });
 
   return result;
 }
@@ -145,15 +153,15 @@ function CatalogScreen() {
 
   const effectiveStoreId = catalogStoreId ?? reduxStoreId;
   const isSearchMode     = !!searchQuery && searchQuery.length >= SEARCH.MIN_QUERY_LENGTH;
-  // Non-price facets only — the price facet needs live prices merged in
-  // first (see visibleDisplayProducts below), so it can't gate mode
-  // selection here the same way.
-  const hasNonPriceFacets = hasActiveFacets({ ...facets, priceMin: null, priceMax: null });
-  // Any facet active (browse mode alone can't answer these — the small,
-  // paginated browse Take almost never contains every matching item, which
-  // is exactly the "filter doesn't work" bug reported) switches to the same
-  // full-store-sweep pool search mode already uses (useAllCatalog).
-  const isFacetMode      = hasNonPriceFacets || facets.priceMin != null || facets.priceMax != null;
+  // A real text search (or a barcode scan, which lands here via
+  // handleBarcodeDetected below — see useBarcodeLookup) always finds a real
+  // match regardless of stock here — an operator typing/scanning a specific
+  // code has already identified a real piece and expects to find it, same
+  // as OrnaVerse's own item search (not scoped to one store's stock).
+  // Reported directly (2026-09-30): keep this OUT of plain browse/facet
+  // filtering — those stay governed by the operator's own "Include out of
+  // stock" toggle exactly as before; only an actual search bypasses it.
+  const searchShowOutOfStock = isSearchMode || showOutOfStock;
 
   // Every other store the operator is assigned to, for the "Available at
   // other stores" lane (gated on the primary store's list running out).
@@ -199,6 +207,21 @@ function CatalogScreen() {
     storeId:           effectiveStoreId,
     show_out_of_stock: showOutOfStock,
     ...(activeCategoryId && { type_ids: [activeCategoryId] }),
+    // Real server-side filters (2026-09-30 redesign) — see
+    // useCatalogFilters.js's own header for why these replaced the old
+    // client-side bucket facets. Only meaningful in browse mode; search
+    // mode's separate full-sweep pool doesn't accept these (see
+    // applySearchFilterOnly's own note).
+    sub_type_ids:        facets.subTypeIds,
+    karat_ids:           facets.karatIds,
+    metal_ids:           facets.metalColorIds,
+    shape_ids:           facets.shapeIds,
+    item_size_ids:       facets.itemSizeIds,
+    collection_ids:      facets.collectionIds,
+    from_weight:         facets.weightFrom,
+    to_weight:           facets.weightTo,
+    from_diamond_weight: facets.diamondWeightFrom,
+    to_diamond_weight:   facets.diamondWeightTo,
   });
 
   // UNSORTED — sorting now happens once, after live prices are merged in
@@ -211,17 +234,16 @@ function CatalogScreen() {
   // name + SKU search once ready; useSkuSearch (instant server-side SKU
   // search) covers the interim while (1) is still loading.
   //
-  // useAllCatalog is deferred until the user actually searches OR applies a
-  // facet filter (a large store can burst hundreds of requests, and most
-  // visits never touch either). A facet needs the SAME full sweep search
-  // does, not the small paginated browse page — the browse Take almost
-  // never contains every matching item, which is exactly the "filter
-  // doesn't work properly" bug reported (2026-09-28). Once triggered it
-  // stays enabled regardless of isSearchMode/isFacetMode, so clearing either
-  // mid-fetch doesn't cancel the sync already in flight. Latched via "adjust
-  // state during render" rather than an effect, so the enabled flag is
-  // correct in the same render either mode first turns true.
-  const needsFullSweep = isSearchMode || isFacetMode;
+  // useAllCatalog is deferred until the user actually searches (a large store
+  // can burst hundreds of requests, and most visits never search at all).
+  // FILTERING no longer needs this sweep at all (2026-09-30) — every facet
+  // except Price is now a real server-side ProductCatalog/List filter (see
+  // the useCatalogProducts call above), so only a genuine text search still
+  // needs the full-tenant pool. Once triggered it stays enabled regardless of
+  // isSearchMode, so clearing it mid-fetch doesn't cancel the sync already in
+  // flight. Latched via "adjust state during render" rather than an effect,
+  // so the enabled flag is correct in the same render search mode first turns true.
+  const needsFullSweep = isSearchMode;
   const [hasSearched, setHasSearched]                 = useState(needsFullSweep);
   const [prevNeedsFullSweep, setPrevNeedsFullSweep]   = useState(needsFullSweep);
   if (needsFullSweep !== prevNeedsFullSweep) {
@@ -239,16 +261,39 @@ function CatalogScreen() {
                  // not "broken" (reported 2026-09-28 as "no products after
                  // refresh" — a facet in the URL forces this same slow path
                  // on every fresh load, same as it does for a text search).
-  // showOutOfStock (2026-09-23) — without this, the toggle had zero effect
-  // on text search: the shared sweep never contained an out-of-stock item
-  // regardless of what the operator picked. See useAllCatalog's own header
-  // for the separate, larger pool this switches to (own cache key, only
-  // fetched once the operator actually turns the toggle on).
+  // The raw toggle, NOT searchShowOutOfStock — REVERTED 2026-09-30 (reported
+  // directly: search got noticeably slower). Forcing the out-of-stock sweep
+  // for every search meant paging up to 2000 rows instead of 500 (see
+  // useAllCatalog's own SAFETY_MAX_PAGES) even when the fast SKU path below
+  // already has the answer. An exact code/SKU match now survives entirely
+  // through skuResults (see the merge below, both before AND after the slow
+  // sweep finishes) — it doesn't need this sweep to also include
+  // out-of-stock rows, so there's no reason to pay for the bigger one on
+  // every search. A facet-only filter still uses the raw toggle either way.
   } = useAllCatalog(effectiveStoreId, { enabled: hasSearched, showOutOfStock });
 
+  // Kept enabled for the WHOLE search session (not just pre-index) — same
+  // fix, same reason, as useCategoryNameSearch below. FIXED 2026-09-30
+  // (reported directly: search returns nothing for a real item_code/SKU) —
+  // this used to stop (isSearchMode && !allReady) the instant the slow full
+  // sweep finished, resetting skuResults to [] via its query key switching
+  // to '' — so an out-of-stock exact match this fast path found during the
+  // interim window silently vanished the moment allReady flipped true,
+  // which is most of the time in practice (the sweep is often already
+  // cached/fast). The raw-toggle-gated sweep (useAllCatalog above) never
+  // contains an out-of-stock row at all, so nothing downstream could recover
+  // it once this was gone.
   const {
     data: skuResults = [],
-  } = useSkuSearch(isSearchMode && !allReady ? searchQuery : '', effectiveStoreId);
+  } = useSkuSearch(isSearchMode ? searchQuery : '', effectiveStoreId);
+
+  // Exact real per-piece SKU — Items/List (what useSkuSearch calls) doesn't
+  // match this field at all (confirmed live), so a genuine SKU never
+  // surfaces through that path no matter what. See useExactSkuSearch's own
+  // header. Same "whole search session" lifetime as skuResults above.
+  const {
+    data: exactSkuResults = [],
+  } = useExactSkuSearch(isSearchMode ? searchQuery : '', effectiveStoreId);
 
   // Category-name matches — a direct, server-side, type_ids-scoped query
   // (see useCategoryNameSearch's own header) — reliable and COMPLETE even
@@ -267,16 +312,23 @@ function CatalogScreen() {
     data: categoryNameResults = [],
   } = useCategoryNameSearch(matchingTypeIds, effectiveStoreId, isSearchMode);
 
-  // UNSORTED — same reason as rawBrowseProducts above. Covers isFacetMode
-  // too, not just isSearchMode — a facet filter needs this exact same
-  // full-sweep pool; the SKU/category-name interim paths stay text-search-
-  // only (isSearchMode-gated at their own hook call sites), so a pure facet
-  // filter (no search text) simply shows nothing until the sweep resolves,
-  // same as a search would.
+  // UNSORTED — same reason as rawBrowseProducts above.
   const searchResults = useMemo(() => {
     if (!needsFullSweep) return [];
 
-    const categoryNameMatches = applyBasicFilterOnly(categoryNameResults, { activeCategoryId, showOutOfStock });
+    const categoryNameMatches = applyBasicFilterOnly(categoryNameResults, { activeCategoryId, showOutOfStock: searchShowOutOfStock });
+    // The fast SKU path's own out-of-stock matches (searchBySku no longer
+    // drops these — see that function's own header) — merged in below the
+    // same way categoryNameMatches already is, so an exact code/SKU match
+    // found here doesn't vanish the moment the slow full sweep finishes just
+    // because the sweep itself (raw-toggle-gated, see useAllCatalog above)
+    // never contained an out-of-stock row to begin with.
+    const skuMatches = applyBasicFilterOnly(skuResults, { activeCategoryId, showOutOfStock: searchShowOutOfStock });
+    // Exact per-piece SKU matches — a real match here always survives
+    // regardless of stock/category filters (it's a single, deliberately
+    // identified piece, not a browse result), same reasoning as the barcode
+    // scanner's own fix.
+    const exactSkuMatches = exactSkuResults;
 
     if (allReady) {
       const swept = applySearchFilterOnly(allProducts, {
@@ -284,27 +336,30 @@ function CatalogScreen() {
         activeCategoryId,
         showOutOfStock,
         categories,           // ← passed so category name matching works
-        facets,
       });
       // Merge, don't replace — see this block's own header comment above
-      // for why a reliable category-name match must never be dropped just
-      // because the (necessarily capped) sweep finished loading.
+      // for why a reliable category-name/SKU match must never be dropped
+      // just because the (necessarily capped, raw-toggle-scoped) sweep
+      // finished loading.
       const seen = new Set(swept.map((p) => p.item_id));
-      const extra = categoryNameMatches.filter((p) => !seen.has(p.item_id));
+      const extra = [...categoryNameMatches, ...skuMatches, ...exactSkuMatches].filter((p) => {
+        if (seen.has(p.item_id)) return false;
+        seen.add(p.item_id);
+        return true;
+      });
       return [...swept, ...extra];
     }
-    // Full catalog still loading — show what the fast SKU + category-name
-    // paths have so far, deduped (a query can match both).
+    // Full catalog still loading — show what the fast SKU + category-name +
+    // exact-SKU paths have so far, deduped (a query can match more than one).
     const seen = new Set();
-    const merged = [...skuResults, ...categoryNameMatches].filter((p) => {
+    return [...skuMatches, ...categoryNameMatches, ...exactSkuMatches].filter((p) => {
       if (seen.has(p.item_id)) return false;
       seen.add(p.item_id);
       return true;
     });
-    return applyBasicFilterOnly(merged, { activeCategoryId, showOutOfStock });
   }, [
-    needsFullSweep, allReady, allProducts, skuResults, categoryNameResults,
-    searchQuery, activeCategoryId, showOutOfStock, categories, facets,
+    needsFullSweep, allReady, allProducts, skuResults, exactSkuResults, categoryNameResults,
+    searchQuery, activeCategoryId, showOutOfStock, searchShowOutOfStock, categories,
   ]);
 
   // ── Error toasts ──────────────────────────────────────────────────────────
@@ -476,10 +531,16 @@ function CatalogScreen() {
   const visibleDisplayProducts = useMemo(() => {
     let result = showOutOfStock ? pricedDisplayProducts : pricedDisplayProducts.filter((p) => p.has_stock === true);
     if (facets.priceMin != null || facets.priceMax != null) {
-      result = applyFacetFilters(result, { priceMin: facets.priceMin, priceMax: facets.priceMax });
+      result = applyPriceFilter(result, { priceMin: facets.priceMin, priceMax: facets.priceMax });
     }
     return result;
   }, [pricedDisplayProducts, showOutOfStock, facets.priceMin, facets.priceMax]);
+
+  // Price filter's own slider bounds — see getPriceBounds' own header.
+  // Computed from pricedDisplayProducts (pre-facet), not visibleDisplayProducts,
+  // so the bounds don't shrink to match whatever the slider itself just
+  // narrowed to.
+  const priceBounds = useMemo(() => getPriceBounds(pricedDisplayProducts), [pricedDisplayProducts]);
 
   // Compared after building both maps, in a plain loop rather than a flag
   // mutated inside the .map() callback above — this repo's lint
@@ -538,56 +599,9 @@ function CatalogScreen() {
   }
 
   // ── Barcode handler ───────────────────────────────────────────────────────
-  // Only calls the SKU lookup — no fallback to item_code matching or
-  // actions.setSearch(). A scan is a targeted, instant lookup; it should say
-  // found or not found and stop, not flip on isSearchMode and trigger
-  // useAllCatalog's full-catalog background index on a miss. See
-  // getStockPieceBySku for the company_id requirement this endpoint has on
-  // live.
-  const handleBarcodeDetected = useCallback(async (code) => {
-    const trimmed = code.trim();
-    if (!trimmed) return;
-
-    try {
-      const skuResponse = await getStockPieceBySku({ sku: trimmed, companyId: effectiveStoreId });
-      const skuMatch = skuResponse.data?.Entities?.[0];
-
-      if (skuMatch?.item_id && (skuMatch.company_id == null || skuMatch.company_id === effectiveStoreId)) {
-        tracker.track(EVENTS.BARCODE_SCANNED, { code: trimmed, itemId: skuMatch.item_id });
-
-        // Best-effort, fire-and-forget logging (mirrors OrnaVerse's own POS) —
-        // must never block or fail the actual navigation below.
-        createItemEnquiry({
-          itemId:          skuMatch.item_id,
-          itemAttributeId: skuMatch.item_attribute_id,
-          companyId:       skuMatch.company_id ?? effectiveStoreId,
-          itemLineNo:      skuMatch.item_line_no,
-          sku:             skuMatch.sku,
-          image:           skuMatch.image,
-        }).catch((err) => {
-          console.warn('[BarcodeScanner] item enquiry log failed (non-blocking)', { sku: trimmed, err });
-        });
-
-        router.push(`/products/${skuMatch.item_id}`);
-        return;
-      }
-
-      if (skuMatch?.item_id) {
-        // Matched a real piece, just not one this store holds — SKUs are
-        // expected to be unique per piece, so this should be rare.
-        console.warn('[BarcodeScanner] sku matched a piece at a different store', {
-          sku: trimmed, matchedCompanyId: skuMatch.company_id, activeStoreId: effectiveStoreId,
-        });
-      }
-
-      tracker.track(EVENTS.BARCODE_SCAN_FAILED, { code: trimmed });
-      toast.error(`No product found for scanned code "${trimmed}".`);
-    } catch (err) {
-      console.error('[BarcodeScanner] sku lookup request failed', { sku: trimmed, err });
-      tracker.track(EVENTS.BARCODE_SCAN_FAILED, { code: trimmed });
-      toast.error('Could not look up the scanned barcode. Please try again.');
-    }
-  }, [effectiveStoreId, router]);
+  // Shared with the Dashboard's "Scan Barcode" Quick Action — see
+  // useBarcodeLookup for the actual lookup+redirect logic.
+  const { handleBarcodeDetected } = useBarcodeLookup({ storeId: effectiveStoreId });
 
   // ── Callbacks ─────────────────────────────────────────────────────────────
   const handleSearch = useCallback((q) => {
@@ -618,24 +632,16 @@ function CatalogScreen() {
     return `${n} product${n !== 1 ? 's' : ''}${hasActiveFilters ? ' matching filters' : ''}`;
   }, [isLoading, needsFullSweep, loadedCount, displayProducts.length, isSearchMode, searchQuery, hasActiveFilters]);
 
-  // ── Facet options ─────────────────────────────────────────────────────────
-  // Computed from category+stock scope only (not the other active facets) —
-  // options and counts reflect "what's available in this category", not a
-  // fully cross-narrowed facet count (that needs a per-facet exclusion pass,
-  // not built here). Needs the full sweep, same as isFacetMode's pool —
-  // before that's loaded (or if nothing's been searched/filtered yet), falls
-  // back to whatever the small browse page already has so the panel isn't
-  // empty the very first time it's opened.
-  const facetSourcePool = allReady ? allProducts : (rawBrowseProducts.length ? rawBrowseProducts : displayProducts);
-  const facetOptions = useMemo(
-    () => buildFacetOptions(applyBasicFilterOnly(
-      // Price needs live-priced rows — pricedDisplayProducts once available,
-      // same fallback chain otherwise.
-      pricedDisplayProducts.length ? pricedDisplayProducts : facetSourcePool,
-      { activeCategoryId, showOutOfStock },
-    )),
-    [facetSourcePool, pricedDisplayProducts, activeCategoryId, showOutOfStock],
-  );
+  // ── Filter panel option lists ─────────────────────────────────────────────
+  // Real server-fetched option lists (2026-09-30 redesign), not counted/
+  // computed from whatever's currently loaded — matches OrnaVerse's own
+  // panel, whose dropdowns are static master lists too, not scoped counts.
+  const { options: subCategoryOptions, isLoading: subCategoryLoading } = useSubTypeOptions(activeCategoryId);
+  const { options: karatOptions }       = useAttributeOptions(APP_CONFIG.ATTRIBUTE_TYPES.KARAT);
+  const { options: metalColorOptions }  = useAttributeOptions(APP_CONFIG.ATTRIBUTE_TYPES.METAL_COLOR);
+  const { options: diamondShapeOptions } = useAttributeOptions(APP_CONFIG.ATTRIBUTE_TYPES.DIAMOND_SHAPE);
+  const { options: collectionOptions }  = useAttributeOptions(APP_CONFIG.ATTRIBUTE_TYPES.COLLECTION);
+  const { options: itemSizeOptions }    = useItemSizeOptions();
 
   // A single batched actions.setFacets() call — see that action's own
   // comment in useCatalogFilters.js for the race this replaced (calling
@@ -756,7 +762,14 @@ function CatalogScreen() {
             categories={categories}
             activeCategorySlug={activeCategorySlug}
             onSelectCategory={actions.selectCategory}
-            facetOptions={facetOptions}
+            subCategoryOptions={subCategoryOptions}
+            subCategoryLoading={subCategoryLoading}
+            karatOptions={karatOptions}
+            metalColorOptions={metalColorOptions}
+            diamondShapeOptions={diamondShapeOptions}
+            itemSizeOptions={itemSizeOptions}
+            collectionOptions={collectionOptions}
+            priceBounds={priceBounds}
             facets={facets}
             onFacetsChange={handleFacetsChange}
             showOutOfStock={showOutOfStock}
@@ -799,7 +812,17 @@ function CatalogScreen() {
             </p>
             {otherStores.map((store) => (
               <OtherStoreSection
-                key={`${store.company_id}-${effectiveStoreId}-${activeCategoryId ?? 'all'}-${showOutOfStock}`}
+                // No effectiveStoreId here on purpose (reported directly,
+                // 2026-09-30: store switching was slow) — otherStores already
+                // filters OUT effectiveStoreId (see its own useMemo above),
+                // so every section's own store.company_id never changes when
+                // the operator's active store does. Including effectiveStoreId
+                // in this key anyway forced React to unmount/remount EVERY
+                // other-store section (not just a newly added/removed one) on
+                // every single switch, discarding each one's already-cached
+                // useCatalogProducts/useLiveCatalogPrices state and refiring
+                // their fetches from scratch for stores that hadn't changed.
+                key={`${store.company_id}-${activeCategoryId ?? 'all'}-${showOutOfStock}`}
                 store={store}
                 showOutOfStock={showOutOfStock}
                 categoryId={activeCategoryId}

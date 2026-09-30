@@ -1,9 +1,11 @@
 'use client';
 
-// Uses the full record already returned by Invoice/List (passed in as
-// `invoice.raw`) — no second Invoice/Retrieve call needed. Printing goes
-// through InvoiceReportButton (OrnaVerse's own report-render pipeline, not
-// window.print()). Collect Payment and Cancel Invoice mirror
+// Invoice/List (what feeds `invoice.raw` here) only ever returns header
+// summary fields — no line_items, confirmed live (2026-09-29). Re-fetches
+// the full record via Invoice/Retrieve as soon as the sheet opens for a
+// given invoice (see useInvoiceDetail below), same fix as OrderDetailSheet.
+// Printing goes through InvoiceReportButton (OrnaVerse's own report-render
+// pipeline, not window.print()). Collect Payment and Cancel Invoice mirror
 // OrderDetailSheet's equivalents — see report for background.
 
 import { useState } from 'react';
@@ -11,7 +13,7 @@ import { useSelector } from 'react-redux';
 import { useForm } from 'react-hook-form';
 import { AlertTriangle, CreditCard } from 'lucide-react';
 import BottomSheet from '@/components/shared/BottomSheet';
-import { splitGst } from '@/lib/gst';
+import { sumRealGst } from '@/lib/gst';
 import InvoiceReportButton from '@/components/features/checkout/InvoiceReportButton';
 import PaymentModeSelect from '@/components/shared/PaymentModeSelect';
 import { Button } from '@/components/ui/button';
@@ -20,10 +22,12 @@ import { useCancelInvoice } from '@/hooks/invoices/useCancelInvoice';
 import { useAddInvoiceReceipt } from '@/hooks/invoices/useAddInvoiceReceipt';
 import { usePaymentModes } from '@/hooks/checkout/usePaymentModes';
 import { useOrderHeaderConfig } from '@/hooks/checkout/useOrderHeaderConfig';
+import { useInvoiceDetail } from '@/hooks/checkout/useInvoiceDetail';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import APP_CONFIG from '@/constants/appConfig';
 import { formatAmountOrNull as formatCurrency } from '@/lib/priceUtils';
 import { formatDateNumeric } from '@/lib/dateUtils';
+import { resolveImageSrc } from '@/lib/resolveImageSrc';
 
 function Row({ label, value, bold, border }) {
   if (value === null || value === undefined || value === '') return null;
@@ -40,7 +44,9 @@ function Row({ label, value, bold, border }) {
 function InvoiceContent({ raw }) {
   const lineItems = raw?.line_items ?? [];
   const payments  = raw?.receipt_details ?? [];
-  const gst       = splitGst(raw?.tax_amount);
+  // Real, per-line CGST/SGST straight off this posted document's own line
+  // items — never reconstructed (see lib/gst.js's own header).
+  const gst       = sumRealGst(lineItems);
 
   return (
     <div className="flex flex-col gap-2 text-sm">
@@ -52,16 +58,45 @@ function InvoiceContent({ raw }) {
       <Row label="Store"    value={raw.location_name ?? raw.company_name} />
 
       {lineItems.length > 0 && (
-        <div className="border-t border-border pt-2 flex flex-col gap-1.5">
+        <div className="border-t border-border pt-2 flex flex-col gap-2">
           <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">Items</span>
-          {lineItems.map((item) => (
-            <div key={item.transaction_item_id} className="flex justify-between gap-2">
-              <span className="text-foreground/80 min-w-0">{item.item_name}</span>
-              <span className="font-medium text-foreground shrink-0">
-                {formatCurrency(item.net_amount)}
-              </span>
-            </div>
-          ))}
+          {lineItems.map((item, i) => {
+            const imageSrc = resolveImageSrc(item.image);
+            const specs = [
+              item.item_group_name,
+              item.karat_name,
+              item.metal_color_name,
+              item.weight ? `${item.weight}g` : null,
+              item.diamond_weight ? `${item.diamond_weight}ct` : null,
+            ].filter(Boolean).join(' · ') || null;
+
+            return (
+              <div key={item.transaction_item_id ?? i} className="flex items-start justify-between gap-2">
+                <div className="flex min-w-0 items-start gap-2">
+                  {imageSrc && (
+                    // eslint-disable-next-line @next/next/no-img-element -- small fixed thumbnail, not worth Next/Image's server-side optimization path here
+                    <img
+                      src={imageSrc}
+                      alt=""
+                      className="h-9 w-9 shrink-0 rounded-md border border-border object-cover"
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-foreground/80 truncate">{item.item_name}</p>
+                    {item.item_code && (
+                      <p className="text-xs text-muted-foreground truncate">{item.item_code}</p>
+                    )}
+                    {specs && (
+                      <p className="text-xs text-muted-foreground truncate">{specs}</p>
+                    )}
+                  </div>
+                </div>
+                <span className="font-medium text-foreground shrink-0">
+                  {formatCurrency(item.gross_amount ?? item.net_amount)}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -192,7 +227,11 @@ function CancelConfirmBanner({ onConfirm, onDismiss, isPending }) {
  * }} props
  */
 export default function InvoiceDetailSheet({ invoice, isOpen, onClose }) {
-  const raw = invoice?.raw;
+  // invoice.raw is Invoice/List's header-only summary row (no line_items) —
+  // upgraded in place once the full Retrieve resolves; react-query caches by
+  // transaction_id so re-opening the same invoice is instant afterwards.
+  const { invoice: invoiceDetail } = useInvoiceDetail(invoice?.raw?.transaction_id ?? null);
+  const raw = invoiceDetail ?? invoice?.raw;
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showCollectPayment, setShowCollectPayment] = useState(false);
 

@@ -164,11 +164,15 @@ export function useCreateOrder() {
         lineItems = pricedLineItems.map((row) => ({ ...row, sales_person_id: salesPersonId }));
         promotionDetails = promotionDetailsArg ?? [];
       } else {
-        const { lineItems: priced } = await buildPricedLineItems({
-          items, activeStoreId, salesPersonId,
-        });
+        // buildPricedLineItems now partitions per line (see its own header);
+        // this fallback path (no pre-priced lines supplied) is Order-only,
+        // so it only ever uses the order-group half of that split.
+        const split = await buildPricedLineItems({ items, activeStoreId, salesPersonId });
+        if (!split.order) {
+          throw new Error('Every item in this cart is in stock — this should be raised as an invoice, not an order.');
+        }
         const promoted = await applyPromotionsToLines({
-          lineItems: priced, appliedPromos, documentId, exchangeRate,
+          lineItems: split.order.lineItems, appliedPromos, documentId, exchangeRate,
         });
         lineItems = promoted.lineItems;
         promotionDetails = promoted.promotionDetails;

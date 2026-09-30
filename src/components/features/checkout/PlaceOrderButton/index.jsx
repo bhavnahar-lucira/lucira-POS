@@ -17,21 +17,37 @@ import { formatAmount as money } from '@/lib/priceUtils';
  *   onPlaceOrder: () => void,
  *   amountDue?: number,     — live-priced total (see useCheckoutPricing)
  *   amountCollected?: number, — what the payment rows currently add up to
+ *   creditApplied?: number, — Nector Loyalty amount already redeemed toward
+ *     this sale (a payment mode, not a discount — see checkout/page.jsx's
+ *     own comment on why at most one document can ever carry it).
  *   isPricing?: boolean,
- *   documentType?: 'invoice'|'order',
+ *   documentType?: 'invoice'|'order'|'split',
  * }} props
+ *   documentType: 'split' (2026-09-29) — a mixed-stock cart raises BOTH an
+ *   invoice and an order in one submit (see checkout/page.jsx); labeled
+ *   distinctly so the operator knows two documents are about to be created,
+ *   not one.
+ *   creditApplied — subtracted from the displayed figure in every branch so
+ *   this button always shows the same number `CartSummary`'s own "Total"
+ *   line shows (that component already subtracts it) — reported directly,
+ *   2026-09-30: "the button displays the product price not the updated
+ *   cart summary price after applying nector points."
  */
 export default function PlaceOrderButton({
   isValid, isPlacingOrder, onPlaceOrder, amountDue, amountCollected,
-  isPricing, documentType = 'invoice',
+  creditApplied = 0, isPricing, documentType = 'invoice',
 }) {
   const { total: cartTotal } = useCartTotals();
   const total = amountDue ?? cartTotal;
   const isOrder = documentType === 'order';
+  const isSplit = documentType === 'split';
 
   // An order can be part-paid, so show the advance actually entered; an
-  // invoice always settles in full, so the two are the same number.
-  const chargeable = isOrder ? (amountCollected ?? 0) : total;
+  // invoice always settles in full, so the two are the same number. A split
+  // combines both — its invoice half is always in full, so the collected
+  // total already reflects that plus whatever advance the order half took.
+  // Math.max(0, ...) mirrors CartSummary's own clamp against the same figure.
+  const chargeable = Math.max(0, (isOrder ? (amountCollected ?? 0) : total) - creditApplied);
 
   return (
     <Button
@@ -44,13 +60,15 @@ export default function PlaceOrderButton({
       {isPlacingOrder ? (
         <>
           <Loader2 size={18} className="animate-spin" aria-hidden="true" />
-          {isOrder ? 'Placing order…' : 'Generating invoice…'}
+          {isSplit ? 'Generating invoice + order…' : isOrder ? 'Placing order…' : 'Generating invoice…'}
         </>
       ) : isPricing ? (
         <>
           <Loader2 size={18} className="animate-spin" aria-hidden="true" />
           Pricing items…
         </>
+      ) : isSplit ? (
+        `Complete Sale + Place Order · ${money(Math.max(0, (amountCollected ?? 0) - creditApplied))}`
       ) : isOrder ? (
         // No advance is a legitimate order, so don't label it "Advance ₹0".
         chargeable > 0

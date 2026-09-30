@@ -9,6 +9,7 @@
 // If Lucira later wants per-category or per-product variants of this copy,
 // that would need real fields first.
 
+import { useState } from 'react';
 import {
   ShieldCheck, RefreshCw, Truck, Gem,
   Star,
@@ -17,6 +18,7 @@ import Image from 'next/image';
 import {
   Accordion, AccordionItem, AccordionTrigger, AccordionContent,
 } from '@/components/ui/accordion';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 
 const WHY_LUCIRA = [
   {
@@ -111,16 +113,22 @@ const ACCORDION_ITEMS = [
 ];
 
 function CertifiedQualityBlock() {
+  // Opens the sample certificate in a dialog instead of downloading it
+  // (reported directly, 2026-09-29) — was a bare <a download> link.
+  const [isCertOpen, setIsCertOpen] = useState(false);
+
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
 
       <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
         <div className="flex items-center justify-between">
           <h3 className="font-heading text-base text-foreground">Certified Quality Guaranteed</h3>
-          <button type="button" className="text-xs font-medium text-accent hover:underline">
-            <a href="/images/certificate/SampleCertificate.jpg" alt="Sample Certificate" download>
-              See Sample Certificate
-            </a>
+          <button
+            type="button"
+            onClick={() => setIsCertOpen(true)}
+            className="text-xs font-medium text-accent hover:underline"
+          >
+            See Sample Certificate
           </button>
         </div>
         <div className="flex justify-center items-center gap-6 mt-4">
@@ -135,6 +143,21 @@ function CertifiedQualityBlock() {
           <span className="font-semibold text-foreground">Note:</span> Handcrafted and personalized with care — slight variations in metal weight are natural across different sizes.
         </p>
       </div>
+
+      <Dialog open={isCertOpen} onOpenChange={setIsCertOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogTitle>Sample Certificate</DialogTitle>
+          <div className="relative aspect-square w-full overflow-hidden rounded-xl">
+            <Image
+              src="/images/certificate/SampleCertificate.jpg"
+              alt="Sample Certificate"
+              fill
+              sizes="(max-width: 640px) 100vw, 512px"
+              className="object-contain"
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
         <Accordion

@@ -24,7 +24,7 @@ import {
   priceStockPiecesForSale,
   priceItemAsSold,
 } from '@/services/pricingService';
-import { getStockPieces } from '@/services/inventoryService';
+import { getStockPieces, getStockPieceBySku } from '@/services/inventoryService';
 
 /**
  * Fetches featured items from the master items list.
@@ -174,17 +174,39 @@ export async function getLivePricesForItems(itemIds, companyId) {
   const empty = { prices: new Map(), answered: new Set() };
   if (!itemIds?.length) return empty;
 
-  let toPrice;
-  try {
-    const detailById = await getItemDetailsByIds(itemIds);
-    // Every item that came back with a usable master record goes to the
-    // calculator. The old filter here (item_rate 0 AND has components) is
-    // what let stale non-zero rates through unchecked.
-    toPrice = [...detailById.values()];
-  } catch (err) {
+  // getItemDetailsByIds and getStockPieces are independent of each other —
+  // each only needs itemIds/companyId, neither needs the other's result —
+  // but were previously awaited one after another. FIXED (2026-09-30,
+  // reported: "fetching pricing takes a lot of time"): timed live at
+  // ~300-900ms each, so awaiting them in series added a full extra real
+  // round trip's worth of pure latency to every batch, including the
+  // pricing epoch's own canary check (usePricingEpoch calls this same
+  // function first and gates ALL real per-card pricing behind it) — the
+  // canary alone measured ~2.1s end to end before any visible price could
+  // even start fetching. Running them concurrently removes that.
+  const detailsPromise = getItemDetailsByIds(itemIds).catch((err) => {
     console.error('[catalogService] getLivePricesForItems: item lookup failed', err);
-    return empty;
-  }
+    return null;
+  });
+  // One extra call for the whole batch, not one per card: StockJournal's
+  // `item_ids` plural filter is honoured (verified on UAT 2026-08-05). Uses
+  // the full itemIds, not toPrice's (Items/List-filtered) subset, since that
+  // subset isn't known until detailsPromise resolves — a superset here is
+  // harmless, just possibly one or two extra rows that go unused below.
+  const stockPromise = companyId
+    ? getStockPieces({ itemIds, companyId, take: 200 }).catch((err) => {
+        // Best-effort: fall back to master pricing rather than blanking the grid.
+        console.error('[catalogService] stock lookup failed, pricing masters', err);
+        return null;
+      })
+    : Promise.resolve(null);
+
+  const [detailById, stockResponse] = await Promise.all([detailsPromise, stockPromise]);
+  if (!detailById) return empty;
+  // Every item that came back with a usable master record goes to the
+  // calculator. The old filter here (item_rate 0 AND has components) is
+  // what let stale non-zero rates through unchecked.
+  const toPrice = [...detailById.values()];
 
   // Items/List omits records with no weight/karat/metal at all. Those can
   // never be priced, so count them as answered rather than retrying forever.
@@ -209,28 +231,15 @@ export async function getLivePricesForItems(itemIds, companyId) {
   // nominal spec and routinely differs — the same bracelet is 2.030g net on
   // the master and 1.349g in the case, ₹30,877.20 vs ₹23,507.56. Showing the
   // master here and the piece at checkout is the inconsistency this closes.
-  //
-  // One extra call for the whole batch, not one per card: StockJournal's
-  // `item_ids` plural filter is honoured (verified on UAT 2026-08-05).
-  let stockRowByItemId = new Map();
-  if (companyId) {
-    try {
-      const response = await getStockPieces({
-        itemIds: toPrice.map((d) => d.item_id), companyId, take: 200,
-      });
-      for (const row of response?.data?.Entities ?? []) {
-        // First AVAILABLE row per item — the one claimStockPieces would
-        // take. is_allocated (2026-08-27) excluded here too, matching that
-        // function's own filter — a card must never quote a piece that's
-        // already reserved by another transaction and would be skipped at
-        // actual checkout time. See claimStockPieces' header for the source.
-        if (row.is_allocated) continue;
-        if (!stockRowByItemId.has(row.item_id)) stockRowByItemId.set(row.item_id, row);
-      }
-    } catch (err) {
-      // Best-effort: fall back to master pricing rather than blanking the grid.
-      console.error('[catalogService] stock lookup failed, pricing masters', err);
-    }
+  const stockRowByItemId = new Map();
+  for (const row of stockResponse?.data?.Entities ?? []) {
+    // First AVAILABLE row per item — the one claimStockPieces would take.
+    // is_allocated (2026-08-27) excluded here too, matching that function's
+    // own filter — a card must never quote a piece that's already reserved
+    // by another transaction and would be skipped at actual checkout time.
+    // See claimStockPieces' header for the source.
+    if (row.is_allocated) continue;
+    if (!stockRowByItemId.has(row.item_id)) stockRowByItemId.set(row.item_id, row);
   }
 
   const stockRows = [...stockRowByItemId.values()];
@@ -294,8 +303,12 @@ export async function getLivePricesForItems(itemIds, companyId) {
 // there and real company_ids pointing elsewhere entirely) — visible on
 // PAGE 1, not just once an operator scrolls past however many items the
 // store genuinely stocks, as an earlier comment here assumed. Also
-// reconfirmed the server hard-caps at 24 records per request regardless of
-// the Take sent (100 requested, 24 echoed back) — same as the full sweep.
+// reconfirmed the server clamps Take to a MAX of 24 per request (100
+// requested, 24 echoed back) — same as the full sweep. CORRECTED
+// 2026-09-30: this is a ceiling, not a forced value — OrnaVerse's own real
+// client sends Take:16 and gets exactly 16 back, confirmed by cross-checking
+// their live POS directly. Request the real cap (24) rather than an
+// artificially larger Take; asking for more just clamps and wastes payload.
 //
 // FIX: getProducts now backfills — it walks the raw tenant-wide pages
 // (fetched with concurrency, same idiom as fetchEntireStoreCatalog) and
@@ -385,8 +398,12 @@ export async function getProducts(params) {
  * Fetches this store's ENTIRE product catalog for client-side search,
  * filter, and barcode lookup.
  *
- * Confirmed 2026-07-15: ProductCatalog/List hard-caps at exactly 24 records
- * per request no matter what Take is sent (Take:0, Take:5000 — always 24).
+ * Confirmed 2026-07-15: ProductCatalog/List clamps Take to a MAX of 24
+ * records per request (Take:0, Take:5000 both echoed back as 24). CORRECTED
+ * 2026-09-30: it's a ceiling, not a forced value regardless of Take — a
+ * smaller Take (e.g. 16, confirmed against OrnaVerse's own real client) is
+ * honoured exactly. This sweep still asks for PAGE_SIZE=24 per page (the
+ * real max), so nothing here changes — noted for whoever tunes it next.
  * There's also no working server-side search on this endpoint at all
  * (item_search/item_code/search params are silently ignored), and the
  * global full-text search on a different endpoint (Items/List ContainsText)
@@ -628,12 +645,28 @@ export async function getAllProducts(seedCompanyId, onProgress, showOutOfStock =
  * Fast, live SKU search — works at any catalog size, unlike getAllProducts
  * (which has to page through the whole store and can take a while for a
  * large catalog). Items/List's `item_search` is confirmed to match on
- * item_code specifically; results are cross-referenced against this store's
- * real stock the same way as getAllProducts, but the candidate pool here is
- * naturally small (a SKU search is specific), so it stays fast and reliable
- * — unlike a broad name search (e.g. "Tennis"), which can return hundreds
- * or thousands of system-wide matches with no guarantee this store's real
- * matches are among the first N.
+ * item_code specifically; results are ENRICHED with this store's real stock
+ * (has_stock/current_company_pieces), the same fields getAllProducts sets —
+ * but, unlike getAllProducts' own server-side showOutOfStock filter, this
+ * NEVER drops a real code/SKU match just because it's out of stock here.
+ *
+ * FIXED 2026-09-30 (reported directly: an exact item_code/SKU search for a
+ * real item returned nothing) — this used to hard-filter to
+ * `stockByItemId.has(item_id)`, i.e. "has a stock row at THIS store",
+ * unconditionally, with no way to override it via the catalog's own
+ * "Include out of stock" toggle (applyBasicFilterOnly downstream already
+ * respects that toggle and would have shown it correctly, but the item
+ * never even reached that filter). An operator typing a SPECIFIC, known
+ * code/SKU has already identified a real piece and expects to find it
+ * regardless of which store's shelf it's actually on — same as OrnaVerse's
+ * own item search, which isn't scoped to one store's stock either — so
+ * exclusion is now left entirely to the existing toggle, same as every
+ * other catalog row.
+ *
+ * The candidate pool here is naturally small (a SKU search is specific), so
+ * it stays fast and reliable — unlike a broad name search (e.g. "Tennis"),
+ * which can return hundreds or thousands of system-wide matches with no
+ * guarantee this store's real matches are among the first N.
  *
  * @param {{ query: string, storeId: number, signal?: AbortSignal }} params
  *   `signal` lets the caller (useSkuSearch) cancel this request in-flight —
@@ -662,31 +695,86 @@ export async function searchBySku({ query, storeId, signal }) {
              .map((row) => [row.item_id, row])
   );
 
-  return candidates
-    .filter((c) => stockByItemId.has(c.item_id))
-    .map((c) => {
-      const stock = stockByItemId.get(c.item_id);
-      return {
-        item_id:          c.item_id,
-        item_code:        c.item_code,
-        item_name:        c.item_name,
-        type_id:          c.type_id,
-        sub_type_id:      c.sub_type_id,
-        metal_id:         c.metal_id,
-        karat_id:         c.karat_id,
-        karat_code:       c.karat_code,
-        metal_color_code: c.metal_color_code,
-        weight:           stock.weight     ?? c.weight,
-        net_weight:       stock.net_weight ?? c.net_weight,
-        image:            c.image,
-        // null, never item_rate — the stored rate understates the piece by
-        // 2-3x (see the PRICING note above). Leaving it null routes this list
-        // through the same live tier as the main catalog.
-        price:            null,
-        has_stock:              stock.pieces > 0,
-        current_company_pieces: stock.pieces ?? 0,
-      };
-    });
+  // No .filter() here anymore — every real code/SKU match survives; stock
+  // just decides its has_stock/current_company_pieces (0/false when this
+  // store genuinely has none), same as any other catalog row.
+  return candidates.map((c) => {
+    const stock = stockByItemId.get(c.item_id) ?? null;
+    return {
+      item_id:          c.item_id,
+      item_code:        c.item_code,
+      item_name:        c.item_name,
+      type_id:          c.type_id,
+      sub_type_id:      c.sub_type_id,
+      metal_id:         c.metal_id,
+      karat_id:         c.karat_id,
+      karat_code:       c.karat_code,
+      metal_color_code: c.metal_color_code,
+      weight:           stock?.weight     ?? c.weight,
+      net_weight:       stock?.net_weight ?? c.net_weight,
+      image:            c.image,
+      // null, never item_rate — the stored rate understates the piece by
+      // 2-3x (see the PRICING note above). Leaving it null routes this list
+      // through the same live tier as the main catalog.
+      price:            null,
+      has_stock:              (stock?.pieces ?? 0) > 0,
+      current_company_pieces: stock?.pieces ?? 0,
+    };
+  });
+}
+
+/**
+ * Exact real per-piece SKU lookup for the catalog search box — a SEPARATE
+ * gap from searchBySku above. Confirmed live (2026-09-30): Items/List's
+ * `item_search` (what searchBySku/the general search box calls) does NOT
+ * match a physical piece's own SKU at all — searching "LJ02266943" (a real,
+ * confirmed-existing per-piece SKU) returned TotalCount: 0, while the exact
+ * same query against StockJournal/List (this function) finds it instantly.
+ * Reported directly: typing a real SKU into search returned nothing.
+ *
+ * StockJournal rows already carry item_code/item_name/image/weight etc.
+ * (same fields Items/List's own candidates carry), so this builds a
+ * ProductCatalogRow-shaped result directly from the matched piece — no
+ * second lookup needed. Scoped to `companyId` (the active store) same as
+ * getStockPieceBySku itself — NOT a cross-store lookup (confirmed live
+ * 2026-09-30 against OrnaVerse's own POS counter: their own "SKU / Barcode"
+ * field returns nothing for a real sku sitting at a different store than
+ * the one currently active, same as this). A typed exact sku for a piece
+ * elsewhere correctly finds nothing, matching real OrnaVerse.
+ *
+ * @param {{ sku: string, companyId: number }} params
+ * @returns {Promise<object[]>} 0 or 1 ProductCatalogRow-shaped result
+ */
+export async function searchByExactSku({ sku, companyId }) {
+  if (!sku || !companyId) return [];
+
+  let row;
+  try {
+    const response = await getStockPieceBySku({ sku, companyId });
+    row = response?.data?.Entities?.[0];
+  } catch {
+    return [];
+  }
+  if (!row?.item_id) return [];
+
+  const atThisStore = row.company_id == null || row.company_id === companyId;
+  return [{
+    item_id:          row.item_id,
+    item_code:        row.item_code,
+    item_name:        row.item_name,
+    type_id:          row.type_id,
+    sub_type_id:      row.sub_type_id,
+    metal_id:         row.metal_id,
+    karat_id:         row.karat_id,
+    karat_code:       row.karat_code,
+    metal_color_code: row.metal_color_code,
+    weight:           row.weight,
+    net_weight:       row.net_weight,
+    image:            row.image,
+    price:            null,
+    has_stock:              atThisStore,
+    current_company_pieces: atThisStore ? 1 : 0,
+  }];
 }
 
 /**

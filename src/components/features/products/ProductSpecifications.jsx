@@ -8,8 +8,18 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import { Info, Gem } from 'lucide-react';
+import { Info, Gem, Copy, Check } from 'lucide-react';
+import { toast } from 'react-toastify';
 import BottomSheet from '@/components/shared/BottomSheet';
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function val(v) {
   if (v === null || v === undefined || v === '') return null;
@@ -243,12 +253,40 @@ function SpecInfoSheetBody({ title }) {
   );
 }
 
-function SpecRow({ label, value }) {
+// copyable (Item Code / SKU only, Classification card — reported directly,
+// 2026-09-29) shows its own small copy icon next to the value, independent
+// of any other row on the same card.
+function SpecRow({ label, value, copyable }) {
+  const [copied, setCopied] = useState(false);
   if (!value) return null;
+
+  const handleCopy = async () => {
+    const ok = await copyToClipboard(value);
+    if (ok) {
+      setCopied(true);
+      toast.success(`${label} copied.`);
+      setTimeout(() => setCopied(false), 1500);
+    } else {
+      toast.error(`Could not copy ${label.toLowerCase()}.`);
+    }
+  };
+
   return (
     <div className="flex items-start justify-between gap-4 py-1.5">
       <span className="text-sm text-muted-foreground shrink-0">{label}</span>
-      <span className="text-sm font-semibold text-foreground text-right">{value}</span>
+      <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground text-right">
+        {copyable && (
+          <button
+            type="button"
+            onClick={handleCopy}
+            aria-label={`Copy ${label}`}
+            className="text-muted-foreground/50 hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+          >
+            {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+          </button>
+        )}
+        {value}
+      </span>
     </div>
   );
 }
@@ -280,8 +318,8 @@ function SpecCard({ icon, title, rows, onOpenInfo }) {
         </button>
       </div>
       <div className="flex flex-col">
-        {rows.map(({ label, value }) => (
-          <SpecRow key={label} label={label} value={value} />
+        {rows.map(({ label, value, copyable }) => (
+          <SpecRow key={label} label={label} value={value} copyable={copyable} />
         ))}
       </div>
     </div>
@@ -379,7 +417,6 @@ export default function ProductSpecifications({ product, pricedItem = null }) {
   const subCategory = val(product.sub_type_name);
   const collection  = val(product.collection_name);
   const brand       = val(product.brand_name);
-  const baseItem    = val(product.base_item);
   const hsn         = val(product.hsn);
   const itemCode    = val(product.item_code)
   // product.sku (the master/catalog record) is always empty — a catalog item
@@ -459,10 +496,9 @@ export default function ProductSpecifications({ product, pricedItem = null }) {
             { label: 'Sub-Category', value: subCategory },
             { label: 'Collection',   value: collection },
             { label: 'Brand',        value: brand },
-            { label: 'Base Item',    value: baseItem },
             { label: 'HSN Code',     value: hsn },
-            { label: 'Item Code',    value: itemCode },
-            { label: 'SKU',          value: sku },
+            { label: 'Item Code',    value: itemCode, copyable: true },
+            { label: 'SKU',          value: sku,      copyable: true },
           ]}
         />
 

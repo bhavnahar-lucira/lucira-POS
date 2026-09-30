@@ -287,8 +287,12 @@ export default function CustomizeSheet({
     refetch:   refetchPricing,
   } = useVariantPricing(needsLivePricing ? exactVariant : null);
   // No item_rate fallback: an unpriceable variant shows no price rather than
-  // a wrong one.
-  const matchedVariantPrice = formatPrice(livePricing?.sub_total);
+  // a wrong one. Tax-inclusive (net_amount) — this is a pure preview label,
+  // not a cart-facing value (the parent page re-derives its own pricing off
+  // `sub_total` once this variant becomes active — see page.jsx), so it can
+  // freely match the customer-facing convention used everywhere else on the
+  // PDP (2026-09-29).
+  const matchedVariantPrice = formatPrice(livePricing?.net_amount);
 
   // ── Other-store stock list for the currently matched variant ──────────────
   // MTO (no real exact-variant match, or zero stock everywhere) always hides

@@ -14,6 +14,15 @@
 // and its output lines ARE the line items — everything downstream (summary,
 // Place Order, Create payload) is a sum of what those lines carry; nothing
 // is recomputed locally.
+//
+// SPLIT (2026-09-29) — buildPricedLineItems now partitions the cart PER LINE
+// (some lines in stock, some not) rather than deciding one document type for
+// the whole basket — see that function's own header for why (OrnaVerse's
+// server structurally refuses to price a non-stock line against an Invoice,
+// confirmed live). This hook mirrors that with two independent group
+// results instead of one flat one; either can be null, and both being
+// non-null is the genuinely mixed case checkout/page.jsx renders as two
+// separate sections.
 
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
@@ -26,20 +35,25 @@ import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import { useCart } from '@/hooks/cart/useCart';
 import APP_CONFIG from '@/constants/appConfig';
 
+function summarizeGroup(lineItems) {
+  const totals = summarizeLineItems(lineItems);
+  return {
+    lineItems,
+    totals,
+    // Rounded the same way the Create payload rounds net_amount, so the
+    // collected amount can settle the document to exactly zero.
+    amountDue: Math.round(totals.netAmount),
+  };
+}
+
 /**
- * Prices the basket once. Takes no document type — it works out whether the
- * shelf can supply the basket and prices accordingly, and the document that
- * gets raised follows from what the customer pays. See buildPricedLineItems.
+ * Prices the basket once, per line group. See buildPricedLineItems for how a
+ * cart line ends up in the invoice group vs the order group.
  *
  * @returns {{
- *   lineItems: object[]|null,   // post-promotion, ready for Create
- *   totals:    object|null,     // header figures, summed from those lines
- *   promotionDetails: object[], // the document's promotion_details[]
- *   isStockBacked: boolean,     // true = can be invoiced; false = order only
- *   documentId: number|null,    // what this basket was priced as
- *   discount:  number,          // server-computed promotion value
- *   promoCodes:string[],
- *   amountDue: number|null,     // what the customer must actually pay
+ *   invoice: { lineItems, totals, promotionDetails, amountDue } | null,
+ *   order:   { lineItems, totals, promotionDetails, amountDue } | null,
+ *   promoCodes: string[],
  *   isLoading: boolean,
  *   error:     Error|null,
  * }}
@@ -52,7 +66,10 @@ export function useCheckoutPricing() {
   // either re-prices, but simply revisiting checkout does not pay for the
   // calls again.
   const cartKey  = items.map((i) => `${i.itemId}x${i.quantity}`).join('|');
-  const promoKey = appliedPromos.map((p) => p.promoCode).join('|');
+  // overrideAmount is included so changing ONLY it (same code) still
+  // invalidates the cached pricing — the server treats it as part of the
+  // promotion request, not something to re-derive locally.
+  const promoKey = appliedPromos.map((p) => `${p.promoCode}:${p.overrideAmount ?? ''}`).join('|');
 
   const query = useQuery({
     queryKey: ['checkout-pricing', activeStoreId, cartKey, promoKey],
@@ -62,34 +79,45 @@ export function useCheckoutPricing() {
     staleTime: 5 * 60 * 1000,
     retry: false,
     queryFn: async () => {
-      const { lineItems, isStockBacked } = await buildPricedLineItems({ items, activeStoreId });
-      const documentId = isStockBacked
-        ? APP_CONFIG.DOCUMENT_TYPES.POS_INVOICE
-        : APP_CONFIG.DOCUMENT_TYPES.POS_ORDER;
-      const promoted = await applyPromotionsToLines({
-        lineItems, appliedPromos, documentId,
-      });
-      return { ...promoted, isStockBacked, documentId };
+      const split = await buildPricedLineItems({ items, activeStoreId });
+
+      const [invoicePromoted, orderPromoted] = await Promise.all([
+        split.invoice
+          ? applyPromotionsToLines({
+              lineItems: split.invoice.lineItems, appliedPromos,
+              documentId: APP_CONFIG.DOCUMENT_TYPES.POS_INVOICE,
+            })
+          : null,
+        split.order
+          ? applyPromotionsToLines({
+              lineItems: split.order.lineItems, appliedPromos,
+              documentId: APP_CONFIG.DOCUMENT_TYPES.POS_ORDER,
+            })
+          : null,
+      ]);
+
+      return {
+        invoice: split.invoice ? { cartItems: split.invoice.cartItems, ...invoicePromoted } : null,
+        order:   split.order   ? { cartItems: split.order.cartItems,   ...orderPromoted }   : null,
+      };
     },
   });
 
-  const lineItems        = query.data?.lineItems ?? null;
-  const promotionDetails = query.data?.promotionDetails ?? [];
-  const totals = lineItems ? summarizeLineItems(lineItems) : null;
+  const invoiceData = query.data?.invoice ?? null;
+  const orderData    = query.data?.order   ?? null;
 
   return {
-    lineItems,
-    totals,
-    promotionDetails,
-    isStockBacked: query.data?.isStockBacked ?? false,
-    documentId:    query.data?.documentId ?? null,
-    // Already net of the promotion — the lines came back discounted and
-    // re-taxed, so there is nothing further to subtract here.
-    discount:   totals?.discount ?? 0,
+    invoice: invoiceData ? {
+      cartItems: invoiceData.cartItems,
+      promotionDetails: invoiceData.promotionDetails ?? [],
+      ...summarizeGroup(invoiceData.lineItems),
+    } : null,
+    order: orderData ? {
+      cartItems: orderData.cartItems,
+      promotionDetails: orderData.promotionDetails ?? [],
+      ...summarizeGroup(orderData.lineItems),
+    } : null,
     promoCodes: appliedPromos.map((p) => p.promoCode),
-    // Rounded the same way the Create payload rounds net_amount, so the
-    // collected amount can settle the invoice to exactly zero.
-    amountDue: totals ? Math.round(totals.netAmount) : null,
     isLoading: query.isLoading,
     error:     query.error ?? null,
   };

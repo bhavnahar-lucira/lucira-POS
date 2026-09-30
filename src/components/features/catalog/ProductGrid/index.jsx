@@ -26,7 +26,7 @@
 // (the window never scrolls; the sidebar+header shell is fixed-height). See
 // ScrollToTopButton for the same #main-content lookup pattern used elsewhere.
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { VirtuosoGrid } from 'react-virtuoso';
 import { PackageSearch } from 'lucide-react';
 import ProductCard     from '@/components/features/catalog/ProductCard';
@@ -125,17 +125,29 @@ export default function ProductGrid({
   prioritizeFirstRow = true,
   onRangeChanged,
 }) {
-  // Lazy-initialized, not an effect: by the time this component's function
-  // body runs on the client (fresh mount or hydration), the browser has
-  // already parsed AppShell's <main id="main-content"> into the DOM — it's
-  // an ancestor node, not something this component or an effect needs to
-  // wait on. `document` is guarded only for the server render pass, where
-  // it's `undefined`; the value is unused there anyway (no scrolling happens
-  // server-side).
-  const [scrollParent] = useState(() =>
-    (typeof document !== 'undefined' ? document.getElementById('main-content') : null));
+  // An effect, deferred one frame — NOT a lazy useState initializer.
+  // Reported directly (2026-09-30, confirmed via Playwright): the very
+  // first product card's own bounding box came back with a negative `top`
+  // and clicks on it landed on an unrelated element several hundred pixels
+  // away — Virtuoso's own scroller wrapper (data-virtoso-scroller) had
+  // collapsed to ~16px tall. Root cause: `#main-content`'s real height
+  // depends on the sticky filter bar rendered above this grid, which can
+  // still be settling its own layout the instant this component's *render*
+  // runs (getElementById only confirms the node EXISTS, not that its
+  // layout is final) — VirtuosoGrid measures customScrollParent as soon as
+  // it mounts, so handing it the element before that settles bakes in a
+  // wrong first measurement it doesn't reliably self-correct from. A
+  // requestAnimationFrame defer (still using the existing CatalogSkeleton
+  // fallback below, not a new loading state) mounts VirtuosoGrid only once
+  // the browser has completed a real layout pass.
+  const [scrollParent, setScrollParent] = useState(null);
+  useEffect(() => {
+    const el = typeof document !== 'undefined' ? document.getElementById('main-content') : null;
+    const raf = requestAnimationFrame(() => setScrollParent(el));
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
-  if (isLoading) return <CatalogSkeleton />;
+  if (isLoading || !scrollParent) return <CatalogSkeleton />;
 
   if (!products.length) {
     return (
@@ -148,7 +160,7 @@ export default function ProductGrid({
 
   return (
     <VirtuosoGrid
-      customScrollParent={scrollParent ?? undefined}
+      customScrollParent={scrollParent}
       totalCount={products.length}
       overscan={OVERSCAN_PX}
       listClassName={GRID_CLASSNAME}

@@ -71,7 +71,6 @@ const TOAST = {
     // case, which the up-front check above cannot.
     PROMO_NO_LONGER_APPLIES: (code) => `Promo code ${code} no longer applies to your cart — removed.`,
     PROMO_FAILED:  'Failed to validate promo code. Please try again.',
-    PROMO_SIMILAR_APPLIED: 'A similar promotion is already applied.',
     LOADED_FROM_ORDER: (orderNo) => `Loaded ${orderNo} into a new invoice.`,
   },
 
@@ -273,8 +272,8 @@ const TOAST = {
     LOAD_FAILED:  'Failed to load products. Please try again.',
     SEARCH_ERROR: 'Search failed. Please try again.',
     FILTER_ERROR: 'Failed to load filter options.',
-    SKU_COPIED:   (sku) => `SKU ${sku} copied to clipboard.`,
-    COPY_FAILED:  'Could not copy SKU. Please try again.',
+    ITEM_CODE_COPIED: (code) => `Item code ${code} copied to clipboard.`,
+    COPY_FAILED:  'Could not copy item code. Please try again.',
   },
 
   GENERIC: {

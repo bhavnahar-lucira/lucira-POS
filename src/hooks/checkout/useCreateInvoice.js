@@ -209,11 +209,15 @@ export function useCreateInvoice() {
         lineItems = pricedLineItems.map((row) => ({ ...row, sales_person_id: salesPersonId }));
         promotionDetails = promotionDetailsArg ?? [];
       } else {
-        const { lineItems: priced } = await buildPricedLineItems({
-          items, activeStoreId, salesPersonId,
-        });
+        // buildPricedLineItems now partitions per line (see its own header);
+        // this fallback path (no pre-priced lines supplied) is Invoice-only,
+        // so it only ever uses the invoice-group half of that split.
+        const split = await buildPricedLineItems({ items, activeStoreId, salesPersonId });
+        if (!split.invoice) {
+          throw new Error('Nothing in this cart is currently in stock — an invoice needs at least one real stock piece.');
+        }
         const promoted = await applyPromotionsToLines({
-          lineItems: priced, appliedPromos, documentId, exchangeRate,
+          lineItems: split.invoice.lineItems, appliedPromos, documentId, exchangeRate,
         });
         lineItems = promoted.lineItems;
         promotionDetails = promoted.promotionDetails;

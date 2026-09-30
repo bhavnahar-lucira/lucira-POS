@@ -9,16 +9,21 @@ import { cn } from '@/lib/utils';
 /**
  * @param {{
  *   promoCode: string | null,
+ *   promoName?: string | null,
  *   discountAmount?: number,
  *   hasEffect?: boolean,
  *   onRemove: () => void,
  *   className?: string,
  * }} props
+ *   promoName — the promotion's real name (e.g. "20% Off Diamond"), shown
+ *   instead of the raw code once applied — reported directly: a code like
+ *   "57R53ZHE" means nothing to an operator/customer at a glance. Falls back
+ *   to promoCode when a promotion's name isn't available for some reason.
  *   hasEffect (default true) — pass false when the code is applied but
  *   yields no actual discount, to show neutral/muted styling instead of
  *   the success tone (still shown as applied/removable either way).
  */
-export default function AppliedPromoTag({ promoCode, discountAmount, hasEffect = true, onRemove, className }) {
+export default function AppliedPromoTag({ promoCode, promoName, discountAmount, hasEffect = true, onRemove, className }) {
   if (!promoCode) return null;
 
   const tone = hasEffect
@@ -31,7 +36,7 @@ export default function AppliedPromoTag({ promoCode, discountAmount, hasEffect =
         <Tag size={16} className={cn(tone.text, 'shrink-0')} aria-hidden="true" />
         <div className="min-w-0">
           <p className={cn('text-sm font-semibold truncate', tone.text)}>
-            {promoCode} applied
+            {promoName || promoCode} applied
           </p>
           {discountAmount > 0 && (
             <p className={cn('text-xs', tone.text)}>

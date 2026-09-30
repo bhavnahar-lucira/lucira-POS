@@ -25,10 +25,12 @@ import { isShopifyImageUrl, shopifyImageLoader } from '@/lib/shopifyImageLoader'
  * @param {{
  *   item: object,
  *   onUpdateQuantity?: (item: object, quantity: number) => void,
- *   onRemove?: (item: object) => void,
+ *   onRemove?: (item: object, displayQuantity?: number) => void,
  *   readOnly?: boolean,
  *   priced?: { lineTotal: number, unitPrice: number, discount: number, skus: string[], breakdown: object } | null,
  *   showPriceBreakdown?: boolean,
+ *   showComponentDetails?: boolean,
+ *   displayQuantity?: number,
  * }} props
  *   priced - what this line is actually being sold at, from
  *   useCheckoutPricing; wins over the cart's own figure. The cart price is
@@ -43,16 +45,30 @@ import { isShopifyImageUrl, shopifyImageLoader } from '@/lib/shopifyImageLoader'
  *   surface only). Collapsed behind a per-line toggle by default, local to
  *   this row's mount — survives a quantity change on the same line, resets
  *   only if the row is removed and re-added.
+ *
+ *   displayQuantity (default item.quantity) — the count THIS ROW shows/
+ *   prices. Differs from item.quantity when buildCartDisplayRows had to
+ *   split one cart line into two rows (part in stock, part not) — each
+ *   half shows only its own portion here, while the quantity STEPPER below
+ *   still increments/decrements the real, whole line (item.quantity), never
+ *   this display-only count, so "+1" always means "one more of this
+ *   product", not "one more of just this half".
+ *
+ *   showComponentDetails (default false) - adds the piece-count/weight
+ *   subtitle behind each PriceBreakdown amount (e.g. "76 pcs · 1.93 ct"
+ *   under Diamond). Cart page and checkout's Order Items summary opt in;
+ *   the mini cart drawer never passes this.
  */
 export default function CartItemRow({
   item, onUpdateQuantity, onRemove, readOnly = false, priced = null, showPriceBreakdown = false,
+  showComponentDetails = false, displayQuantity = item.quantity,
 }) {
   const router = useRouter();
   const [imgError, setImgError] = useState(false);
   const [breakdownOpen, setBreakdownOpen] = useState(false);
 
   const unitPrice = priced ? priced.unitPrice : item.unitPrice;
-  const lineTotal = priced ? priced.lineTotal : item.unitPrice * item.quantity;
+  const lineTotal = priced ? priced.lineTotal : item.unitPrice * displayQuantity;
   // item.image is already a fully-resolved src by the time it lands here
   // (resolved once at cart-populating time) — do not run it through
   // resolveImageSrc again here; a second pass on an already-resolved
@@ -72,9 +88,16 @@ export default function CartItemRow({
     item.attributes?.metal_color,
   ].filter(Boolean);
 
-  // null when hasStock wasn't captured at add-to-cart time (order
-  // fulfillment, abandoned-cart restore); StockStatusBadge renders nothing then.
-  const stockStatus = item.hasStock === true ? 'in_stock'
+  // priced.documentType (set by checkoutPricingService's
+  // buildCartDisplayRows, once pricing resolves) is the fresh,
+  // authoritative verdict — which of the two real documents this exact
+  // quantity will actually be billed through — and wins over the stale
+  // add-to-cart-time hasStock flag whenever it's available. Falls back to
+  // hasStock only while pricing hasn't resolved yet (or wasn't captured at
+  // all — order fulfillment, abandoned-cart restore); null renders no badge.
+  const stockStatus = priced?.documentType === 'invoice' ? 'in_stock'
+    : priced?.documentType === 'order' ? 'out_stock'
+    : item.hasStock === true ? 'in_stock'
     : item.hasStock === false ? 'out_stock'
     : null;
 
@@ -151,11 +174,11 @@ export default function CartItemRow({
             <div className="mt-1">
               {readOnly ? (
                 <span className="text-xs text-muted-foreground tabular-nums">
-                  {item.quantity} ×
+                  {displayQuantity} ×
                 </span>
               ) : (
                 <CartItemQuantityControl
-                  quantity={item.quantity}
+                  quantity={displayQuantity}
                   onIncrement={() => onUpdateQuantity(item, item.quantity + 1)}
                   onDecrement={() => onUpdateQuantity(item, item.quantity - 1)}
                 />
@@ -167,7 +190,10 @@ export default function CartItemRow({
             {onRemove && (
               <button
                 type="button"
-                onClick={() => onRemove(item)}
+                // displayQuantity, not item.quantity — a row split by
+                // buildCartDisplayRows (part in stock, part made-to-order)
+                // must only remove its OWN portion; see cartSlice.removeItem.
+                onClick={() => onRemove(item, displayQuantity)}
                 aria-label={`Remove ${item.itemName ?? 'item'} from cart`}
                 className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
               >
@@ -224,7 +250,7 @@ export default function CartItemRow({
               className={cn('transition-transform', breakdownOpen && 'rotate-180')}
             />
           </button>
-          {breakdownOpen && <PriceBreakdown priced={priced.breakdown} />}
+          {breakdownOpen && <PriceBreakdown priced={priced.breakdown} showComponents={showComponentDetails} />}
         </div>
       )}
     </div>

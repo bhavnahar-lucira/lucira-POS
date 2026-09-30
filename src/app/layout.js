@@ -26,8 +26,27 @@ export default function RootLayout({ children }) {
     <html
       lang="en"
       className="font-figtree h-full antialiased"
+      suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col antialiased">
+      {/* suppressHydrationWarning (both here and on <body>) — reported
+          directly: refreshing /catalog (and, confirmed in the dev log,
+          /login too) sometimes leaves the page fetching nothing at all.
+          Root-caused via the dev server's own error output: a real
+          hydration-mismatch error on THIS exact tag (`cz-shortcut-listen`,
+          `__api_sniffer_speed_meter_host` — browser-extension-injected
+          attributes present before React hydrates, not anything this app
+          renders differently server vs client). React's response to any
+          hydration mismatch is to discard and fully re-render the whole
+          tree from here down — Redux's PersistGate, react-query's
+          PersistQueryClientProvider, and every page below it all remount
+          unexpectedly mid-load, which is exactly the kind of surprise
+          remount that can leave an in-flight catalog fetch orphaned.
+          suppressHydrationWarning on html/body is the standard, safe fix
+          for this specific class of mismatch (extension-mutated
+          attributes on these two tags only) — it does NOT suppress a
+          hydration mismatch anywhere else in the app, only false
+          positives on these two root tags. */}
+      <body className="min-h-full flex flex-col antialiased" suppressHydrationWarning>
         {/*
           GA4 — only rendered when NEXT_PUBLIC_GA_MEASUREMENT_ID is set
           (e.g. missing in a bare dev checkout), so analytics being

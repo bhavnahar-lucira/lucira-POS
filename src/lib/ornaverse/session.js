@@ -145,7 +145,7 @@ export function buildClearSessionCookieHeaders() {
  *
  * @returns {{ pairs: Map<string, string>, csrf: string|null }}
  */
-function parseCookies(response) {
+export function parseCookies(response) {
   const raw = typeof response.headers.getSetCookie === 'function'
     ? response.headers.getSetCookie()
     : [response.headers.get('set-cookie')].filter(Boolean);
@@ -330,6 +330,48 @@ export async function getSessionFromRequest(request) {
     // this code) — treat exactly like no session at all.
     return null;
   }
+}
+
+/**
+ * If OrnaVerse's response carried fresh Set-Cookie headers, folds them into
+ * the session jar and returns an updated session to re-persist. Returns
+ * null when upstream sent no cookies (the overwhelmingly common case), so
+ * callers can skip re-issuing Set-Cookie on every single request.
+ *
+ * THE BUG THIS FIXES: every proxied call replayed the exact cookie captured
+ * at login, forever. ASP.NET Core's auth cookie renews itself under sliding
+ * expiration (a Set-Cookie on any request landing past roughly half its
+ * remaining lifetime) — the proxy silently discarded every one of those
+ * renewals, so a shift longer than the ORIGINAL cookie's lifetime hit a real
+ * 401 from OrnaVerse itself even with continuous activity, often mid-
+ * checkout. Reported directly (2026-09-29): "auto logouts... while placing
+ * an order... breaks everything."
+ *
+ * @param {{cookie: string, csrf: string|null, username: string, isSuperAdmin?: boolean}} session
+ * @param {Response} upstreamResponse
+ * @returns {{cookie: string, csrf: string|null, username: string, isSuperAdmin?: boolean}|null}
+ */
+export function renewSessionFromUpstream(session, upstreamResponse) {
+  const { pairs, csrf } = parseCookies(upstreamResponse);
+  if (pairs.size === 0) return null;
+
+  const existing = new Map();
+  for (const part of session.cookie.split(';')) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const [name] = trimmed.split('=');
+    existing.set(name, trimmed);
+  }
+
+  let changed = false;
+  for (const [name, pair] of pairs) {
+    if (existing.get(name) !== pair) changed = true;
+    existing.set(name, pair);
+  }
+  if (csrf && csrf !== session.csrf) changed = true;
+  if (!changed) return null;
+
+  return { ...session, cookie: [...existing.values()].join('; '), csrf: csrf ?? session.csrf };
 }
 
 function parseCookieHeader(header) {

@@ -15,7 +15,7 @@ import Confetti from '@/components/shared/Confetti';
 import InvoiceReportButton from '@/components/features/checkout/InvoiceReportButton';
 import { useInvoiceDetail } from '@/hooks/checkout/useInvoiceDetail';
 import { useOrderDetail } from '@/hooks/checkout/useOrderDetail';
-import { splitGst } from '@/lib/gst';
+import { sumRealGst } from '@/lib/gst';
 import APP_CONFIG from '@/constants/appConfig';
 import { formatAmountOrDash as fmt } from '@/lib/priceUtils';
 import { formatDateNumeric as fmtDate } from '@/lib/dateUtils';
@@ -25,17 +25,20 @@ import { formatDateNumeric as fmtDate } from '@/lib/dateUtils';
  *   transactionId: number,   — EntityId returned from createInvoice/createOrder
  *   invoiceNo?:    string,   — document_no if already known (optional)
  *   documentType?: 'invoice'|'order',
+ *   showConfetti?: boolean,  — default true; a split checkout (2026-09-29)
+ *     renders this component TWICE (one per document) on the same success
+ *     page — pass false on the second one so it doesn't double-fire.
  * }} props
  */
 export default function OrderConfirmationScreen({
-  transactionId, invoiceNo, documentType = 'invoice',
+  transactionId, invoiceNo, documentType = 'invoice', showConfetti: showConfettiProp = true,
 }) {
   const router = useRouter();
   const isOrder = documentType === 'order';
 
   // Mounts only right after a fresh order/invoice (checkout/page.jsx's
   // isConfirmed gate), so firing once per mount is once per sale.
-  const [showConfetti, setShowConfetti] = useState(true);
+  const [showConfetti, setShowConfetti] = useState(showConfettiProp);
 
   // Only the relevant Retrieve fires — the other is disabled by a null id
   // rather than skipped, so the hook order stays fixed across renders.
@@ -61,10 +64,9 @@ export default function OrderConfirmationScreen({
   // (matches what Create submitted) rather than re-derived from client
   // promo state.
   const discountAmt = invoice?.discount || null;
-  // Server-computed GST, read back per line item and split into CGST+SGST
-  // for display (lib/gst.js) — not calculated client-side.
-  const taxAmount   = invoice?.tax_amount ?? null;
-  const gst         = splitGst(taxAmount);
+  // Real, per-line CGST/SGST straight off this posted document's own line
+  // items — never reconstructed (see lib/gst.js's own header).
+  const gst         = sumRealGst(invoice?.line_items);
   // Same round_off figure submitted at Create (roundedNet - netAmount),
   // read back rather than recomputed, so Discount + CGST + SGST lines add
   // up to Total instead of being off by a few paise.

@@ -89,6 +89,12 @@ export const getStockPieceBySku = ({ sku, companyId }) =>
     Skip: 0,
     Take: 1,
     sku,
+    // FIXED 2026-09-30 (reported directly, confirmed live) — without this,
+    // a real, confirmed-existing sku ("LJ02266943") returned zero rows on
+    // UAT; adding it resolved instantly. Matches OrnaVerse's own real client,
+    // per direct confirmation: it sends `sku` alongside `has_sku` in this
+    // exact call for its own search.
+    has_sku: true,
     ...(ACTIVE_ENV === 'LIVE' ? { company_id: companyId } : {}),
   });
 

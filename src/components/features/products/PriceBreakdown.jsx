@@ -38,7 +38,7 @@
 import { Receipt } from 'lucide-react';
 import { formatAmount as money } from '@/lib/priceUtils';
 
-function Segment({ label, value, muted = false }) {
+function Segment({ label, value, muted = false, subtitle }) {
   return (
     <div
       className={[
@@ -52,6 +52,11 @@ function Segment({ label, value, muted = false }) {
       <span className="text-sm font-bold tabular-nums text-foreground">
         {money(value)}
       </span>
+      {subtitle && (
+        <span className="text-[10px] font-medium tabular-nums text-muted-foreground">
+          {subtitle}
+        </span>
+      )}
     </div>
   );
 }
@@ -64,7 +69,7 @@ function Segment({ label, value, muted = false }) {
  *   Renders nothing until it resolves — see the PDP's own "Calculating live
  *   price…" state for that in-between moment.
  */
-export default function PriceBreakdown({ priced }) {
+export default function PriceBreakdown({ priced, showComponents = false }) {
   if (!priced) return null;
 
   // Every material component that actually applies to this piece — most
@@ -72,12 +77,17 @@ export default function PriceBreakdown({ priced }) {
   // Diamond + Labour), and a component this design has none of (e.g. no
   // colour stone) is left out rather than shown as a bare "₹0" that reads
   // like a rendering gap.
+  //
+  // `showComponents` (cart-page only — see CartItemRow's showComponentDetails)
+  // adds the piece-count/weight subtitle behind each amount, e.g. "76 pcs ·
+  // 1.93 ct" under Diamond — the exact figures used to explain a real vs.
+  // master-priced difference between an in-stock and a made-to-order line.
   const materialSegments = [
-    { label: 'Metal',        value: priced.metal_amount },
-    { label: 'Diamond',      value: priced.diamond_amount },
-    { label: 'Stone',        value: priced.stone_amount },
-    { label: 'Colour Stone', value: priced.color_stone_amount },
-    { label: 'Other',        value: priced.other_amount },
+    { label: 'Metal',        value: priced.metal_amount,       subtitle: priced.net_weight > 0 ? `${priced.net_weight} g` : null },
+    { label: 'Diamond',      value: priced.diamond_amount,      subtitle: priced.diamond_pieces > 0 ? `${priced.diamond_pieces} pcs · ${priced.diamond_weight} ct` : null },
+    { label: 'Stone',        value: priced.stone_amount,        subtitle: priced.stone_pieces > 0 ? `${priced.stone_pieces} pcs · ${priced.stone_weight} ct` : null },
+    { label: 'Colour Stone', value: priced.color_stone_amount,  subtitle: priced.color_stone_pieces > 0 ? `${priced.color_stone_pieces} pcs · ${priced.color_stone_weight} ct` : null },
+    { label: 'Other',        value: priced.other_amount,        subtitle: priced.other_pieces > 0 ? `${priced.other_pieces} pcs · ${priced.other_weight} ct` : null },
   ].filter((s) => s.value > 0);
 
   return (
@@ -93,7 +103,7 @@ export default function PriceBreakdown({ priced }) {
 
       <div className="flex flex-wrap gap-2 px-4 py-3 sm:gap-2.5 sm:px-5 sm:py-4">
         {materialSegments.map((s) => (
-          <Segment key={s.label} label={s.label} value={s.value} />
+          <Segment key={s.label} label={s.label} value={s.value} subtitle={showComponents ? s.subtitle : null} />
         ))}
         {priced.item_labour > 0 && (
           <Segment label="Making Charges" value={priced.item_labour} />

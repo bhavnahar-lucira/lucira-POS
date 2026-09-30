@@ -53,6 +53,20 @@ const BLIND_FALLBACK_STALE = 60 * 60 * 1000; // 1h
 // all of them would open thousands of query observers. Items beyond the
 // window keep reading "Pricing…" (we genuinely haven't asked) rather than
 // being asserted unpriceable.
+//
+// Tried shrinking this to "visible range + one page" (2026-09-30, chasing
+// the same report below) since Virtuoso's own overscan legitimately
+// auto-loads several browse pages before the operator scrolls, and all of
+// them entering this queue with equal priority to what's actually on screen
+// seemed like the dilution culprit. Reverted: confirmed live it could strand
+// a genuinely slow-to-price item (a diamond-heavy SKU whose SetSalesItems
+// call legitimately takes longer) outside the window indefinitely once
+// Virtuoso's real rangeChanged narrowed priorityItemIds mid-flight — "Pricing…"
+// forever is a worse failure mode than "slow". The two real, safe fixes that
+// stayed: getLivePricesForItems's two independent lookups now run
+// concurrently instead of in series (removed a full extra round trip, incl.
+// from the epoch canary that gates all of this), and CATALOG_TAKE dropping
+// to 24 (appConfig.js) already shrank each page's own pricing workload.
 const PRICE_WINDOW = 240;
 
 // One bucket per store: the price of an item depends on which physical piece

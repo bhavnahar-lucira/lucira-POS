@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef } from 'react';
 import { useDispatch } from 'react-redux';
 import { toast } from 'react-toastify';
 import { ShoppingCart } from 'lucide-react';
@@ -45,8 +46,18 @@ export default function AddToCartButton({
   className,
 }) {
   const dispatch = useDispatch();
-
   const isDisabled = !product || disabled || unitPrice == null;
+  // Reentrancy guard, not React state — reported directly (2026-09-30): a
+  // qty-2 add landed in the cart as qty-4, cart confirmed empty beforehand.
+  // handleAddToCart has no async gap (dispatch is synchronous), so a rapid
+  // double-click/double-tap (or a mobile browser's own click+touchend double
+  // fire, a known cross-browser quirk) could invoke it twice before a
+  // disabled-state re-render ever painted — cartSlice's addItem reducer then
+  // merges the second dispatch's quantity onto the first (existing,
+  // unrelated-to-this-bug behavior for re-adding the same item), silently
+  // doubling it. A ref closes that same-tick gap that state can't; the
+  // timeout still allows a genuinely separate, later "add this again" click.
+  const isAddingRef = useRef(false);
   const resolvedImage =
     primaryImage?.src ??
     resolveImageSrc(product?.image_url ?? product?.image) ??
@@ -65,7 +76,9 @@ export default function AddToCartButton({
   });
 
   const handleAddToCart = () => {
-    if (isDisabled) return;
+    if (isDisabled || isAddingRef.current) return;
+    isAddingRef.current = true;
+    setTimeout(() => { isAddingRef.current = false; }, 700);
 
     dispatch(addItem({
       itemId:     product.item_id,

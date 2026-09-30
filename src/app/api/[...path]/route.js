@@ -21,7 +21,7 @@
 // here by matching OrnaVerse's own public access for exactly this prefix,
 // nothing else.
 import { UPSTREAM } from '@/lib/ornaverse/upstream';
-import { getSessionFromRequest } from '@/lib/ornaverse/session';
+import { getSessionFromRequest, renewSessionFromUpstream, buildSessionCookieHeaders } from '@/lib/ornaverse/session';
 import { getCachedRead, setCachedRead, isCacheableReadPath } from '@/lib/security/proxyReadCache';
 
 const PUBLIC_PATH_PREFIXES = ['upload/'];
@@ -41,8 +41,9 @@ async function proxy(request, { params }) {
   const contentType = request.headers.get('content-type');
   if (contentType) headers.set('Content-Type', contentType);
 
+  let session = null;
   if (!isPublicPath) {
-    const session = await getSessionFromRequest(request);
+    session = await getSessionFromRequest(request);
     if (!session) {
       return new Response(
         JSON.stringify({ error: 'not_authenticated', error_description: 'Sign in again.' }),
@@ -100,19 +101,30 @@ async function proxy(request, { params }) {
 
   const responseContentType = upstreamRes.headers.get('content-type') ?? 'application/json';
 
+  // Renews OUR session cookie whenever OrnaVerse's own auth cookie renews
+  // itself (sliding expiration) — see renewSessionFromUpstream's own header
+  // for the bug this closes. Skipped entirely when upstream sent no cookies,
+  // which is every request except the occasional renewal.
+  const renewed = session ? renewSessionFromUpstream(session, upstreamRes) : null;
+  const setCookieHeaders = renewed ? buildSessionCookieHeaders(renewed) : [];
+
   if (cacheKey && upstreamRes.ok) {
     const bytes = await upstreamRes.arrayBuffer();
     setCachedRead(cacheKey, { bytes, status: upstreamRes.status, contentType: responseContentType });
-    return new Response(bytes, { status: upstreamRes.status, headers: { 'Content-Type': responseContentType } });
+    const res = new Response(bytes, { status: upstreamRes.status, headers: { 'Content-Type': responseContentType } });
+    for (const header of setCookieHeaders) res.headers.append('Set-Cookie', header);
+    return res;
   }
 
   // Streamed straight through (not buffered) for everything else, so a
   // large response doesn't hold this invocation's memory/CPU active for
   // the whole download.
-  return new Response(upstreamRes.body, {
+  const res = new Response(upstreamRes.body, {
     status: upstreamRes.status,
     headers: { 'Content-Type': responseContentType },
   });
+  for (const header of setCookieHeaders) res.headers.append('Set-Cookie', header);
+  return res;
 }
 
 export {

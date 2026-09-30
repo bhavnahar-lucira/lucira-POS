@@ -1,9 +1,3 @@
-// Zod schema for the WalkIn/Register form — mirrors OrnaVerse's own real
-// Register form (confirmed via its official API reference, 2026-09-28):
-// mobile + first name are the only required fields, everything else is
-// optional lead-qualification detail (source/interest/budget/notes), not
-// the KYC-heavy shape customerSchema.js uses for a real billing customer.
-
 import { z } from 'zod';
 import { isValidPhoneNumber } from 'libphonenumber-js/max';
 import { mobileSchema } from '@/validators/customerSchema';

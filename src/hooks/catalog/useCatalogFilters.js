@@ -36,17 +36,35 @@ export function useCatalogFilters() {
     ? Number(params.get('store'))
     : null;
 
-  // ── Facet filters (2026-09-28) — Diamond Shape, Carat, Weight, Material,
-  // Price. See lib/catalogFacets.js for why these are all applied
-  // client-side (ProductCatalog/List has no server-side filter for any of
-  // them) and why there's no Size facet (no ring-size field on this endpoint).
-  const rawShape        = params.get('shape');
-  const rawMaterial     = params.get('material');
-  const rawCarat        = params.get('carat');
-  const rawWeightMode   = params.get('weightMode');
-  const rawWeight       = params.get('weight');
-  const rawPriceMin     = params.get('priceMin');
-  const rawPriceMax     = params.get('priceMax');
+  // ── Direct server-side filters (2026-09-30 redesign) — Sub Category,
+  // Karat, Metal Color, Diamond Shape, Item Size, Collection (id arrays) and
+  // Weight/Diamond Weight (ranges), matching OrnaVerse's own real Filters
+  // panel field-for-field (sub_type_ids/karat_ids/metal_ids/shape_ids/
+  // item_size_ids/collection_ids/from_weight-to_weight/
+  // from_diamond_weight-to_diamond_weight — confirmed live against their own
+  // client). These replace the old client-side bucket facets, which existed
+  // only because ProductCatalog/List was believed to have no server-side
+  // filter for any of them — wrong (see catalogService.js's corrected
+  // comment) — so every one of these now goes straight to the server via
+  // useCatalogProducts, no full-tenant sweep required.
+  //
+  // Price stays a client-side-only range (rawPriceMin/rawPriceMax below):
+  // ProductCatalog/List's own rows never carry a populated `price` field on
+  // this tenant (see catalogService.js's PRICING note) — a server-side
+  // from_price/to_price would filter against a value that's always null, so
+  // Price still narrows whatever's already been live-priced instead.
+  const rawSubCategory       = params.get('subCategory');
+  const rawKarat             = params.get('karat');
+  const rawMetalColor        = params.get('metalColor');
+  const rawShape             = params.get('shape');
+  const rawItemSize          = params.get('itemSize');
+  const rawCollection        = params.get('collection');
+  const rawWeightFrom        = params.get('weightFrom');
+  const rawWeightTo          = params.get('weightTo');
+  const rawDiamondWeightFrom = params.get('diamondWeightFrom');
+  const rawDiamondWeightTo   = params.get('diamondWeightTo');
+  const rawPriceMin          = params.get('priceMin');
+  const rawPriceMax          = params.get('priceMax');
 
   // Memoized on the raw param STRINGS, not derived on every render as plain
   // consts — FIXED (2026-09-28, reported: pricing/results feel like they
@@ -57,18 +75,29 @@ export function useCatalogFilters() {
   // those could ever actually memoize, so they recomputed on every render,
   // not just when a filter genuinely changed.
   const facets = useMemo(() => {
-    const csv = (v) => (v ? v.split(',') : []);
+    const csvNum = (v) => (v ? v.split(',').map(Number) : []);
     return {
-      shapes:        csv(rawShape),
-      materials:     csv(rawMaterial),
-      caratBuckets:  csv(rawCarat),
-      weightMode:    rawWeightMode === 'diamond' ? 'diamond' : 'gold',
-      weightBuckets: csv(rawWeight),
-      priceMin:      rawPriceMin ? Number(rawPriceMin) : null,
-      priceMax:      rawPriceMax ? Number(rawPriceMax) : null,
+      subTypeIds:        csvNum(rawSubCategory),
+      karatIds:          csvNum(rawKarat),
+      metalColorIds:     csvNum(rawMetalColor),
+      shapeIds:          csvNum(rawShape),
+      itemSizeIds:       csvNum(rawItemSize),
+      collectionIds:     csvNum(rawCollection),
+      weightFrom:        rawWeightFrom        ? Number(rawWeightFrom)        : null,
+      weightTo:          rawWeightTo          ? Number(rawWeightTo)          : null,
+      diamondWeightFrom: rawDiamondWeightFrom ? Number(rawDiamondWeightFrom) : null,
+      diamondWeightTo:   rawDiamondWeightTo   ? Number(rawDiamondWeightTo)   : null,
+      priceMin:          rawPriceMin ? Number(rawPriceMin) : null,
+      priceMax:          rawPriceMax ? Number(rawPriceMax) : null,
     };
-  }, [rawShape, rawMaterial, rawCarat, rawWeightMode, rawWeight, rawPriceMin, rawPriceMax]);
-  const { shapes, materials, caratBuckets, weightBuckets, priceMin, priceMax } = facets;
+  }, [
+    rawSubCategory, rawKarat, rawMetalColor, rawShape, rawItemSize, rawCollection,
+    rawWeightFrom, rawWeightTo, rawDiamondWeightFrom, rawDiamondWeightTo, rawPriceMin, rawPriceMax,
+  ]);
+  const {
+    subTypeIds, karatIds, metalColorIds, shapeIds, itemSizeIds, collectionIds,
+    weightFrom, weightTo, diamondWeightFrom, diamondWeightTo, priceMin, priceMax,
+  } = facets;
 
   // Build the baseline from window.location.search rather than
   // useSearchParams()'s React-managed snapshot, which only updates on its
@@ -133,22 +162,32 @@ export function useCatalogFilters() {
     // patches weightMode+weightBuckets together, so that's two events, one
     // per real change), not one vague "facets changed" event.
     setFacets: (patch) => {
-      if ('shapes'       in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'shape',        filter_value: patch.shapes.join(',') || null });
-      if ('materials'    in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'material',     filter_value: patch.materials.join(',') || null });
-      if ('caratBuckets' in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'carat',        filter_value: patch.caratBuckets.join(',') || null });
-      if ('weightMode'   in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'weight_mode',  filter_value: patch.weightMode });
-      if ('weightBuckets'in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'weight',       filter_value: patch.weightBuckets.join(',') || null });
-      if ('priceMin'     in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'price_min',    filter_value: patch.priceMin });
-      if ('priceMax'     in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'price_max',    filter_value: patch.priceMax });
+      if ('subTypeIds'        in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'sub_category',    filter_value: patch.subTypeIds.join(',') || null });
+      if ('karatIds'          in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'karat',           filter_value: patch.karatIds.join(',') || null });
+      if ('metalColorIds'     in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'metal_color',     filter_value: patch.metalColorIds.join(',') || null });
+      if ('shapeIds'          in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'diamond_shape',   filter_value: patch.shapeIds.join(',') || null });
+      if ('itemSizeIds'       in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'item_size',       filter_value: patch.itemSizeIds.join(',') || null });
+      if ('collectionIds'     in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'collection',      filter_value: patch.collectionIds.join(',') || null });
+      if ('weightFrom'        in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'weight_from',     filter_value: patch.weightFrom });
+      if ('weightTo'          in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'weight_to',       filter_value: patch.weightTo });
+      if ('diamondWeightFrom' in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'diamond_weight_from', filter_value: patch.diamondWeightFrom });
+      if ('diamondWeightTo'   in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'diamond_weight_to',   filter_value: patch.diamondWeightTo });
+      if ('priceMin'          in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'price_min',       filter_value: patch.priceMin });
+      if ('priceMax'          in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'price_max',       filter_value: patch.priceMax });
 
       setParam({
-        ...('shapes'        in patch && { shape:      patch.shapes.length      ? patch.shapes.join(',')      : null }),
-        ...('materials'     in patch && { material:   patch.materials.length   ? patch.materials.join(',')   : null }),
-        ...('caratBuckets'  in patch && { carat:      patch.caratBuckets.length ? patch.caratBuckets.join(',') : null }),
-        ...('weightMode'    in patch && { weightMode: patch.weightMode === 'diamond' ? 'diamond' : null }),
-        ...('weightBuckets' in patch && { weight:     patch.weightBuckets.length ? patch.weightBuckets.join(',') : null }),
-        ...('priceMin'      in patch && { priceMin:   patch.priceMin ?? null }),
-        ...('priceMax'      in patch && { priceMax:   patch.priceMax ?? null }),
+        ...('subTypeIds'    in patch && { subCategory: patch.subTypeIds.length    ? patch.subTypeIds.join(',')    : null }),
+        ...('karatIds'      in patch && { karat:       patch.karatIds.length      ? patch.karatIds.join(',')      : null }),
+        ...('metalColorIds' in patch && { metalColor:  patch.metalColorIds.length ? patch.metalColorIds.join(',') : null }),
+        ...('shapeIds'      in patch && { shape:       patch.shapeIds.length      ? patch.shapeIds.join(',')      : null }),
+        ...('itemSizeIds'   in patch && { itemSize:    patch.itemSizeIds.length   ? patch.itemSizeIds.join(',')   : null }),
+        ...('collectionIds' in patch && { collection:  patch.collectionIds.length ? patch.collectionIds.join(',') : null }),
+        ...('weightFrom'        in patch && { weightFrom:        patch.weightFrom        ?? null }),
+        ...('weightTo'          in patch && { weightTo:          patch.weightTo          ?? null }),
+        ...('diamondWeightFrom' in patch && { diamondWeightFrom: patch.diamondWeightFrom ?? null }),
+        ...('diamondWeightTo'   in patch && { diamondWeightTo:   patch.diamondWeightTo   ?? null }),
+        ...('priceMin'      in patch && { priceMin:    patch.priceMin ?? null }),
+        ...('priceMax'      in patch && { priceMax:    patch.priceMax ?? null }),
       });
     },
 
@@ -170,8 +209,10 @@ export function useCatalogFilters() {
   // standalone toggle into the Filters panel itself, so it's a real filter now.
   const hasActiveFilters = !!(
     activeCategorySlug || searchQuery || showOutOfStock
-    || shapes.length || materials.length
-    || caratBuckets.length || weightBuckets.length
+    || subTypeIds.length || karatIds.length || metalColorIds.length
+    || shapeIds.length || itemSizeIds.length || collectionIds.length
+    || weightFrom != null || weightTo != null
+    || diamondWeightFrom != null || diamondWeightTo != null
     || priceMin != null || priceMax != null
   );
 

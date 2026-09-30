@@ -14,7 +14,7 @@ import DiscountSection from '@/components/features/checkout/DiscountSection';
 import ProceedToCheckoutButton from '@/components/features/cart/ProceedToCheckoutButton';
 import { useCart } from '@/hooks/cart/useCart';
 import { useCheckoutPricing } from '@/hooks/checkout/useCheckoutPricing';
-import { mapPricedLinesToCart } from '@/services/checkoutPricingService';
+import { buildCartDisplayRows, combineGroupTotals } from '@/services/checkoutPricingService';
 
 /**
  * @param {{
@@ -35,12 +35,16 @@ export default function CartDrawer({ isOpen, onClose }) {
 
   // Shared query (keyed on cart contents + applied promo codes) with
   // DiscountSection/cart page/checkout, so applying a code anywhere shows
-  // up everywhere with zero extra requests. See cart/page.jsx.
-  const { lineItems: pricedLineItems, totals: pricedTotals, isLoading: isPricing } = useCheckoutPricing();
-  const pricedByCartIndex = useMemo(
-    () => mapPricedLinesToCart(items, pricedLineItems),
-    [items, pricedLineItems]
+  // up everywhere with zero extra requests. See cart/page.jsx — a split
+  // line still shows as two rows here, summary stays one combined total.
+  const { invoice, order, isLoading: isPricing } = useCheckoutPricing();
+  const displayRows = useMemo(
+    () => buildCartDisplayRows(items, { invoice, order }),
+    [items, invoice, order]
   );
+  const pricedTotals = (invoice || order)
+    ? combineGroupTotals(invoice?.totals ?? null, order?.totals ?? null)
+    : null;
 
   return (
     <BottomSheet
@@ -50,11 +54,6 @@ export default function CartDrawer({ isOpen, onClose }) {
       footer={
         !isEmpty && (
           <div className="flex flex-col gap-3">
-            {/* collapsible — the drawer's footer is fixed/non-scrolling
-                (see BottomSheet), so the full breakdown sitting there
-                permanently left little room for the actual item list on a
-                short phone screen (reported directly). Collapsed by
-                default (just the Total row); tap to reveal the rest. */}
             <CartSummary totals={pricedTotals} isPricing={isPricing} collapsible />
             <ProceedToCheckoutButton onNavigate={onClose} />
           </div>
@@ -75,13 +74,14 @@ export default function CartDrawer({ isOpen, onClose }) {
           </div>
 
           <div className="flex flex-col">
-            {items.map((item, index) => (
+            {displayRows.map((row) => (
               <CartItemRow
-                key={`${item.itemId}-${item.sizeId}-${item.styleId}`}
-                item={item}
+                key={row.key}
+                item={row.item}
+                displayQuantity={row.displayQuantity}
                 onUpdateQuantity={updateQuantity}
                 onRemove={removeItem}
-                priced={pricedByCartIndex.get(index) ?? null}
+                priced={row.priced}
               />
             ))}
           </div>

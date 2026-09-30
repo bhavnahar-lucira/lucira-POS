@@ -403,6 +403,10 @@ function ProductCard({
           {item_name && item_name !== item_code ? item_name : ''}
         </p>
 
+        {item_code && (
+          <span className="text-[11px] text-muted-foreground">{item_code}</span>
+        )}
+
       </div>
     </motion.div>
 

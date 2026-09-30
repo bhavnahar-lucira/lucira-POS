@@ -7,10 +7,12 @@
 // Search is live as-you-type (2026-09-28, CustomerLookupInput) — no submit
 // step, and clearing the box immediately clears results too.
 //
-// Trust/session-hygiene: if the cart already has items when attaching a
-// different customer (or a guest cart when attaching anyone), the outgoing
-// cart is now ALWAYS detached (saved under its own owner, then cleared)
-// before the new customer attaches — no more "Keep Cart" choice.
+// Trust/session-hygiene: if the cart already has items under a DIFFERENT
+// real, already-attached customer, the outgoing cart is now ALWAYS detached
+// (saved under its own owner, then cleared) before the new customer attaches
+// — no more "Keep Cart" choice. A guest cart (no customer attached yet) is
+// NOT detached first — see wouldSwitchCustomer below for why that would
+// destroy the operator's own just-added items instead of protecting anyone.
 //
 // REMOVED 2026-09-03 — "Keep Cart" used to leave the outgoing customer's
 // items sitting in the cart, which abandonedCartMiddleware's own
@@ -109,17 +111,27 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
     onClose();
   };
 
-  // Does attaching `incomingCustomerId` risk carrying over someone else's cart?
+  // Does attaching `incomingCustomerId` risk carrying over a DIFFERENT real
+  // customer's cart? A guest cart (no customerId yet) has no owner to
+  // misattribute — reported directly (2026-09-30): treating "not yet
+  // attached" as "would switch" forced a detach first even for a guest's own
+  // walk-in basket, and detachCustomer's reducer clears items unconditionally
+  // (there being no customerId to save them under), wiping the very items the
+  // operator just added the moment ANY customer was picked. Attaching straight
+  // over a guest cart is safe: attachCustomer's own reducer only clears items
+  // when switching between two real, different customerIds, and
+  // abandonedCartMiddleware's 'cart/attachCustomer' case merges in this
+  // customer's own saved abandoned cart rather than replacing anything.
   const wouldSwitchCustomer = (incomingCustomerId) => {
     if (isEmpty) return false;
-    if (!session.isAttached) return true; // guest cart with items
+    if (!session.isAttached) return false; // guest cart with items — attach() alone merges, nothing to detach
     return session.customerId !== incomingCustomerId;
   };
 
   // Detaches the outgoing customer first (saving their cart under their own
-  // id — see abandonedCartMiddleware's 'cart/detachCustomer' case) whenever
-  // attaching would otherwise carry someone else's items over, then attaches
-  // the new customer. No prompt, no choice — see this file's header comment.
+  // id — see abandonedCartMiddleware's 'cart/detachCustomer' case) only when
+  // switching from one real, already-attached customer to a different one —
+  // never for a guest cart (see wouldSwitchCustomer above).
   const performAttach = (customerToAttach, options) => {
     if (wouldSwitchCustomer(customerToAttach.customerId)) {
       session.detach();

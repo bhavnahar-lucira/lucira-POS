@@ -38,6 +38,7 @@ export const QUERY_KEYS = {
   CATEGORIES: {
     TYPES:       () => ['categories', 'types'],
     SUBTYPES:    () => ['categories', 'subtypes'],
+    SUBTYPE_DETAILS: (typeId) => ['categories', 'subtype-details', typeId],
     ITEM_GROUPS: () => ['categories', 'item-groups'],
   },
 
@@ -47,6 +48,7 @@ export const QUERY_KEYS = {
     DETAIL:          (itemId)  => ['items', 'detail', itemId],
     CUSTOM_ESTIMATE_LIST:  ()  => ['items', 'custom-estimate-list'],
     ATTRIBUTES:      (typeId)  => ['items', 'attributes', typeId],
+    SIZES:           ()        => ['items', 'sizes'],
     DESIGN_VARIANTS: (styleId) => ['items', 'design-variants', styleId],
     MASTER_SEARCH:   (query)   => ['items', 'master-search', query],
     PRICING:         (itemId, companyId) => ['items', 'pricing', itemId, companyId],
@@ -71,9 +73,15 @@ export const QUERY_KEYS = {
     // under one key would let one silently overwrite the other.
     ALL_SHARED:            (showOutOfStock = false) => ['catalog', 'all', 'shared', showOutOfStock],
     SKU_SEARCH:            (query, storeId) => ['catalog', 'sku-search', query, storeId],
+    // Exact per-piece SKU, distinct from SKU_SEARCH above (an item_code text
+    // search) — see useExactSkuSearch.js's own header.
+    EXACT_SKU_SEARCH:      (query, storeId) => ['catalog', 'exact-sku-search', query, storeId],
     CATEGORY_SEARCH:       (typeIds, storeId) => ['catalog', 'category-search', typeIds, storeId],
     STOCK_BY_STORES:       (itemId)  => ['catalog', 'stock-by-stores', itemId],
     STOCK_BY_STORES_BATCH: (itemIds) => ['catalog', 'stock-by-stores-batch', itemIds],
+    // Real, allocation-aware count for the ACTIVE store only — distinct from
+    // STOCK_BY_STORES' raw piece count (see useClaimableStock.js's header).
+    CLAIMABLE_STOCK:       (itemId, companyId) => ['catalog', 'claimable-stock', itemId, companyId],
     PRICE:                 (itemId, storeId, epoch) => ['catalog', 'price', itemId, storeId, epoch],
     PRICE_EPOCH:           (storeId, canaryIds) => ['catalog', 'price-epoch', storeId, canaryIds],
   },

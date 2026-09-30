@@ -34,6 +34,7 @@ import { getStockPieces } from '@/services/inventoryService';
 import { getItemDetail, getDesignVariants } from '@/services/itemService';
 import { priceStockPiecesForSale, calculateItemRates } from '@/services/pricingService';
 import { applyPromotions } from '@/services/promotionService';
+import { sumRealGst } from '@/lib/gst';
 import APP_CONFIG from '@/constants/appConfig';
 
 /**
@@ -88,6 +89,7 @@ export async function applyPromotionsToLines({
         promotions:        promotionDetails,
         document_id:       documentId,
         exchange_rate:     exchangeRate,
+        override_amount:   promo.overrideAmount ?? null,
       });
     } catch (err) {
       console.warn(
@@ -183,9 +185,14 @@ async function fetchStockCandidatesByItemId({ items, activeStoreId }) {
  * each other's piece.
  *
  * @param {{ item: object, activeStoreId: number, claimed: Set<number>, candidatesByItemId: Map<number, object[]> }} params
- * @returns {Promise<object[]>} exactly `item.quantity` stock rows
- * @throws when the store cannot supply that many pieces, or (fulfillment
- *   only) when the specific reserved piece is no longer available
+ * @returns {Promise<object[]>} up to `item.quantity` stock rows — PARTIAL
+ *   (reported directly, 2026-09-30: a qty-2 line with only 1 free piece was
+ *   tipping the WHOLE line into Made to Order instead of splitting into a
+ *   1-unit invoice portion + a 1-unit order portion). Never null; an empty
+ *   array means nothing could be claimed at all. buildPricedLineItems is
+ *   what turns a partial result into two separate line portions.
+ * @throws only on the fulfillment path, when the specific reserved piece is
+ *   no longer available — that one has no "partial" concept (always qty 1).
  */
 async function claimStockPieces({ item, activeStoreId, claimed, candidatesByItemId }) {
   let rows = candidatesByItemId.get(item.itemId) ?? [];
@@ -223,9 +230,10 @@ async function claimStockPieces({ item, activeStoreId, claimed, candidatesByItem
   const wanted = item.quantity ?? 1;
 
   // Short stock is NOT an error here — a basket the shelf can't fill simply
-  // becomes an order instead of a dead end.
-  if (available.length < wanted) return null;
-
+  // becomes an order instead of a dead end. Claims as many as are actually
+  // free, up to `wanted` — may be fewer, or zero; never rejects the whole
+  // line just because it can't fill it completely (see this function's own
+  // @returns note on why that changed).
   const taken = available.slice(0, wanted);
   for (const row of taken) claimed.add(row.stock_journal_id);
   return taken;
@@ -292,30 +300,47 @@ async function buildOrderLineItems({ items, documentId }) {
 }
 
 /**
- * Prices the basket ONCE, and works out for itself what it is pricing.
+ * Prices the basket ONCE, and works out for itself what it is pricing —
+ * PER LINE, not as one all-or-nothing verdict for the whole cart.
  *
- * The counter no longer asks the operator to classify the sale as "Bill Now"
- * or "Place Order" up front — that meant quoting two different figures for
- * the same item before either was known to be true, which is a trust problem
- * in front of a customer. Instead:
+ * OrnaVerse's own server enforces, structurally, that an Invoice line must
+ * always name a real physical piece — confirmed live (2026-09-29):
+ * SetSalesItems refuses to even PRICE a master-only row against document_id
+ * 54 ("Unable to load BOM for <code>"), the identical row prices fine
+ * against 53. So every cart line independently falls into one of two
+ * buckets — PER UNIT, not all-or-nothing for the line (reported directly,
+ * 2026-09-30: a qty-2 line with only 1 free piece was tipping the WHOLE
+ * line into Made to Order, both units, instead of splitting):
  *
- *   every line in stock  → price the PHYSICAL PIECES (doc 54). This is the
- *     only shape an invoice can be raised from — a master-built invoice is
- *     refused with "Not enough stock of <code> can not Save", because it
- *     never names the piece leaving the shelf.
- *   anything short       → price the MASTERS (doc 53). Made-to-order; there
- *     is no piece to name, and only an order can be raised.
+ *   whatever quantity CAN be claimed → price the PHYSICAL PIECES (doc 54) —
+ *     the only shape an Invoice line can ever be.
+ *   whatever's left over (short by even one piece) → price the MASTER
+ *     (doc 53) — made-to-order; no piece to name for these units, so they
+ *     can only ever be Order units.
  *
- * The document type follows from what was collected, at submit time. Both
- * are priced by the same server call against today's rates, so the figure
- * the customer is quoted is the figure they are charged either way.
+ * A single cart line of qty 2 with 1 free piece therefore becomes TWO
+ * one-unit portions — one in the invoice group, one in the order group —
+ * not one two-unit line dumped entirely into whichever bucket lost the
+ * all-or-nothing coin flip. A cart overall can need EITHER, BOTH, or
+ * (rarely) neither group priced — see checkout/page.jsx for how a cart
+ * producing both groups raises two separate documents (mirroring how
+ * OrnaVerse's own POS — which has no unified cart at all — makes an
+ * operator do this by hand: a separate Invoice form for what's in stock, a
+ * separate Order form for what isn't).
  *
  * @param {{
  *   items: {itemId, itemName, styleId, quantity}[],
  *   activeStoreId: number,
  *   salesPersonId?: number,
  * }} params
- * @returns {Promise<{ lineItems: object[], isStockBacked: boolean }>}
+ * @returns {Promise<{
+ *   invoice: { cartItems: object[], lineItems: object[] } | null,
+ *   order:   { cartItems: object[], lineItems: object[] } | null,
+ * }>}
+ *   invoice/order are null when nothing landed in that bucket — a plain
+ *   all-in-stock cart comes back as `{ invoice: {...}, order: null }`, a
+ *   plain all-MTO cart as `{ invoice: null, order: {...} }`; both non-null
+ *   is the genuinely mixed case.
  */
 export async function buildPricedLineItems({ items, activeStoreId, salesPersonId }) {
   const claimed = new Set();
@@ -330,36 +355,51 @@ export async function buildPricedLineItems({ items, activeStoreId, salesPersonId
   // still `await`ed because claimStockPieces can fall back to a scoped
   // per-item re-fetch when the shared batch came up short for one item (see
   // its own header comment) — a rare path, not the common case.
+  const stockBackedCartItems = [];
+  const mtoCartItems = [];
   const stockRows = [];
-  let isStockBacked = true;
   for (const item of items) {
     const taken = await claimStockPieces({ item, activeStoreId, claimed, candidatesByItemId });
-    if (!taken) { isStockBacked = false; break; }
-    stockRows.push(...taken);
+    const wanted = item.quantity ?? 1;
+
+    // Reuses the ORIGINAL item object (not a clone) whenever the whole line
+    // lands in one bucket — the common case — so reference-based lookups
+    // elsewhere (buildCartDisplayRows) still work unchanged. Only a
+    // genuine partial claim (0 < taken.length < wanted) produces two
+    // smaller-quantity clones, one per bucket.
+    if (taken.length > 0) {
+      stockBackedCartItems.push(taken.length === wanted ? item : { ...item, quantity: taken.length });
+      stockRows.push(...taken);
+    }
+    if (taken.length < wanted) {
+      mtoCartItems.push(taken.length === 0 ? item : { ...item, quantity: wanted - taken.length });
+    }
   }
 
-  const documentId = isStockBacked
-    ? APP_CONFIG.DOCUMENT_TYPES.POS_INVOICE
-    : APP_CONFIG.DOCUMENT_TYPES.POS_ORDER;
+  const applySalesPerson = (rows) => (salesPersonId == null
+    ? rows
+    : rows.map((row) => ({ ...row, sales_person_id: salesPersonId })));
 
-  const priced = isStockBacked
-    ? await priceStockPiecesForSale(stockRows, documentId)
-    : await buildOrderLineItems({ items, documentId });
-
-  const expected = isStockBacked
-    ? stockRows.length
-    : items.reduce((sum, item) => sum + (item.quantity ?? 1), 0);
-
-  if (priced.length !== expected) {
-    throw new Error('Live pricing failed — the server priced a different number of items than were sent.');
+  let invoice = null;
+  if (stockBackedCartItems.length > 0) {
+    const priced = await priceStockPiecesForSale(stockRows, APP_CONFIG.DOCUMENT_TYPES.POS_INVOICE);
+    if (priced.length !== stockRows.length) {
+      throw new Error('Live pricing failed — the server priced a different number of items than were sent.');
+    }
+    invoice = { cartItems: stockBackedCartItems, lineItems: applySalesPerson(priced) };
   }
 
-  // sales_person_id is the only field their client adds after pricing.
-  const lineItems = salesPersonId == null
-    ? priced
-    : priced.map((row) => ({ ...row, sales_person_id: salesPersonId }));
+  let order = null;
+  if (mtoCartItems.length > 0) {
+    const priced = await buildOrderLineItems({ items: mtoCartItems, documentId: APP_CONFIG.DOCUMENT_TYPES.POS_ORDER });
+    const expected = mtoCartItems.reduce((sum, item) => sum + (item.quantity ?? 1), 0);
+    if (priced.length !== expected) {
+      throw new Error('Live pricing failed — the server priced a different number of items than were sent.');
+    }
+    order = { cartItems: mtoCartItems, lineItems: applySalesPerson(priced) };
+  }
 
-  return { lineItems, isStockBacked };
+  return { invoice, order };
 }
 
 /**
@@ -381,6 +421,14 @@ export async function buildPricedLineItems({ items, activeStoreId, salesPersonId
  * }>}
  *   keyed by cart index; empty when the two don't line up (never guess a
  *   mapping — showing the cart's own figure is better than the wrong piece's)
+ *
+ *   lineTotal/unitPrice are TAX-INCLUSIVE (net_amount) — reported directly
+ *   (2026-09-30): the cart's own "each" price stayed pre-tax after the PDP's
+ *   headline/Price Breakdown were already switched to tax-inclusive, so the
+ *   same real piece showed two different-looking numbers in two places and
+ *   read as a pricing bug. breakdown.sub_total is unaffected — it's the
+ *   PriceBreakdown card's own explicitly-labeled pre-tax figure, kept correct
+ *   independently of this change.
  */
 export function mapPricedLinesToCart(items, lineItems) {
   const byCartIndex = new Map();
@@ -396,6 +444,16 @@ export function mapPricedLinesToCart(items, lineItems) {
     sub_total: 0, discount: 0, metal_amount: 0, diamond_amount: 0,
     stone_amount: 0, color_stone_amount: 0, other_amount: 0,
     item_labour: 0, taxable_amount: 0, tax_amount: 0, net_amount: 0,
+    // Piece counts/weights behind each amount above — the actual physical
+    // composition (2026-09-30, for the cart page's own component-level
+    // breakdown: "76 pcs, 1.93 ct" behind a diamond_amount, not just the
+    // rupee figure). net_weight is the METAL's own net weight specifically
+    // (diamond/stone carry their own weight fields) — same convention
+    // SetSalesItems itself uses.
+    net_weight: 0, diamond_pieces: 0, diamond_weight: 0,
+    stone_pieces: 0, stone_weight: 0,
+    color_stone_pieces: 0, color_stone_weight: 0,
+    other_pieces: 0, other_weight: 0,
     skus: [],
   });
   const round2 = (n) => +n.toFixed(2);
@@ -418,14 +476,27 @@ export function mapPricedLinesToCart(items, lineItems) {
       acc.taxable_amount     += r.taxable_amount ?? 0;
       acc.tax_amount         += r.tax_amount ?? 0;
       acc.net_amount         += r.net_amount ?? 0;
+      acc.net_weight         += r.net_weight ?? 0;
+      acc.diamond_pieces     += r.diamond_pieces ?? 0;
+      acc.diamond_weight     += r.diamond_weight ?? 0;
+      acc.stone_pieces       += r.stone_pieces ?? 0;
+      acc.stone_weight       += r.stone_weight ?? 0;
+      acc.color_stone_pieces += r.color_stone_pieces ?? 0;
+      acc.color_stone_weight += r.color_stone_weight ?? 0;
+      acc.other_pieces       += r.other_pieces ?? 0;
+      acc.other_weight       += r.other_weight ?? 0;
       if (r.sku) acc.skus.push(r.sku);
       return acc;
     }, emptyTotals());
 
-    const lineTotal = round2(totals.sub_total);
+    // Pre-tax (breakdown's own labeled "Subtotal") vs tax-inclusive (the
+    // row's headline "each"/total) — kept as two distinct values now; see
+    // this function's own JSDoc for why they must not collapse into one.
+    const subTotal = round2(totals.sub_total);
+    const netTotal = round2(totals.net_amount);
     byCartIndex.set(index, {
-      lineTotal,
-      unitPrice: +(lineTotal / quantity).toFixed(2),
+      lineTotal: netTotal,
+      unitPrice: +(netTotal / quantity).toFixed(2),
       // How much of the cart-wide discount landed on THIS line specifically.
       // A component-scoped promo ("20% Off Diamond") can give ₹0 here on a
       // line with no diamond even while it discounts others — correct, not a
@@ -447,7 +518,18 @@ export function mapPricedLinesToCart(items, lineItems) {
         color_stone_amount: round2(totals.color_stone_amount),
         other_amount:       round2(totals.other_amount),
         item_labour:        round2(totals.item_labour),
-        sub_total:          lineTotal,
+        // The physical composition behind each amount above — cart/checkout
+        // display only (see PriceBreakdown's own showComponents prop).
+        net_weight:         round2(totals.net_weight),
+        diamond_pieces:     totals.diamond_pieces,
+        diamond_weight:     round2(totals.diamond_weight),
+        stone_pieces:       totals.stone_pieces,
+        stone_weight:       round2(totals.stone_weight),
+        color_stone_pieces: totals.color_stone_pieces,
+        color_stone_weight: round2(totals.color_stone_weight),
+        other_pieces:       totals.other_pieces,
+        other_weight:       round2(totals.other_weight),
+        sub_total:          subTotal,
         taxable_amount:     round2(totals.taxable_amount),
         tax_amount:         round2(totals.tax_amount),
         net_amount:         round2(totals.net_amount),
@@ -456,6 +538,92 @@ export function mapPricedLinesToCart(items, lineItems) {
   });
 
   return byCartIndex;
+}
+
+// Same identity keys cartSlice's own removeItem/updateQuantity reducers
+// match a line on — the one thing that's stable across a clone
+// buildPricedLineItems makes when it splits a line (same product/size/style,
+// different quantity), so it's what buildCartDisplayRows below matches on
+// instead of object reference (a split line's two portions are never the
+// same object as the original cart item, or as each other).
+function cartLineKey(item) {
+  return `${item.itemId}-${item.sizeId}-${item.styleId}`;
+}
+
+/**
+ * Builds the rows a cart/checkout screen actually renders, expanding ONE
+ * original cart line into TWO display rows when buildPricedLineItems had to
+ * split it (part in stock, part not) — reported directly, 2026-09-30: a
+ * qty-2 line with only 1 free piece was showing as a single row instead of
+ * a 1-unit "In Stock" row + a 1-unit "Made to Order" row.
+ *
+ * Each row's `item` is always the REAL, original cart item (unmodified) —
+ * needed so onRemove/onUpdateQuantity keep acting on the actual cart line,
+ * not a display-only clone. `displayQuantity` carries the portion's own
+ * count (equal to `item.quantity` for an unsplit line) for whatever the row
+ * actually shows/prices; CartItemRow uses it for the visible count while
+ * still driving its quantity stepper off the real `item.quantity`.
+ *
+ * ALWAYS emits one row per cart item at minimum, even when neither group has
+ * priced it yet (pricing still loading, or the query failed outright — e.g.
+ * a transient 502 from the upstream proxy, reported directly 2026-09-30) —
+ * that row just falls back to the raw cart figures (priced: null), same as
+ * this function's predecessor always did. Requiring pricing to have already
+ * resolved before showing ANYTHING was the actual bug: the header's own item
+ * count (a plain sum over cart state, no pricing involved) stayed correct
+ * the whole time, while this function returned an empty list and the mini
+ * cart looked totally empty — which then reads as "my add didn't work" and
+ * invites exactly the repeated-click pattern that also inflates quantity.
+ *
+ * @param {object[]} items — the full cart, in original order
+ * @param {{ invoice: {cartItems, lineItems}|null, order: {cartItems, lineItems}|null }} split
+ * @returns {{ key: string, item: object, displayQuantity: number, documentType: 'invoice'|'order'|null, priced: object|null }[]}
+ */
+export function buildCartDisplayRows(items, { invoice, order }) {
+  if (!items?.length) return [];
+
+  const invoiceMap = invoice ? mapPricedLinesToCart(invoice.cartItems, invoice.lineItems) : null;
+  const orderMap   = order   ? mapPricedLinesToCart(order.cartItems, order.lineItems)     : null;
+
+  const rows = [];
+  items.forEach((item) => {
+    const key = cartLineKey(item);
+    let matched = false;
+
+    if (invoice) {
+      const localIndex = invoice.cartItems.findIndex((ci) => cartLineKey(ci) === key);
+      if (localIndex !== -1) {
+        matched = true;
+        const portion = invoice.cartItems[localIndex];
+        const priced  = invoiceMap.get(localIndex);
+        rows.push({
+          key: `${key}-invoice`, item, displayQuantity: portion.quantity,
+          documentType: 'invoice', priced: priced ? { ...priced, documentType: 'invoice' } : null,
+        });
+      }
+    }
+    if (order) {
+      const localIndex = order.cartItems.findIndex((ci) => cartLineKey(ci) === key);
+      if (localIndex !== -1) {
+        matched = true;
+        const portion = order.cartItems[localIndex];
+        const priced  = orderMap.get(localIndex);
+        rows.push({
+          key: `${key}-order`, item, displayQuantity: portion.quantity,
+          documentType: 'order', priced: priced ? { ...priced, documentType: 'order' } : null,
+        });
+      }
+    }
+
+    if (!matched) {
+      rows.push({
+        key: `${key}-unpriced`, item, displayQuantity: item.quantity,
+        documentType: null, priced: null,
+      });
+    }
+  });
+
+  return rows;
 }
 
 /**
@@ -485,6 +653,10 @@ export function summarizeLineItems(lineItems) {
   });
 
   const round2 = (n) => +n.toFixed(2);
+  // Real per-line CGST/SGST (sumRealGst), not a 50/50 reconstruction off the
+  // combined tax_amount — every line here already carries its own genuine
+  // item_taxes[] rows from SetSalesItems, so there's nothing to guess.
+  const gst = sumRealGst(lineItems);
   return {
     subTotal:      round2(totals.sub_total),
     // Post-promotion figures when ApplyPromotions has run: it writes the
@@ -495,9 +667,43 @@ export function summarizeLineItems(lineItems) {
     discount:      round2(totals.discount),
     taxableAmount: round2(totals.taxable_amount),
     taxAmount:     round2(totals.tax_amount),
+    cgstAmount:    gst?.cgst ?? 0,
+    sgstAmount:    gst?.sgst ?? 0,
     netAmount:     round2(totals.net_amount),
     pieces:        round2(totals.pieces),
     weight:        round2(totals.weight),
     netWeight:     round2(totals.net_weight),
+  };
+}
+
+/**
+ * Combines the invoice group's and order group's totals (either may be null
+ * — see buildPricedLineItems) into one set of figures, for screens that show
+ * a single combined "what this cart comes to" summary rather than two
+ * separate documents (the /cart page, DiscountSection). checkout/page.jsx
+ * itself does NOT use this — it shows each group's own totals separately,
+ * since that's the whole point of the split.
+ * @param {object|null} invoiceTotals — a group's `summarizeLineItems` output
+ * @param {object|null} orderTotals
+ */
+export function combineGroupTotals(invoiceTotals, orderTotals) {
+  const zero = {
+    subTotal: 0, discount: 0, taxableAmount: 0, taxAmount: 0,
+    cgstAmount: 0, sgstAmount: 0, netAmount: 0, pieces: 0, weight: 0, netWeight: 0,
+  };
+  const a = invoiceTotals ?? zero;
+  const b = orderTotals ?? zero;
+  const round2 = (n) => +n.toFixed(2);
+  return {
+    subTotal:      round2(a.subTotal + b.subTotal),
+    discount:      round2(a.discount + b.discount),
+    taxableAmount: round2(a.taxableAmount + b.taxableAmount),
+    taxAmount:     round2(a.taxAmount + b.taxAmount),
+    cgstAmount:    round2((a.cgstAmount ?? 0) + (b.cgstAmount ?? 0)),
+    sgstAmount:    round2((a.sgstAmount ?? 0) + (b.sgstAmount ?? 0)),
+    netAmount:     round2(a.netAmount + b.netAmount),
+    pieces:        round2(a.pieces + b.pieces),
+    weight:        round2(a.weight + b.weight),
+    netWeight:     round2(a.netWeight + b.netWeight),
   };
 }

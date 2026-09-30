@@ -96,20 +96,26 @@ export default function CustomersPage() {
   const totalPages = Math.max(1, Math.ceil(totalCount / take));
   const currentPage = Math.floor(skip / take) + 1;
 
+  // A guest cart (no customerId yet) has no owner to misattribute — see
+  // CustomerSessionSheet's identical helper for the full story on why this
+  // must return false here, not true: forcing a detach first wiped a guest's
+  // own just-added items the moment any customer was picked, since
+  // detachCustomer's reducer clears unconditionally with nothing to save
+  // them under.
   const wouldSwitchCustomer = (incomingId) => {
     if (cart.isEmpty) return false;
-    if (!cart.customerId) return true; // guest cart with items
+    if (!cart.customerId) return false; // guest cart with items — attach() alone merges, nothing to detach
     return cart.customerId !== incomingId;
   };
 
   // Detaches the outgoing customer first (saving their cart under their own
-  // id — see abandonedCartMiddleware's 'cart/detachCustomer' case) whenever
-  // attaching would otherwise carry someone else's items over, then attaches
-  // the new customer. No prompt, no choice — removed 2026-09-03. "Keep cart
-  // & attach" used to misattribute the outgoing customer's items to whoever
-  // was attaching next; now that every customer's cart is persisted
-  // server-side and restored automatically next time THEY are attached
-  // (same middleware), there's no reason to ever carry items across.
+  // id — see abandonedCartMiddleware's 'cart/detachCustomer' case) only when
+  // switching from one real, already-attached customer to a different one.
+  // No prompt, no choice — removed 2026-09-03. "Keep cart & attach" used to
+  // misattribute the outgoing customer's items to whoever was attaching
+  // next; now that every customer's cart is persisted server-side and
+  // restored automatically next time THEY are attached (same middleware),
+  // there's no reason to ever carry items across.
   const handleAttach = (customer) => {
     if (wouldSwitchCustomer(customer.customerId)) {
       cart.detachCustomer();
