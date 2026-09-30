@@ -26,11 +26,20 @@
 //
 // An ORDER (document 53) is a different path entirely — a booking, usually
 // for a piece not on the shelf ("MTO", made to order). It does not check
-// stock: the item MASTER goes straight to SetSalesItems with document_id 53,
-// with no StockJournal call at all. buildPricedLineItems branches on which
-// path applies; see buildOrderLineItems.
+// stock for CLAIMING purposes, but CONFIRMED live 2026-09-30 (OrnaVerse's
+// own Order tab, F3): it still looks up a real stock piece of the same
+// item_id if one exists ANYWHERE (any store — no company_id filter, unlike
+// claiming), fetches that ONE piece's real Bill of Materials
+// (StockJournalBOM/List, keyed by its own item_line_no), and substitutes
+// those real raw-material rows into the item MASTER's own item_components[]
+// before pricing — so an MTO booking's diamond/stone cost reflects a real
+// piece's actual measured composition, not the master's generic default BOM,
+// whenever a real piece exists to copy from. Only falls back to the
+// master's own unmodified components when no stock piece exists anywhere.
+// buildPricedLineItems branches on which path (Invoice/Order) applies; see
+// buildOrderLineItems for both of the above.
 
-import { getStockPieces } from '@/services/inventoryService';
+import { getStockPieces, getStockJournalBOM } from '@/services/inventoryService';
 import { getItemDetail, getDesignVariants } from '@/services/itemService';
 import { priceStockPiecesForSale, calculateItemRates } from '@/services/pricingService';
 import { applyPromotions } from '@/services/promotionService';
@@ -258,11 +267,50 @@ async function resolveFullItem({ itemId, styleId }) {
 }
 
 /**
+ * Finds ONE real stock piece of this item_id, anywhere — no company_id
+ * filter, unlike claimStockPieces above. This is for BOM REPLICATION only,
+ * never for claiming/allocating a piece, so a piece at a different store (or
+ * one already claimed elsewhere in this same cart) is just as valid a
+ * template to copy real component rates from.
+ *
+ * Returns null (never throws) whenever no piece exists anywhere, or the BOM
+ * lookup itself fails — this is a best-effort accuracy improvement, not a
+ * requirement; a genuinely un-stocked item still prices correctly from the
+ * master's own default components, same as before this existed.
+ *
+ * @param {number} itemId
+ * @returns {Promise<object[]|null>} real item_components rows, or null
+ */
+async function findRealBomComponents(itemId) {
+  try {
+    const stockResponse = await getStockPieces({ itemId, take: 1 });
+    const row = stockResponse?.data?.Entities?.[0];
+    if (!row) return null;
+
+    const bomResponse = await getStockJournalBOM({
+      itemId:     row.item_id,
+      itemLineNo: row.item_line_no,
+      locationId: row.location_id,
+      companyId:  row.company_id,
+      bagNo:      row.bag_no,
+      sku:        row.sku,
+    });
+    const components = bomResponse?.data?.Entities;
+    return components?.length ? components : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Prices from the CATALOG ITEM MASTER — the made-to-order path.
  *
  * Used only when the shelf can't supply the basket ("(MTO)" on their own
- * counter). Doc 53 doesn't check stock: the master goes straight to
- * SetSalesItems with document_id 53, no StockJournal call at all.
+ * counter). Doc 53 doesn't check stock for CLAIMING: the master goes to
+ * SetSalesItems with document_id 53, no StockJournal call to CLAIM a piece.
+ * It DOES still substitute a real piece's own BOM into that master when one
+ * exists anywhere — see findRealBomComponents' own header and this file's
+ * top comment for the confirmed-live mechanism this mirrors.
  *
  * @returns {Promise<object[]>} one priced line per piece
  */
@@ -276,7 +324,14 @@ async function buildOrderLineItems({ items, documentId }) {
   // faster. allSettled always resolves, so the check below walks `items` in
   // cart order and reports the first genuine failure deterministically.
   const settled = await Promise.allSettled(
-    items.map((item) => resolveFullItem({ itemId: item.itemId, styleId: item.styleId }))
+    items.map(async (item) => {
+      const [master, bomComponents] = await Promise.all([
+        resolveFullItem({ itemId: item.itemId, styleId: item.styleId }),
+        findRealBomComponents(item.itemId),
+      ]);
+      if (!master) return null;
+      return bomComponents ? { ...master, item_components: bomComponents } : master;
+    })
   );
 
   const masters = [];
@@ -300,33 +355,26 @@ async function buildOrderLineItems({ items, documentId }) {
 }
 
 /**
- * Prices the basket ONCE, and works out for itself what it is pricing —
- * PER LINE, not as one all-or-nothing verdict for the whole cart.
+ * Prices the basket ONCE, and decides for the WHOLE CART whether it is an
+ * Invoice or an Order — never both.
+ *
+ * REVERTED 2026-09-30 (explicit direction) — this used to partition PER
+ * LINE, and even PER UNIT within a line (a qty-2 line with only 1 free piece
+ * became a 1-unit invoice portion + a 1-unit order portion), raising two
+ * separate real documents for one sale. That's gone: the moment ANY line in
+ * the cart can't be fully claimed against real stock, the ENTIRE cart —
+ * every line, including ones that individually had enough stock — is priced
+ * as ONE Order (made-to-order) instead. Only when EVERY line's full
+ * quantity is claimed does the cart become one Invoice. OrnaVerse's own POS
+ * has no unified cart at all (an operator raises an Invoice or an Order by
+ * hand, never both from one basket) — this matches that, one document per
+ * checkout, same as before the per-line split existed.
  *
  * OrnaVerse's own server enforces, structurally, that an Invoice line must
  * always name a real physical piece — confirmed live (2026-09-29):
  * SetSalesItems refuses to even PRICE a master-only row against document_id
  * 54 ("Unable to load BOM for <code>"), the identical row prices fine
- * against 53. So every cart line independently falls into one of two
- * buckets — PER UNIT, not all-or-nothing for the line (reported directly,
- * 2026-09-30: a qty-2 line with only 1 free piece was tipping the WHOLE
- * line into Made to Order, both units, instead of splitting):
- *
- *   whatever quantity CAN be claimed → price the PHYSICAL PIECES (doc 54) —
- *     the only shape an Invoice line can ever be.
- *   whatever's left over (short by even one piece) → price the MASTER
- *     (doc 53) — made-to-order; no piece to name for these units, so they
- *     can only ever be Order units.
- *
- * A single cart line of qty 2 with 1 free piece therefore becomes TWO
- * one-unit portions — one in the invoice group, one in the order group —
- * not one two-unit line dumped entirely into whichever bucket lost the
- * all-or-nothing coin flip. A cart overall can need EITHER, BOTH, or
- * (rarely) neither group priced — see checkout/page.jsx for how a cart
- * producing both groups raises two separate documents (mirroring how
- * OrnaVerse's own POS — which has no unified cart at all — makes an
- * operator do this by hand: a separate Invoice form for what's in stock, a
- * separate Order form for what isn't).
+ * against 53.
  *
  * @param {{
  *   items: {itemId, itemName, styleId, quantity}[],
@@ -337,10 +385,8 @@ async function buildOrderLineItems({ items, documentId }) {
  *   invoice: { cartItems: object[], lineItems: object[] } | null,
  *   order:   { cartItems: object[], lineItems: object[] } | null,
  * }>}
- *   invoice/order are null when nothing landed in that bucket — a plain
- *   all-in-stock cart comes back as `{ invoice: {...}, order: null }`, a
- *   plain all-MTO cart as `{ invoice: null, order: {...} }`; both non-null
- *   is the genuinely mixed case.
+ *   Exactly one of invoice/order is non-null (or both null for an empty
+ *   cart) — never both at once.
  */
 export async function buildPricedLineItems({ items, activeStoreId, salesPersonId }) {
   const claimed = new Set();
@@ -355,51 +401,36 @@ export async function buildPricedLineItems({ items, activeStoreId, salesPersonId
   // still `await`ed because claimStockPieces can fall back to a scoped
   // per-item re-fetch when the shared batch came up short for one item (see
   // its own header comment) — a rare path, not the common case.
-  const stockBackedCartItems = [];
-  const mtoCartItems = [];
-  const stockRows = [];
+  const claimsByItem = [];
+  let fullyStocked = true;
   for (const item of items) {
     const taken = await claimStockPieces({ item, activeStoreId, claimed, candidatesByItemId });
     const wanted = item.quantity ?? 1;
-
-    // Reuses the ORIGINAL item object (not a clone) whenever the whole line
-    // lands in one bucket — the common case — so reference-based lookups
-    // elsewhere (buildCartDisplayRows) still work unchanged. Only a
-    // genuine partial claim (0 < taken.length < wanted) produces two
-    // smaller-quantity clones, one per bucket.
-    if (taken.length > 0) {
-      stockBackedCartItems.push(taken.length === wanted ? item : { ...item, quantity: taken.length });
-      stockRows.push(...taken);
-    }
-    if (taken.length < wanted) {
-      mtoCartItems.push(taken.length === 0 ? item : { ...item, quantity: wanted - taken.length });
-    }
+    if (taken.length < wanted) fullyStocked = false;
+    claimsByItem.push(taken);
   }
 
   const applySalesPerson = (rows) => (salesPersonId == null
     ? rows
     : rows.map((row) => ({ ...row, sales_person_id: salesPersonId })));
 
-  let invoice = null;
-  if (stockBackedCartItems.length > 0) {
+  if (items.length === 0) return { invoice: null, order: null };
+
+  if (fullyStocked) {
+    const stockRows = claimsByItem.flat();
     const priced = await priceStockPiecesForSale(stockRows, APP_CONFIG.DOCUMENT_TYPES.POS_INVOICE);
     if (priced.length !== stockRows.length) {
       throw new Error('Live pricing failed — the server priced a different number of items than were sent.');
     }
-    invoice = { cartItems: stockBackedCartItems, lineItems: applySalesPerson(priced) };
+    return { invoice: { cartItems: items, lineItems: applySalesPerson(priced) }, order: null };
   }
 
-  let order = null;
-  if (mtoCartItems.length > 0) {
-    const priced = await buildOrderLineItems({ items: mtoCartItems, documentId: APP_CONFIG.DOCUMENT_TYPES.POS_ORDER });
-    const expected = mtoCartItems.reduce((sum, item) => sum + (item.quantity ?? 1), 0);
-    if (priced.length !== expected) {
-      throw new Error('Live pricing failed — the server priced a different number of items than were sent.');
-    }
-    order = { cartItems: mtoCartItems, lineItems: applySalesPerson(priced) };
+  const priced = await buildOrderLineItems({ items, documentId: APP_CONFIG.DOCUMENT_TYPES.POS_ORDER });
+  const expected = items.reduce((sum, item) => sum + (item.quantity ?? 1), 0);
+  if (priced.length !== expected) {
+    throw new Error('Live pricing failed — the server priced a different number of items than were sent.');
   }
-
-  return { invoice, order };
+  return { invoice: null, order: { cartItems: items, lineItems: applySalesPerson(priced) } };
 }
 
 /**
@@ -706,4 +737,41 @@ export function combineGroupTotals(invoiceTotals, orderTotals) {
     weight:        round2(a.weight + b.weight),
     netWeight:     round2(a.netWeight + b.netWeight),
   };
+}
+
+/**
+ * Per-promo discount breakdown for display — the ONE place this is computed,
+ * reused by DiscountSection's applied-promo tags AND CartSummary's own
+ * itemized discount lines, so both surfaces always show the exact same
+ * figure for the exact same code instead of two independently-summed
+ * numbers that could drift apart.
+ *
+ * A promo can produce a SEPARATE promotion_details row in each group when it
+ * applies to both (a genuinely mixed invoice/order cart) — confirmed live
+ * 2026-09-30: "20% Off Diamond" on a real 2-item mixed cart produced one row
+ * worth ₹2,064 on the invoice side and a second worth ₹206.40 on the order
+ * side. Summing every matching row (not just the first) is what makes the
+ * total match what each Order Summary section actually shows.
+ *
+ * @param {{promoCode: string, promoDetails?: {promotion_name?: string}}[]} appliedPromos
+ * @param {object[]} promotionDetails — one group's own rows, or both groups'
+ *   rows concatenated for a combined (unsplit) summary — caller's choice.
+ * @returns {{promoCode: string, promoName: string, amount: number|null, hasEffect: boolean}[]}
+ *   amount is null when this code produced no row at all in the given
+ *   promotionDetails (e.g. it was declined, or only ever applied to the
+ *   OTHER group) — hasEffect mirrors that for callers that just need a flag.
+ */
+export function getPromoBreakdown(appliedPromos, promotionDetails) {
+  return appliedPromos.map((promo) => {
+    const rows = promotionDetails.filter((row) => row.promotion_code === promo.promoCode);
+    const amount = rows.length
+      ? rows.reduce((sum, row) => sum + (Number(row.promotion_amount) || 0), 0)
+      : null;
+    return {
+      promoCode: promo.promoCode,
+      promoName: promo.promoDetails?.promotion_name ?? promo.promoCode,
+      amount,
+      hasEffect: amount != null,
+    };
+  });
 }

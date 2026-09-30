@@ -49,7 +49,13 @@ const TOAST = {
     ITEM_REMOVED: (itemName) => `${itemName} removed from cart.`,
     ITEM_UPDATED: 'Cart updated.',
     CART_CLEARED: 'Cart has been cleared.',
-    PROMO_APPLIED: (code) => `Promo code ${code} applied successfully.`,
+    // Named by the PROMOTION'S OWN NAME (e.g. "20% Off Diamond"), not its
+    // code — reported directly (2026-09-30): a customer reading "Promo code
+    // 22K916GC100 applied" has no idea what that means; the name is what
+    // they recognize. Falls back to the code only where a name genuinely
+    // can't exist (PROMO_INVALID — nothing matched, so there's no promotion
+    // to name at all).
+    PROMO_APPLIED: (name) => `"${name}" applied successfully.`,
     PROMO_REMOVED: 'Promo code removed.',
     PROMO_INVALID: (code) => `Promo code ${code} is not valid.`,
     // Distinct from PROMO_INVALID — the code IS real and active, it just
@@ -58,7 +64,7 @@ const TOAST = {
     // making charge). usePromoValidation checks this BEFORE ever applying
     // the code (2026-08-24), so a promo that fails this never enters
     // appliedPromos at all — no tag, no toggle, just this one toast.
-    PROMO_NOT_APPLICABLE: (code) => `Promo code ${code} doesn't apply to these items — no discount given.`,
+    PROMO_NOT_APPLICABLE: (name) => `"${name}" doesn't apply to these items — no discount given.`,
     // Cart still pricing when Apply was pressed — there's nothing to check
     // eligibility against yet (see usePromoValidation). The input is also
     // disabled during this window; this only covers a click that landed a
@@ -69,7 +75,7 @@ const TOAST = {
     // removed) and it no longer gives anything for what's in the basket now
     // — the defensive auto-removal in DiscountSection catches this
     // case, which the up-front check above cannot.
-    PROMO_NO_LONGER_APPLIES: (code) => `Promo code ${code} no longer applies to your cart — removed.`,
+    PROMO_NO_LONGER_APPLIES: (name) => `"${name}" no longer applies to your cart — removed.`,
     PROMO_FAILED:  'Failed to validate promo code. Please try again.',
     LOADED_FROM_ORDER: (orderNo) => `Loaded ${orderNo} into a new invoice.`,
   },

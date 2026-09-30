@@ -21,7 +21,11 @@ import {
 // segmented track (visible as a sliver of unfilled track above the active
 // pill). Don't remove these without giving TabsList a definite height.
 const VARIANT_TRIGGER = {
-  pill: 'h-8 flex-1 rounded-md px-4 py-1.5 text-xs font-medium text-center transition-colors duration-standard ease-premium '
+  // shrink-0 + whitespace-nowrap only matter once a 'pill' caller also passes
+  // scrollable (added for the dashboard's 4-tab row, which otherwise squished
+  // and wrapped its labels on narrow phones instead of scrolling) — flex-1
+  // still grows them to fill the track when they DO fit, same as before.
+  pill: 'h-8 flex-1 shrink-0 whitespace-nowrap rounded-md px-4 py-1.5 text-xs font-medium text-center transition-colors duration-standard ease-premium '
     + 'data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:font-semibold data-[state=active]:shadow-sm '
     + 'data-[state=inactive]:bg-transparent data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground',
   chip: 'h-9 flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors duration-standard ease-premium '

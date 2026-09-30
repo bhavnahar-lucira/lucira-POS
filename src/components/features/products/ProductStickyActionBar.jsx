@@ -40,6 +40,11 @@ const QUANTITY_CEILING = 99;
  *   onQuantityChange: (n: number) => void,
  *   availableStock?: number,
  *   madeToOrderQty?: number,
+ *   masterUnitPrice?: number|null, — pre-tax master rate, the ENTIRE
+ *     quantity's real billing rate once madeToOrderQty > 0 (whole-line rule
+ *     — see the Total calc below).
+ *   masterDisplayUnitPrice?: number|null, — tax-inclusive counterpart of
+ *     masterUnitPrice, for the "Total" text.
  *   product: object,
  *   selectedSizeId?: number|null,
  *   selectedSizeName?: string|null,
@@ -59,6 +64,8 @@ export default function ProductStickyActionBar({
   onQuantityChange,
   availableStock = 0,
   madeToOrderQty = 0,
+  masterUnitPrice = null,
+  masterDisplayUnitPrice = null,
   product,
   selectedSizeId,
   selectedSizeName,
@@ -66,7 +73,17 @@ export default function ProductStickyActionBar({
   primaryImage,
   pricedItem = null,
 }) {
-  const total = displayUnitPrice != null ? displayUnitPrice * quantity : null;
+  // Whole-LINE rule (explicit direction, 2026-09-30): the moment quantity
+  // exceeds availableStock by even one unit, checkout's own
+  // buildPricedLineItems bills the ENTIRE quantity from the item master —
+  // never a per-unit blend of piece price + master price. So once
+  // madeToOrderQty > 0, the master rate (once it resolves) is this line's
+  // one true rate, for every unit, not just the shortfall. Stays null
+  // (shows "Not priced") until that resolves, rather than quoting the
+  // piece rate checkout won't actually honor.
+  const effectiveUnitPrice        = madeToOrderQty > 0 ? masterUnitPrice        : unitPrice;
+  const effectiveDisplayUnitPrice = madeToOrderQty > 0 ? masterDisplayUnitPrice : displayUnitPrice;
+  const total = effectiveDisplayUnitPrice != null ? effectiveDisplayUnitPrice * quantity : null;
 
   // `stockStatus` only asks "does this item have ANY stock at all", ignoring
   // how many pieces were actually requested. A line asking for more than the
@@ -120,13 +137,13 @@ export default function ProductStickyActionBar({
             <AddToCartButton
               product={product}
               quantity={quantity}
-              unitPrice={unitPrice}
+              unitPrice={effectiveUnitPrice}
               selectedSizeId={selectedSizeId}
               selectedSizeName={selectedSizeName}
               primaryImage={primaryImage}
               stockStatus={cartStockStatus}
               pricedItem={pricedItem}
-              disabled={unitPrice == null}
+              disabled={effectiveUnitPrice == null}
               className="w-full sm:w-auto"
             />
           </div>

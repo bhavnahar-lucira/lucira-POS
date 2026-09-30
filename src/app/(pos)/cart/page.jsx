@@ -13,7 +13,7 @@ import DiscountSection from '@/components/features/checkout/DiscountSection';
 import ProceedToCheckoutButton from '@/components/features/cart/ProceedToCheckoutButton';
 import { useCart } from '@/hooks/cart/useCart';
 import { useCheckoutPricing } from '@/hooks/checkout/useCheckoutPricing';
-import { buildCartDisplayRows, combineGroupTotals } from '@/services/checkoutPricingService';
+import { buildCartDisplayRows, combineGroupTotals, getPromoBreakdown } from '@/services/checkoutPricingService';
 import { useRedirectOnCustomerChange } from '@/hooks/checkout/useRedirectOnCustomerChange';
 
 export default function CartPage() {
@@ -21,6 +21,7 @@ export default function CartPage() {
 
   const {
     items,
+    appliedPromos,
     customerName,
     customerMobile,
     isEmpty,
@@ -44,6 +45,13 @@ export default function CartPage() {
   const pricedTotals = (invoice || order)
     ? combineGroupTotals(invoice?.totals ?? null, order?.totals ?? null)
     : null;
+  // Combined (not split by document) — this page never shows the
+  // invoice/order sections separately, unlike checkout. Same shared
+  // computation DiscountSection's own tags use, see its own header.
+  const discountBreakdown = getPromoBreakdown(appliedPromos, [
+    ...(invoice?.promotionDetails ?? []),
+    ...(order?.promotionDetails ?? []),
+  ]);
 
   return (
     <div className="flex flex-col gap-6 max-w-5xl mx-auto w-full pb-28 p-4 md:p-6">
@@ -72,12 +80,14 @@ export default function CartPage() {
                 showPriceBreakdown
                 // Component-level pcs/weight subtitles — cart and checkout only, not the mini cart drawer.
                 showComponentDetails
+                // Same "available at other stores" panel the PDP shows, per line — cart and checkout only.
+                showStockAcrossStores
               />
             ))}
           </div>
 
           <div className="rounded-xl border border-border bg-card p-4">
-            <CartSummary totals={pricedTotals} isPricing={isPricing} />
+            <CartSummary totals={pricedTotals} isPricing={isPricing} discountBreakdown={discountBreakdown} />
           </div>
 
           <div className="fixed bottom-0 left-0 right-0 border-t border-border bg-card p-4 sm:static sm:border-0 sm:bg-transparent sm:p-0">

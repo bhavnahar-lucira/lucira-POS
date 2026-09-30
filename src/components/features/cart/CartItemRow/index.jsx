@@ -13,11 +13,13 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { Trash2, Coins, ChevronDown } from 'lucide-react';
+import { Trash2, Coins, Store, ChevronDown } from 'lucide-react';
 import Logo from '@/components/shared/Logo';
 import StockStatusBadge from '@/components/shared/StockStatusBadge';
 import CartItemQuantityControl from '@/components/features/cart/CartItemQuantityControl';
 import PriceBreakdown from '@/components/features/products/PriceBreakdown';
+import CrossStoreStockPanel from '@/components/features/products/CrossStoreStockPanel';
+import { useStockByStores } from '@/hooks/products/useStockByStores';
 import { cn } from '@/lib/utils';
 import { isShopifyImageUrl, shopifyImageLoader } from '@/lib/shopifyImageLoader';
 
@@ -58,14 +60,29 @@ import { isShopifyImageUrl, shopifyImageLoader } from '@/lib/shopifyImageLoader'
  *   subtitle behind each PriceBreakdown amount (e.g. "76 pcs · 1.93 ct"
  *   under Diamond). Cart page and checkout's Order Items summary opt in;
  *   the mini cart drawer never passes this.
+ *
+ *   showStockAcrossStores (default false) - reuses the product detail
+ *   page's own CrossStoreStockPanel per line, so cart/checkout show the
+ *   same "available at other stores" data the PDP already does, instead of
+ *   the operator having to reopen each product to check. Cart page and
+ *   checkout's Order Items summary opt in; the mini cart drawer doesn't
+ *   (quick glance surface, and this panel needs real width to read).
  */
 export default function CartItemRow({
   item, onUpdateQuantity, onRemove, readOnly = false, priced = null, showPriceBreakdown = false,
-  showComponentDetails = false, displayQuantity = item.quantity,
+  showComponentDetails = false, showStockAcrossStores = false, displayQuantity = item.quantity,
 }) {
   const router = useRouter();
   const [imgError, setImgError] = useState(false);
   const [breakdownOpen, setBreakdownOpen] = useState(false);
+  const [stockPanelOpen, setStockPanelOpen] = useState(false);
+  // Deferred until actually opened (stockPanelOpen), not just showStockAcrossStores
+  // being true — same "collapsed by default" idea as the price breakdown,
+  // but this one's a real network fetch, so there's no reason to fire it
+  // for every line the moment the page mounts.
+  const {
+    data: storeStocks, isLoading: stockLoading, isError: stockError, refetch: refetchStock,
+  } = useStockByStores(showStockAcrossStores && stockPanelOpen ? item.itemId : null);
 
   const unitPrice = priced ? priced.unitPrice : item.unitPrice;
   const lineTotal = priced ? priced.lineTotal : item.unitPrice * displayQuantity;
@@ -251,6 +268,37 @@ export default function CartItemRow({
             />
           </button>
           {breakdownOpen && <PriceBreakdown priced={priced.breakdown} showComponents={showComponentDetails} />}
+        </div>
+      )}
+
+      {/* Same collapsed-by-default toggle as the price breakdown above —
+          reported directly (2026-09-30). Fetch itself is deferred until
+          first opened (see stockPanelOpen in the useStockByStores call). */}
+      {showStockAcrossStores && item.itemId && (
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => setStockPanelOpen((open) => !open)}
+            aria-expanded={stockPanelOpen}
+            className="flex w-fit items-center gap-1.5 text-xs font-semibold text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+          >
+            <Store size={12} aria-hidden="true" />
+            {stockPanelOpen ? 'Hide Stock Across Stores' : 'View Stock Across Stores'}
+            <ChevronDown
+              size={12}
+              aria-hidden="true"
+              className={cn('transition-transform', stockPanelOpen && 'rotate-180')}
+            />
+          </button>
+          {stockPanelOpen && (
+            <CrossStoreStockPanel
+              storeStocks={storeStocks}
+              isLoading={stockLoading}
+              isError={stockError}
+              onRetry={refetchStock}
+              collapsible={false}
+            />
+          )}
         </div>
       )}
     </div>

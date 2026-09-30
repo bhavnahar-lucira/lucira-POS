@@ -385,10 +385,17 @@ function ProductCard({
 
         {/* Price is live-priced and arrives after the card mounts — show
             "Pricing…"/"Price unavailable" instead of a blank gap. Staying
-            unpriced is a real, sellable-at-0 state, not a glitch. */}
+            unpriced is a real, sellable-at-0 state, not a glitch.
+            This card's price is sub_total (pre-tax) — see catalogService.js's
+            own comment. The PDP shows net_amount (tax-inclusive) instead, so
+            "(excl. GST)" is called out here to avoid the two screens reading
+            as disagreeing on the same item's price. */}
         {price != null ? (
-          <p className="font-sans text-sm font-bold text-foreground sm:text-base md:text-lg">
+          <p className="flex flex-wrap items-baseline gap-x-1 font-sans text-sm font-bold text-foreground sm:text-base md:text-lg">
             {formatINR(price)}
+            <span className="text-[9px] font-medium text-muted-foreground sm:text-[10px] md:text-xs">
+              (excl. GST)
+            </span>
           </p>
         ) : (
           <p className="font-sans text-xs font-medium text-muted-foreground sm:text-sm">
@@ -404,7 +411,7 @@ function ProductCard({
         </p>
 
         {item_code && (
-          <span className="text-[11px] text-muted-foreground">{item_code}</span>
+          <span className="text-[10px] text-muted-foreground sm:text-[11px] md:text-xs">{item_code}</span>
         )}
 
       </div>

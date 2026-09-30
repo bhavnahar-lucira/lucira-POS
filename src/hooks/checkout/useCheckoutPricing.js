@@ -15,14 +15,11 @@
 // Place Order, Create payload) is a sum of what those lines carry; nothing
 // is recomputed locally.
 //
-// SPLIT (2026-09-29) — buildPricedLineItems now partitions the cart PER LINE
-// (some lines in stock, some not) rather than deciding one document type for
-// the whole basket — see that function's own header for why (OrnaVerse's
-// server structurally refuses to price a non-stock line against an Invoice,
-// confirmed live). This hook mirrors that with two independent group
-// results instead of one flat one; either can be null, and both being
-// non-null is the genuinely mixed case checkout/page.jsx renders as two
-// separate sections.
+// buildPricedLineItems decides ONE document type for the whole cart — an
+// Invoice when every line's full quantity is real stock, an Order otherwise
+// (REVERTED 2026-09-30 from a brief per-line/per-unit split — see that
+// function's own header). invoice/order below are therefore mutually
+// exclusive: exactly one is non-null (or both null for an empty cart).
 
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';

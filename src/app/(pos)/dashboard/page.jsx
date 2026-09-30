@@ -23,7 +23,10 @@ function DashboardScreen() {
     todayOrderCount,
     ordersTrendDelta,
     revenueSparkline,
-    recentOrders,
+    recentMTO,
+    recentInvoices,
+    recentReturns,
+    recentUrd,
     activityToday,
   } = useDashboardSummary();
 
@@ -90,7 +93,13 @@ function DashboardScreen() {
         {/* ── ROW 2: Recent orders + Quick actions ──────────────────── */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2">
-            <RecentOrdersList orders={recentOrders} isLoading={isLoading} />
+            <RecentOrdersList
+              mtoOrders={recentMTO}
+              invoices={recentInvoices}
+              returns={recentReturns}
+              urdPurchases={recentUrd}
+              isLoading={isLoading}
+            />
           </div>
           <div className="lg:col-span-1">
             <QuickActionGrid />

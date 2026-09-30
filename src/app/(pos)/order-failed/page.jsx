@@ -21,13 +21,6 @@
 //     warning telling the agent to verify with their manager before
 //     re-charging the customer, rather than reusing the same wording as a
 //     simple decline.
-//
-//   ?reason=error&partialInvoiceId=... — SPLIT (2026-09-29): a mixed-stock
-//     cart's invoice half succeeded for real (posted, stock claimed) before
-//     the order half then failed. Not a blanket failure — there IS a real
-//     document, and checkout/page.jsx already trimmed the cart down to just
-//     the still-unbilled item(s) before pushing here, so "Try Again" only
-//     re-attempts the part that actually failed.
 
 import { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -41,7 +34,6 @@ function OrderFailedScreen() {
   const isDeclined = params.get('reason') !== 'error';
   const rawMessage = params.get('message');
   const errorMessage = rawMessage ? decodeURIComponent(rawMessage) : null;
-  const partialInvoiceId = Number(params.get('partialInvoiceId')) || null;
 
   return (
     <div className="flex flex-col items-center gap-6 px-4 py-10 text-center max-w-md mx-auto w-full">
@@ -51,36 +43,21 @@ function OrderFailedScreen() {
 
       <div>
         <h1 className="text-xl font-bold text-foreground">
-          {isDeclined ? 'Payment declined' : partialInvoiceId ? 'Invoice saved — order still needs retrying' : 'Sale could not be completed'}
+          {isDeclined ? 'Payment declined' : 'Sale could not be completed'}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {isDeclined
             ? 'The payment was not completed on the terminal. No charge was made and nothing was saved — the cart is exactly as you left it.'
-            : partialInvoiceId
-            ? `The in-stock part of this sale was saved as a real invoice. Only the order for the remaining item(s) failed to save — the cart now has just that item, ready to try again.`
             : (errorMessage ?? 'Something went wrong while saving this sale after payment was confirmed.')}
         </p>
       </div>
-
-      {partialInvoiceId && (
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => router.push(`/order-success?transactionId=${partialInvoiceId}&documentType=invoice`)}
-          className="h-11 w-full text-sm font-semibold"
-        >
-          View the saved invoice
-        </Button>
-      )}
 
       {/* Only for the post-payment save failure — a decline never reaches
           the create call at all, so there is nothing to warn about there. */}
       {!isDeclined && (
         <p className="flex items-start gap-1.5 rounded-lg border border-status-error/30 bg-status-error/5 px-3 py-2 text-left text-xs text-status-error">
           <AlertTriangle size={14} className="shrink-0 mt-0.5" aria-hidden="true" />
-          {partialInvoiceId
-            ? 'The saved invoice is real and already collected its own payment in full — only the order side (its own advance, if any) needs retrying.'
-            : 'If the customer’s card was already charged on the terminal, check with your manager before trying again — do not charge them a second time.'}
+          If the customer’s card was already charged on the terminal, check with your manager before trying again — do not charge them a second time.
         </p>
       )}
 

@@ -15,12 +15,6 @@
 // resolves; see that file's handlePaymentConfirmed for the write side of
 // this contract.
 //
-// SPLIT (2026-09-29) — a mixed-stock cart raises BOTH an invoice and an
-// order in one checkout submit; when that happens, handlePaymentConfirmed
-// also carries a second document via ?secondTransactionId=&secondDocumentType=,
-// and this page renders a second OrderConfirmationScreen stacked below the
-// first (confetti only on the first, via its own showConfetti prop).
-//
 // No coinsRedeemed here (removed 2026-09-25) — Nector Loyalty is a real
 // payment mode now, so it's already a receipt_details[] row on the posted
 // document itself; OrderConfirmationScreen's own Retrieve call reflects it
@@ -36,8 +30,6 @@ function OrderSuccessScreen() {
 
   const transactionId  = Number(params.get('transactionId')) || null;
   const documentType   = params.get('documentType') === 'order' ? 'order' : 'invoice';
-  const secondTransactionId = Number(params.get('secondTransactionId')) || null;
-  const secondDocumentType  = params.get('secondDocumentType') === 'order' ? 'order' : 'invoice';
 
   // Defensive — this route only ever makes sense right after a real
   // create/post succeeded (see checkout/page.jsx). Landing here any other
@@ -54,23 +46,10 @@ function OrderSuccessScreen() {
 
   return (
     <div className="flex flex-col gap-6 max-w-3xl mx-auto w-full p-4 md:p-6">
-      {secondTransactionId && (
-        <p className="text-center text-sm text-muted-foreground">
-          Part of this sale was in stock and part wasn&apos;t — it was raised
-          as two separate documents below.
-        </p>
-      )}
       <OrderConfirmationScreen
         transactionId={transactionId}
         documentType={documentType}
       />
-      {secondTransactionId && (
-        <OrderConfirmationScreen
-          transactionId={secondTransactionId}
-          documentType={secondDocumentType}
-          showConfetti={false}
-        />
-      )}
     </div>
   );
 }

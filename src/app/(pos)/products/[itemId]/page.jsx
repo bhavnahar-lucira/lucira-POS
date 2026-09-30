@@ -16,6 +16,7 @@ import { useStockByStores }     from '@/hooks/products/useStockByStores';
 import { useDesignVariants }    from '@/hooks/products/useDesignVariants';
 import { useShopifyProductImages } from '@/hooks/products/useShopifyProductImages';
 import { useVariantPricing }    from '@/hooks/products/useVariantPricing';
+import { useMasterPricing }     from '@/hooks/products/useMasterPricing';
 import { useClaimableStock }    from '@/hooks/products/useClaimableStock';
 
 import ProductImageGallery   from '@/components/features/products/ProductImageGallery';
@@ -340,6 +341,19 @@ function ProductDetailScreen() {
   // QuantitySelector's own internal default (99) inside ProductStickyActionBar.
   const madeToOrderQty = Math.max(0, quantity - availableStock);
 
+  // Reported directly (2026-09-30, twice): a qty exceeding available stock
+  // showed a Total that "completely differentiate[d]" from what checkout
+  // then billed — the sticky bar was multiplying the single PIECE price
+  // (numericUnitPrice) across the WHOLE quantity, when checkout's own
+  // buildPricedLineItems (checkoutPricingService.js) bills the ENTIRE
+  // quantity from the item MASTER instead (a different, whole-cart rule,
+  // not a per-unit split — explicit direction) the moment even one
+  // requested piece isn't available. Only fetched once a shortfall actually
+  // exists, so a normal in-stock add costs nothing extra.
+  const { data: masterPricing } = useMasterPricing(activeItem ?? null, madeToOrderQty > 0);
+  const masterUnitPrice        = (masterPricing?.sub_total ?? 0) > 0 ? masterPricing.sub_total : null;
+  const masterDisplayUnitPrice = (masterPricing?.sub_total ?? 0) > 0 ? masterPricing.net_amount : null;
+
   const hasCustomization = !!product?.style_id;
 
   // Must run before the loading/error early returns (hooks can't be
@@ -658,6 +672,8 @@ function ProductDetailScreen() {
         onQuantityChange={setQuantity}
         availableStock={availableStock}
         madeToOrderQty={madeToOrderQty}
+        masterUnitPrice={masterUnitPrice}
+        masterDisplayUnitPrice={masterDisplayUnitPrice}
         product={activeItem}
         selectedSizeId={selectedVariant?.item_size_id ?? null}
         selectedSizeName={selectedVariant?.item_size_name ?? null}

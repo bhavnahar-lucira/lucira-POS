@@ -7,14 +7,28 @@
 // optional on OrnaVerse's own form):
 //   mobile*, first_name*, last_name, phone, email, gender, birth_date,
 //   anniversary, marital_status, country_id, state_id, city_id, pin_code,
-//   address, source_id, interest: number[] (type_id — the SAME Master/Type
-//   ids the catalog category filter uses, confirmed via CustomerInterestRel's
-//   own EqualityFilter carrying a type_id field), budget, notes.
+//   address, source_id, sales_representative_id (an employee_id — same
+//   master list checkout's own SalesPersonSelect uses), interest: number[]
+//   (type_id — the SAME Master/Type ids the catalog category filter uses,
+//   confirmed via CustomerInterestRel's own EqualityFilter carrying a
+//   type_id field), budget, notes.
+//
+// CAPTURED VERBATIM from OrnaVerse's own WalkIn form (2026-09-30, partial
+// fill): unfilled optional fields are OMITTED from the request entirely —
+// never sent as null or ''. WalkInRegisterForm's onSubmit strips them the
+// same way before posting (see its own comment).
 import axiosInstance from '@/lib/axios/axiosInstance';
 import API from '@/constants/apiEndpoints';
 
-export function registerWalkIn(payload) {
-  return axiosInstance.post(API.WALKIN.REGISTER, payload);
+/**
+ * @returns {Promise<object>} response.data — { Customer, WalkInRecorded, Message }
+ *   (per OrnaVerse's own apidog schema, shared directly 2026-09-30) — Customer
+ *   is the full newly-created CRM row (customer_id, party_id, creation_date,
+ *   customer_visits[], etc.), same shape normalizeCrmLead already expects.
+ */
+export async function registerWalkIn(payload) {
+  const response = await axiosInstance.post(API.WALKIN.REGISTER, payload);
+  return response.data;
 }
 
 /**

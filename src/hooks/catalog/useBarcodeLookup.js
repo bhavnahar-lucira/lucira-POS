@@ -8,10 +8,10 @@ import tracker from '@/lib/analytics/tracker';
 import EVENTS from '@/lib/analytics/events';
 
 /**
- * @param {{ storeId: number|null }} params
+ * @param {{ storeId: number|null, partyId?: number|null }} params
  * @returns {{ handleBarcodeDetected: (code: string) => Promise<void> }}
  */
-export function useBarcodeLookup({ storeId }) {
+export function useBarcodeLookup({ storeId, partyId = null }) {
   const router = useRouter();
 
   const handleBarcodeDetected = useCallback(async (code) => {
@@ -47,6 +47,7 @@ export function useBarcodeLookup({ storeId }) {
           companyId:       skuMatch.company_id ?? storeId,
           itemLineNo:      skuMatch.item_line_no,
           sku:             skuMatch.sku,
+          partyId,
           image:           skuMatch.image,
         }).catch((err) => {
           console.warn('[BarcodeScanner] item enquiry log failed (non-blocking)', { sku: trimmed, err });
@@ -63,7 +64,7 @@ export function useBarcodeLookup({ storeId }) {
       tracker.track(EVENTS.BARCODE_SCAN_FAILED, { code: trimmed });
       toast.error('Could not look up the scanned barcode. Please try again.');
     }
-  }, [storeId, router]);
+  }, [storeId, partyId, router]);
 
   return { handleBarcodeDetected };
 }

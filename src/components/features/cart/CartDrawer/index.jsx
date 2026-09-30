@@ -5,6 +5,7 @@
 // right side sheet on tablet).
 
 import { useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import BottomSheet from '@/components/shared/BottomSheet';
 import CartItemRow from '@/components/features/cart/CartItemRow';
 import CartEmptyState from '@/components/features/cart/CartEmptyState';
@@ -14,7 +15,7 @@ import DiscountSection from '@/components/features/checkout/DiscountSection';
 import ProceedToCheckoutButton from '@/components/features/cart/ProceedToCheckoutButton';
 import { useCart } from '@/hooks/cart/useCart';
 import { useCheckoutPricing } from '@/hooks/checkout/useCheckoutPricing';
-import { buildCartDisplayRows, combineGroupTotals } from '@/services/checkoutPricingService';
+import { buildCartDisplayRows, combineGroupTotals, getPromoBreakdown } from '@/services/checkoutPricingService';
 
 /**
  * @param {{
@@ -23,8 +24,10 @@ import { buildCartDisplayRows, combineGroupTotals } from '@/services/checkoutPri
  * }} props
  */
 export default function CartDrawer({ isOpen, onClose }) {
+  const router = useRouter();
   const {
     items,
+    appliedPromos,
     customerName,
     customerMobile,
     isEmpty,
@@ -45,6 +48,10 @@ export default function CartDrawer({ isOpen, onClose }) {
   const pricedTotals = (invoice || order)
     ? combineGroupTotals(invoice?.totals ?? null, order?.totals ?? null)
     : null;
+  const discountBreakdown = getPromoBreakdown(appliedPromos, [
+    ...(invoice?.promotionDetails ?? []),
+    ...(order?.promotionDetails ?? []),
+  ]);
 
   return (
     <BottomSheet
@@ -54,7 +61,12 @@ export default function CartDrawer({ isOpen, onClose }) {
       footer={
         !isEmpty && (
           <div className="flex flex-col gap-3">
-            <CartSummary totals={pricedTotals} isPricing={isPricing} collapsible />
+            <CartSummary
+              totals={pricedTotals}
+              isPricing={isPricing}
+              collapsible
+              discountBreakdown={discountBreakdown}
+            />
             <ProceedToCheckoutButton onNavigate={onClose} />
           </div>
         )
@@ -70,7 +82,13 @@ export default function CartDrawer({ isOpen, onClose }) {
               customerMobile={customerMobile}
               onDetach={detachCustomer}
             />
-            <DiscountSection compact />
+            <DiscountSection
+              compact
+              onViewCart={() => {
+                onClose();
+                router.push('/cart');
+              }}
+            />
           </div>
 
           <div className="flex flex-col">

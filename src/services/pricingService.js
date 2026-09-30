@@ -89,6 +89,24 @@ export async function priceItemAsSold({ item, companyId }) {
     }
   }
 
+  return priceItemAsMaster(item);
+}
+
+/**
+ * Prices the item MASTER (nominal spec, not a real piece) — what
+ * buildOrderLineItems (checkoutPricingService.js) bills for every unit
+ * beyond available shelf stock. Exposed on its own (not just as
+ * priceItemAsSold's internal fallback) so a quantity that spans BOTH a real
+ * piece and a Made to Order shortfall can be quoted as the actual blend of
+ * the two, instead of one single-piece rate multiplied across the whole
+ * quantity — reported directly (2026-09-30): adding qty 6 of a low-stock
+ * item showed a Total nowhere near what checkout then billed, because the
+ * product page's own live price only ever quoted ONE basis (piece OR
+ * master), never both at once.
+ * @param {object} item
+ * @returns {Promise<object|null>}
+ */
+export async function priceItemAsMaster(item) {
   const [priced] = await calculateItemRates([item], APP_CONFIG.DOCUMENT_TYPES.POS_ORDER);
   return priced ?? null;
 }

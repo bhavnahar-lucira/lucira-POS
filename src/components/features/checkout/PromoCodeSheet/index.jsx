@@ -2,14 +2,7 @@
 
 import { useState } from 'react';
 import { Percent, Tag, ChevronDown } from 'lucide-react';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetFooter,
-} from '@/components/ui/sheet';
+import BottomSheet from '@/components/shared/BottomSheet';
 import { Button } from '@/components/ui/button';
 import EmptyState from '@/components/shared/EmptyState';
 import InlineLoader from '@/components/shared/InlineLoader';
@@ -169,9 +162,13 @@ function OfferTicket({ promo, isApplied, isSelected, isExpanded, onToggleSelect,
  *   onApply: (code: string) => void,
  *   isApplying?: boolean,
  *   appliedPromos?: { promoCode: string }[],
+ *   triggerClassName?: string,
  * }} props
+ *   triggerClassName - overrides the trigger button's width class; used by
+ *   DiscountSection to sit it in a row next to another button (the mini
+ *   cart's "View Details"), instead of always spanning full width.
  */
-export default function PromoCodeSheet({ onApply, isApplying, appliedPromos = [] }) {
+export default function PromoCodeSheet({ onApply, isApplying, appliedPromos = [], triggerClassName = 'w-full' }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
   const [expandedIds, setExpandedIds] = useState(() => new Set());
@@ -211,26 +208,54 @@ export default function PromoCodeSheet({ onApply, isApplying, appliedPromos = []
   };
 
   return (
-    <Sheet open={open} onOpenChange={handleOpenChange}>
+    <>
       <Button
         type="button"
         variant="outline"
         onClick={() => setOpen(true)}
-        className="w-full justify-center gap-2 text-sm font-semibold bg-secondary"
+        className={cn(
+          // whitespace-normal + h-auto override the Button base class's
+          // nowrap/fixed-height — sitting next to a sibling button in a
+          // flex-1 row (see DiscountSection) leaves too little width on
+          // small screens for this label to stay on one line otherwise.
+          'h-auto min-h-9 justify-center gap-2 whitespace-normal text-center text-xs font-semibold bg-secondary leading-tight py-2 sm:text-sm',
+          triggerClassName,
+        )}
       >
-        <Tag className="size-4" aria-hidden="true" />
+        <Tag className="size-4 shrink-0" aria-hidden="true" />
         View available offers
       </Button>
 
-      <SheetContent side="right" className="p-0">
-        <SheetHeader>
-          <SheetTitle>Available Offers</SheetTitle>
-          <SheetDescription>
-            Select one or more offers, then apply.
-          </SheetDescription>
-        </SheetHeader>
+      <BottomSheet
+        isOpen={open}
+        onClose={() => handleOpenChange(false)}
+        title="Available Offers"
+        footer={
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-muted-foreground">
+              {selected.size} promotion{selected.size === 1 ? '' : 's'} selected
+            </span>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" className="h-11" onClick={() => handleOpenChange(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="h-11"
+                disabled={selected.size === 0 || isApplying}
+                onClick={handleApplySelected}
+              >
+                Apply Selected
+              </Button>
+            </div>
+          </div>
+        }
+      >
+        <p className="mb-3 text-sm text-muted-foreground">
+          Select one or more offers, then apply.
+        </p>
 
-        <div className="flex flex-1 min-h-0 flex-col gap-3 overflow-y-auto px-4 pb-4">
+        <div className="flex flex-col gap-3">
           {isLoading && <InlineLoader label="Loading offers…" />}
 
           {!isLoading && promotions.length === 0 && (
@@ -253,26 +278,7 @@ export default function PromoCodeSheet({ onApply, isApplying, appliedPromos = []
             />
           ))}
         </div>
-
-        <SheetFooter className="flex-row items-center justify-between border-t border-border">
-          <span className="text-xs text-muted-foreground">
-            {selected.size} promotion{selected.size === 1 ? '' : 's'} selected
-          </span>
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => handleOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              disabled={selected.size === 0 || isApplying}
-              onClick={handleApplySelected}
-            >
-              Apply Selected
-            </Button>
-          </div>
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+      </BottomSheet>
+    </>
   );
 }

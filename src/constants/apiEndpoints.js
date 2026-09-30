@@ -47,11 +47,6 @@ const API = {
   CATEGORIES: {
     GET_TYPES:       'Services/Master/Type/List',
     GET_SUBTYPES:    'Services/Master/SubType/List',
-    // Confirmed live 2026-09-30 against OrnaVerse's own real client — unlike
-    // GET_SUBTYPES above (the full, unfiltered subtype master list, with no
-    // type_id on each row to scope it by category), this takes a single
-    // `type_id` and returns exactly that category's own sub-types — what the
-    // catalog Filters panel's "Sub Category" dropdown actually calls.
     GET_SUBTYPE_DETAILS: 'Services/Master/SubTypeDetails/List',
     GET_ITEM_GROUPS: 'Services/Master/ItemGroups/List',
   },
@@ -80,6 +75,7 @@ const API = {
   INVENTORY: {
     GET_STOCK:          'Services/Inventory/GetStock',
     STOCK_JOURNAL_LIST: 'Services/Inventory/StockJournal/List',
+    STOCK_JOURNAL_BOM_LIST: 'Services/Inventory/StockJournalBOM/List',
     ITEM_ENQUIRIES_CREATE: 'Services/POS/ItemEnquiries/Create',
   },
 

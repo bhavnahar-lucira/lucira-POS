@@ -20,7 +20,6 @@ import PaymentModeSelector from '../PaymentModeSelector';
 import PaymentAmountInput from '../PaymentAmountInput';
 import BankPosSelect from '../BankPosSelect';
 import { paymentRequiresBank } from '@/lib/checkout/paymentModeRules';
-import { splitPaymentsAcrossDocuments } from '@/lib/checkout/paymentAllocation';
 import APP_CONFIG from '@/constants/appConfig';
 import tracker from '@/lib/analytics/tracker';
 import EVENTS from '@/lib/analytics/events';
@@ -68,46 +67,32 @@ function HelperBalanceRow({ label, amount, modeCode, rows, isApplied, onToggle, 
 }
 
 /**
- * ONE unified payment section for the whole checkout — REPLACED 2026-09-30
- * (reported directly: two independent instances, one per document, meant
- * picking a tender and typing an amount twice for what is one sale from the
- * counter's point of view). A mixed cart still raises two real documents
- * (Invoice + Order — see checkout/page.jsx's own header), but the operator
- * now enters payment against the COMBINED total ONCE, and it's allocated
- * invoice-first (must balance in full) with any remainder rolling over to
- * the order (optional advance) — see paymentAllocation.js's own header for
- * the split algorithm and why Nector Loyalty specifically can never be part
- * of that split (it must land whole on exactly one document).
+ * Payment section for checkout's one real document (Invoice or Order — see
+ * checkoutPricingService.buildPricedLineItems's own header; the two are
+ * mutually exclusive, never both raised from one checkout).
  *
  * @param {{
- *   onChange: ({ invoicePayments: object[], orderPayments: object[] }) => void,
- *   invoiceAmountDue?: number, orderAmountDue?: number,
+ *   onChange: (payments: object[]) => void,
+ *   amountDue?: number, allowPartial?: boolean,
  *   lineItems?: object[], bare?: boolean,
  * }} props
- *   invoiceAmountDue/orderAmountDue — the live-priced total for each real
- *   document that will actually be raised (either may be 0 when that
- *   document doesn't exist for this cart). Their sum is the combined amount
- *   this section collects against; invoiceAmountDue alone decides how much
- *   MUST be covered before Place Order can succeed — the order side is
- *   always optional, same "any advance including zero" rule as before.
- *   lineItems — the COMBINED basket's priced lines (item_group_id/
- *   taxable_amount per row, from both documents) — needed to evaluate
- *   Nector Loyalty eligibility, which on this tenant is restricted to a
- *   specific item group (see useNectorCheckoutInfo). Loyalty eligibility is
- *   a whole-cart concept, so this is deliberately the combined list, not
- *   scoped to one document.
+ *   amountDue — the live-priced total for the document being raised.
+ *   allowPartial — true for an Order (any advance, including zero); an
+ *     Invoice must always balance to the rupee (checkoutSchema enforces
+ *     this separately, this only affects the "Remaining"/"Balance on
+ *     collection" label below).
+ *   lineItems — the document's own priced lines (item_group_id/
+ *     taxable_amount per row) — needed to evaluate Nector Loyalty
+ *     eligibility, which on this tenant is restricted to a specific item
+ *     group (see useNectorCheckoutInfo).
  *   bare — true to render as a plain flex column instead of its own
  *   bordered/shadowed card, so this fits inside checkout/page.jsx's own
  *   "Payment" card without doubling up on chrome.
  */
 export default function CheckoutPaymentSection({
-  onChange, invoiceAmountDue = 0, orderAmountDue = 0, lineItems = [], bare = false,
+  onChange, amountDue = 0, allowPartial = false, lineItems = [], bare = false,
 }) {
-  const total = invoiceAmountDue + orderAmountDue;
-  // No mandatory portion at all (a pure MTO cart) means the whole combined
-  // amount is an optional advance — same "any amount including zero" rule
-  // the old `allowPartial` prop used to carry explicitly.
-  const allowPartial = invoiceAmountDue <= 0;
+  const total = amountDue;
   const { paymentModes, isLoading: modesLoading, isError: modesError } = usePaymentModes();
   const { bankPosAccounts } = useBankPosAccounts();
   const { customerId, customerMobile } = useCustomerSession();
@@ -408,21 +393,10 @@ export default function CheckoutPaymentSection({
     };
   });
 
-  // Invoice-first waterfall — see paymentAllocation.js's own header for why
-  // Nector Loyalty is handled as a special, non-splittable case within it.
-  const { invoicePayments, orderPayments } = splitPaymentsAcrossDocuments({
-    payments: emittedPayments, invoiceAmountDue, orderAmountDue,
-  });
-  const invoiceAlloc = invoicePayments.reduce((s, p) => s + p.amount, 0);
-  const orderAlloc   = orderPayments.reduce((s, p) => s + p.amount, 0);
-  // Genuinely mixed cart only — a single-document cart has nothing to split,
-  // so it keeps the plain "Paid in full"/"Remaining" display below instead.
-  const isMixedCart = invoiceAmountDue > 0 && orderAmountDue > 0;
-
   useEffect(() => {
-    onChange?.({ invoicePayments, orderPayments });
+    onChange?.(emittedPayments);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [payments, paymentModes, bankPosAccounts, invoiceAmountDue, orderAmountDue]);
+  }, [payments, paymentModes, bankPosAccounts]);
 
   const balancesApplied = payments.filter((p) => p.isHelper)
     .reduce((s, p) => s + (Number(p.amount) || 0), 0);
@@ -580,29 +554,7 @@ export default function CheckoutPaymentSection({
                 <span>{APP_CONFIG.CURRENCY.INR_SYMBOL}{(Number(p.amount) || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
               </div>
             ))}
-            {isMixedCart ? (
-              // Always visible, never hidden behind a single ambiguous
-              // "Paid in full" — a mixed cart raises TWO real documents, so
-              // the operator sees both allocations live as they type,
-              // straight from the same split the onChange emission uses.
-              <div className="flex flex-col gap-1 rounded-lg border border-border bg-muted/40 px-3 py-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    → Invoice <span className="font-medium">(must be paid in full)</span>
-                  </span>
-                  <span className={invoiceAlloc >= invoiceAmountDue - 0.01 ? 'font-semibold text-status-in-stock' : 'font-semibold text-destructive'}>
-                    {APP_CONFIG.CURRENCY.INR_SYMBOL}{invoiceAlloc.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                    {' / '}{APP_CONFIG.CURRENCY.INR_SYMBOL}{invoiceAmountDue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">→ Order advance <span className="font-medium">(optional)</span></span>
-                  <span className="font-semibold text-foreground/80">
-                    {APP_CONFIG.CURRENCY.INR_SYMBOL}{orderAlloc.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                  </span>
-                </div>
-              </div>
-            ) : isBalanced ? (
+            {isBalanced ? (
               <p className="flex items-center gap-1.5 text-status-in-stock font-medium">
                 <CheckCircle2 size={14} aria-hidden="true" />
                 Paid in full

@@ -55,6 +55,31 @@ export const getStockPieces = ({ itemId, itemIds, companyId, take = 50 }) =>
   });
 
 /**
+ * The real, per-piece Bill of Materials (raw-material rows: rm_id, rate,
+ * pieces, weight) for ONE physical stock piece — CONFIRMED live 2026-09-30
+ * via a network capture of OrnaVerse's own Order tab (F3): pricing a Made
+ * to Order line calls this (keyed by a real stock piece's own item_line_no)
+ * and substitutes the result into the item MASTER's own item_components[]
+ * before SetSalesItems, instead of using the master's generic default BOM.
+ * This is what makes an MTO booking's diamond/stone cost reflect a REAL
+ * piece's actual measured composition when one exists anywhere, rather than
+ * the master's nominal recipe — see checkoutPricingService.buildOrderLineItems.
+ *
+ * @param {{ itemId: number, itemLineNo: number, locationId: number,
+ *   companyId: number, bagNo?: string, sku: string }} params
+ * @returns {Promise<import('axios').AxiosResponse>} { Entities: BomRow[] }
+ */
+export const getStockJournalBOM = ({ itemId, itemLineNo, locationId, companyId, bagNo = '', sku }) =>
+  axiosInstance.post(API.INVENTORY.STOCK_JOURNAL_BOM_LIST, {
+    item_id:      itemId,
+    item_line_no: itemLineNo,
+    location_id:  locationId,
+    company_id:   companyId,
+    bag_no:       bagNo,
+    sku,
+  });
+
+/**
  * Resolves a scanned barcode to the physical piece it was printed on, and
  * the item/product it belongs to.
  *
@@ -100,12 +125,21 @@ export const getStockPieceBySku = ({ sku, companyId }) =>
 
 /**
  * Records an "item enquiry" — logs that this physical piece was looked up
- * (e.g. via barcode scan). CONFIRMED 2026-08-10 via a live network capture
- * on lucira.uat.ornaverse.in/pos: their own client fires this immediately
- * after StockJournal/List resolves the scanned sku, built entirely from
- * fields already present on that same row (item_id, item_attribute_id,
- * company_id, item_line_no, sku, image) plus a fresh timestamp in
- * `Date.toUTCString()` format (e.g. "Mon, 10 Aug 2026 10:47:41 GMT").
+ * (e.g. via barcode scan, or a SKU search on the sales counter). CONFIRMED
+ * 2026-08-10 via a live network capture on lucira.uat.ornaverse.in/pos:
+ * their own client fires this immediately after StockJournal/List resolves
+ * the scanned sku, built entirely from fields already present on that same
+ * row (item_id, item_attribute_id, company_id, item_line_no, sku, image)
+ * plus a fresh timestamp in `Date.toUTCString()` format (e.g. "Mon, 10 Aug
+ * 2026 10:47:41 GMT").
+ *
+ * `party_id` — CONFIRMED live 2026-09-30 (a second capture, this time from
+ * the Estimation tab's own SKU search box, with a customer attached): their
+ * payload also carries `party_id` (the attached customer), which the first
+ * capture's flow never exercised (no customer attached at the time). Fires
+ * again on a genuinely identical repeat search (same sku, same stock row) —
+ * a new EntityId both times — confirming this is never dedup'd, purely a
+ * log of "this was looked at," fired every time regardless of repetition.
  *
  * This is a logging/analytics side effect on OrnaVerse's side (presumably
  * feeding an "items enquired about" report), NOT part of the actual scan-
@@ -114,10 +148,12 @@ export const getStockPieceBySku = ({ sku, companyId }) =>
  * fail the scan itself.
  *
  * @param {{ itemId: number, itemAttributeId: number, companyId: number,
- *   itemLineNo: number, sku: string, image?: string }} params
+ *   itemLineNo: number, sku: string, partyId?: number|null, image?: string }} params
  * @returns {Promise<import('axios').AxiosResponse>}
  */
-export const createItemEnquiry = ({ itemId, itemAttributeId, companyId, itemLineNo, sku, image }) =>
+export const createItemEnquiry = ({
+  itemId, itemAttributeId, companyId, itemLineNo, sku, partyId = null, image,
+}) =>
   axiosInstance.post(API.INVENTORY.ITEM_ENQUIRIES_CREATE, {
     Entity: {
       item_id:           itemId,
@@ -126,6 +162,7 @@ export const createItemEnquiry = ({ itemId, itemAttributeId, companyId, itemLine
       company_id:        companyId,
       item_line_no:      itemLineNo,
       sku,
+      ...(partyId != null && { party_id: partyId }),
       image:             image ?? '',
     },
   });

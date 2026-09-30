@@ -25,20 +25,17 @@ import { formatDateNumeric as fmtDate } from '@/lib/dateUtils';
  *   transactionId: number,   — EntityId returned from createInvoice/createOrder
  *   invoiceNo?:    string,   — document_no if already known (optional)
  *   documentType?: 'invoice'|'order',
- *   showConfetti?: boolean,  — default true; a split checkout (2026-09-29)
- *     renders this component TWICE (one per document) on the same success
- *     page — pass false on the second one so it doesn't double-fire.
  * }} props
  */
 export default function OrderConfirmationScreen({
-  transactionId, invoiceNo, documentType = 'invoice', showConfetti: showConfettiProp = true,
+  transactionId, invoiceNo, documentType = 'invoice',
 }) {
   const router = useRouter();
   const isOrder = documentType === 'order';
 
   // Mounts only right after a fresh order/invoice (checkout/page.jsx's
   // isConfirmed gate), so firing once per mount is once per sale.
-  const [showConfetti, setShowConfetti] = useState(showConfettiProp);
+  const [showConfetti, setShowConfetti] = useState(true);
 
   // Only the relevant Retrieve fires — the other is disabled by a null id
   // rather than skipped, so the hook order stays fixed across renders.

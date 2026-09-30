@@ -124,7 +124,7 @@ export function usePromoValidation({ invoice, order }) {
           return;
 
         case 'ineligible':
-          toast.error(TOAST.CART.PROMO_NOT_APPLICABLE(result.promotion.promotion_code));
+          toast.error(TOAST.CART.PROMO_NOT_APPLICABLE(result.promotion.promotion_name ?? result.promotion.promotion_code));
           tracker.track(EVENTS.PROMO_FAILED, {
             reason: 'ineligible', promoCode: result.promotion.promotion_code, ...sessionCtx,
           });

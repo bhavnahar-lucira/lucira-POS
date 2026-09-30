@@ -8,14 +8,7 @@
 
 import { useState } from 'react';
 import { Loader2, Tag } from 'lucide-react';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetFooter,
-} from '@/components/ui/sheet';
+import BottomSheet from '@/components/shared/BottomSheet';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
@@ -25,6 +18,7 @@ import { Button } from '@/components/ui/button';
  *   isValidating?: boolean,
  *   disabled?: boolean,
  *   disabledHint?: string,
+ *   triggerClassName?: string,
  * }} props
  *   disabled/disabledHint — kept disabled (rather than left to fail after
  *   the click) while the basket hasn't finished pricing yet, since a
@@ -37,8 +31,14 @@ import { Button } from '@/components/ui/button';
  *   No local cap — the server enforces the promotion's own tiered
  *   promotion_rules[] bracket caps and clamps silently if exceeded (verified
  *   live), so this app doesn't second-guess that with its own limit.
+ *
+ *   triggerClassName - wraps the trigger button + disabled hint (kept
+ *   together in their own container, not a bare fragment) so DiscountSection
+ *   can sit this as one flex item next to PromoCodeSheet's own trigger.
  */
-export default function PromoCodeInput({ onApply, isValidating, disabled = false, disabledHint }) {
+export default function PromoCodeInput({
+  onApply, isValidating, disabled = false, disabledHint, triggerClassName = 'w-full',
+}) {
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState('');
   const [overrideAmount, setOverrideAmount] = useState('');
@@ -75,30 +75,50 @@ export default function PromoCodeInput({ onApply, isValidating, disabled = false
   };
 
   return (
-    <Sheet open={open} onOpenChange={handleOpenChange}>
+    <div className={triggerClassName}>
       <Button
         type="button"
         variant="outline"
         onClick={() => setOpen(true)}
         disabled={isDisabled}
-        className="w-full justify-center gap-2 text-sm font-semibold bg-secondary"
+        className="h-auto min-h-9 w-full justify-center gap-2 whitespace-normal py-2 text-center text-xs font-semibold leading-tight bg-secondary sm:text-sm"
       >
-        <Tag className="size-4" aria-hidden="true" />
+        <Tag className="size-4 shrink-0" aria-hidden="true" />
         Enter Promo
       </Button>
       {disabled && disabledHint && (
         <p className="px-1 text-xs text-muted-foreground">{disabledHint}</p>
       )}
 
-      <SheetContent side="right">
-        <SheetHeader>
-          <SheetTitle>Enter Promo Code</SheetTitle>
-          <SheetDescription>
-            Enter a promo code, optionally with an override amount.
-          </SheetDescription>
-        </SheetHeader>
+      <BottomSheet
+        isOpen={open}
+        onClose={() => handleOpenChange(false)}
+        title="Enter Promo Code"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Button type="button" variant="outline" className="h-11" onClick={() => handleOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="h-11"
+              disabled={!code.trim() || isDisabled}
+              onClick={handleApply}
+            >
+              {isValidating ? (
+                <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+              ) : (
+                'Apply'
+              )}
+            </Button>
+          </div>
+        }
+      >
+        <p className="mb-3 text-sm text-muted-foreground">
+          Enter a promo code, optionally with an override amount.
+        </p>
 
-        <div className="flex flex-col gap-3 px-4">
+        <div className="flex flex-col gap-3">
           <Input
             type="text"
             inputMode="text"
@@ -130,25 +150,7 @@ export default function PromoCodeInput({ onApply, isValidating, disabled = false
             </p>
           </div>
         </div>
-
-        <SheetFooter className="flex-row items-center justify-end border-t border-border">
-          <Button type="button" variant="outline" size="sm" onClick={() => handleOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={!code.trim() || isDisabled}
-            onClick={handleApply}
-          >
-            {isValidating ? (
-              <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-            ) : (
-              'Apply'
-            )}
-          </Button>
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+      </BottomSheet>
+    </div>
   );
 }

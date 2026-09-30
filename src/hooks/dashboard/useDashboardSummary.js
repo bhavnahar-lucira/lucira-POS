@@ -2,7 +2,10 @@
 //   - Today's Revenue / Orders Today KPI cards (+ vs-yesterday trend)
 //   - A 7-day revenue sparkline (derived from the same order list — no
 //     extra network call)
-//   - Recent Orders (top 4, most recent first)
+//   - Recent Orders (top 4, most recent first) — plus the same top-4 split
+//     by real document type into 4 tabs (MTO/Invoice/Return/URD), reusing
+//     this hook's own already-fetched allOrders/returns/urdPurchases rather
+//     than firing dedicated per-tab requests.
 //   - Pending Returns count
 //   - Today's Activity counts (Returns / Exchange / Buyback)
 //
@@ -70,7 +73,10 @@ function isPendingReturn(item) {
  *   todayOrderCount: number,
  *   ordersTrendDelta: number,
  *   revenueSparkline: number[],
- *   recentOrders: Array,
+ *   recentMTO: Array,      — top 4 allOrders rows with documentType 'order', newest first
+ *   recentInvoices: Array, — top 4 allOrders rows with documentType 'invoice', newest first
+ *   recentReturns: Array,  — top 4 Returns, newest first
+ *   recentUrd: Array,      — top 4 URD Purchases, newest first
  *   pendingReturnsCount: number,
  *   activityToday: { returns: number, exchanges: number, buybacks: number },
  * }}
@@ -156,10 +162,31 @@ export function useDashboardSummary() {
     }
     const revenueSparkline = Array.from(dayBuckets.values());
 
-    const recentOrders = [...allOrders]
+    // Dashboard's "Recent Orders" panel splits allOrders by its own real
+    // documentType (see useAllOrders.js/normalizeCustomerOrder) — filtered
+    // by type BEFORE sorting/slicing to 4, not after (filtering an
+    // already-sliced combined top-4 would silently under-fill a tab
+    // whenever that top-4 happened to skew toward the other type). An Order
+    // row IS a Made to Order booking on this tenant (see
+    // checkoutPricingService.buildPricedLineItems's own header), never a
+    // stock-backed sale, so 'order' here is exactly the MTO tab's real
+    // data, not a guess or a re-label.
+    const sortByOrderDate = (list) => [...list]
       .filter((o) => !!o.orderDate)
       .sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate))
       .slice(0, 4);
+    const recentMTO      = sortByOrderDate(allOrders.filter((o) => o.documentType === 'order'));
+    const recentInvoices = sortByOrderDate(allOrders.filter((o) => o.documentType === 'invoice'));
+
+    // Returns/URD Purchase already fetched (for the activity counts below) —
+    // reused here, sorted+capped the same way recentMTO/recentInvoices are
+    // above, rather than firing a second request for data already on hand.
+    const sortByDocumentDate = (list) => [...list]
+      .filter((r) => !!r.documentDate)
+      .sort((a, b) => new Date(b.documentDate) - new Date(a.documentDate))
+      .slice(0, 4);
+    const recentReturns = sortByDocumentDate(returns);
+    const recentUrd     = sortByDocumentDate(urdPurchases);
 
     const pendingReturnsCount = returns.filter(isPendingReturn).length;
 
@@ -181,7 +208,10 @@ export function useDashboardSummary() {
       todayOrderCount,
       ordersTrendDelta,
       revenueSparkline,
-      recentOrders,
+      recentMTO,
+      recentInvoices,
+      recentReturns,
+      recentUrd,
       pendingReturnsCount,
       activityToday,
     };

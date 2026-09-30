@@ -76,7 +76,7 @@ export function useCart() {
 
   const handleApplyPromo = (promo) => {
     dispatch(applyPromo(promo));
-    toast.success(TOAST.CART.PROMO_APPLIED(promo.promoCode));
+    toast.success(TOAST.CART.PROMO_APPLIED(promo.promoDetails?.promotion_name ?? promo.promoCode));
   };
 
   const handleRemovePromo = (promoCode) => {
