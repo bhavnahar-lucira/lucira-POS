@@ -46,6 +46,7 @@ import {
 }                                          from '@/hooks/transactions/useTransactionMutations';
 import ConfirmDialog                      from '@/components/shared/ConfirmDialog';
 import { usePaymentModes }                from '@/hooks/checkout/usePaymentModes';
+import { paymentRequiresBank }             from '@/lib/checkout/paymentModeRules';
 import { useURDMasterItem }                from '@/hooks/transactions/useURDMasterItem';
 import { useSoldItems }                    from '@/hooks/transactions/useSoldItems';
 import { useCustomerCredits }              from '@/hooks/transactions/useCustomerCredits';
@@ -754,6 +755,12 @@ const refundSchema = z.object({
   document_date: z.string().min(1, 'Required'),
   mode_id:       z.coerce.number().min(1, 'Select how the money is paid out'),
   credit_keys:   z.array(z.number()).min(1, 'Select at least one credit to refund'),
+  // Required only for a bank-settled mode — enforced in onSubmit, where the
+  // selected mode is actually known. No bank-account field here — unlike
+  // Scheme/Repair/Invoice receipts, Refund's own entity shape
+  // (refundService.js's createRefund) has nowhere to put a bank_pos at all,
+  // only ref_no.
+  ref_no: z.string().optional(),
 });
 
 function RefundNewForm({ onDone }) {
@@ -769,7 +776,7 @@ function RefundNewForm({ onDone }) {
 
   const { register, handleSubmit, control, watch, setValue, reset, formState: { errors } } = useForm({
     resolver: zodResolver(refundSchema),
-    defaultValues: { document_date: todayDateString(), mode_id: '', credit_keys: [] },
+    defaultValues: { document_date: todayDateString(), mode_id: '', credit_keys: [], ref_no: '' },
   });
 
   const creditKeys = watch('credit_keys');
@@ -799,6 +806,12 @@ function RefundNewForm({ onDone }) {
     }
     try {
       const mode = paymentModes.find((m) => m.modeId === Number(data.mode_id));
+      // A bank-settled mode (Card/UPI/etc.) needs a reference number, same
+      // real-world requirement as checkout — no bank-account field here,
+      // see refundSchema's own comment for why.
+      if (mode && paymentRequiresBank(mode) && !data.ref_no?.trim()) {
+        return toast.error('Enter a reference number for this payout.');
+      }
       await create.mutateAsync({
         partyId: customerId,
         partyName: customerName,
@@ -810,6 +823,7 @@ function RefundNewForm({ onDone }) {
           modeId:   Number(data.mode_id),
           ledgerId: mode?.ledgerId,
           amount:   total,
+          refNo:    data.ref_no?.trim() || undefined,
         },
       });
       reset();
@@ -893,7 +907,13 @@ function RefundNewForm({ onDone }) {
       )}
 
       <FormField label="Paid Out By" required error={errors.mode_id}>
-        <PaymentModeSelect control={control} name="mode_id" paymentModes={paymentModes} modesLoading={modesLoading} />
+        <PaymentModeSelect
+          control={control}
+          name="mode_id"
+          paymentModes={paymentModes}
+          modesLoading={modesLoading}
+          refFieldName="ref_no"
+        />
       </FormField>
 
       <Button

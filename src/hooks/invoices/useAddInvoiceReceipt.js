@@ -18,8 +18,15 @@ import EVENTS from '@/lib/analytics/events';
  *   transactionId: number, partyId: number, companyId: number,
  *   financialYearId: number|null, documentDate?: string,
  *   mode: { modeId, modeCode, modeName, ledgerId, raw? },
- *   amount: number, refNo?: string,
+ *   amount: number, refNo?: string, bankPos?: number,
  * }} params
+ *   bankPos — the bank account's numeric id for a bank-settled mode
+ *     (Card/UPI/etc.), same convention confirmed live for checkout's own
+ *     receipt_details (documentFields.js) — NOT separately confirmed live
+ *     against this standalone InvoiceReceipt/Create endpoint specifically
+ *     (see this file's own "unverified live" header note), added 2026-10-01
+ *     alongside refNo (reported directly: neither bank account nor
+ *     reference number was ever collected here at all).
  */
 export function useAddInvoiceReceipt() {
   const queryClient = useQueryClient();
@@ -27,7 +34,7 @@ export function useAddInvoiceReceipt() {
   return useMutation({
     mutationFn: ({
       transactionId, partyId, companyId, financialYearId, documentDate,
-      mode, amount, refNo,
+      mode, amount, refNo, bankPos,
     }) => {
       const row = mode?.raw ?? {};
       return createInvoiceReceipt({
@@ -38,6 +45,7 @@ export function useAddInvoiceReceipt() {
         document_date:      documentDate ?? new Date().toISOString(),
         amount,
         ref_no:             refNo ?? '',
+        bank_pos:           bankPos ?? undefined,
         mode_id:            mode?.modeId ?? null,
         mode_code:          mode?.modeCode ?? '',
         mode_name:          mode?.modeName ?? '',

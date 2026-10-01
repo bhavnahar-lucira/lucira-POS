@@ -80,6 +80,7 @@ import {
 } from '@/hooks/repair/useRepairMutations';
 import { useRepairInvoiceHelpers } from '@/hooks/repair/useRepairInvoiceHelpers';
 import { usePaymentModes }     from '@/hooks/checkout/usePaymentModes';
+import { paymentRequiresBank } from '@/lib/checkout/paymentModeRules';
 import { useOrderHeaderConfig } from '@/hooks/checkout/useOrderHeaderConfig';
 import {
   useRepairOrders, useRepairOrderIntakeLines,
@@ -551,6 +552,11 @@ const repairInvoiceSchema = z.object({
   // don't already cover the full amount, enforced in onSubmit where the
   // applied total is known.
   mode_id: z.coerce.number().optional().or(z.literal('')),
+  // Required only for a bank-settled mode — enforced in prepareSubmit,
+  // where the selected mode is actually known (same reasoning as mode_id
+  // above).
+  bank_pos_id: z.coerce.number().optional().or(z.literal('')),
+  ref_no: z.string().optional(),
 });
 
 function RepairInvoiceNewForm({ onDone }) {
@@ -577,7 +583,10 @@ function RepairInvoiceNewForm({ onDone }) {
 
   const { register, handleSubmit, control, reset, watch, formState: { errors } } = useForm({
     resolver: zodResolver(repairInvoiceSchema),
-    defaultValues: { document_date: todayDateString(), item_rate: '', mode_id: '' },
+    defaultValues: {
+      document_date: todayDateString(), item_rate: '', mode_id: '',
+      bank_pos_id: '', ref_no: '',
+    },
   });
 
   const itemRateEntered = Number(watch('item_rate')) || 0;
@@ -617,6 +626,15 @@ function RepairInvoiceNewForm({ onDone }) {
     // balances — a fully-covered invoice needs no new payment at all.
     if (remainingDue > 0 && !data.mode_id) {
       return toast.error('Select how the remaining balance is paid.');
+    }
+    // A bank-settled mode (Card/UPI/etc.) needs a bank account + reference
+    // number, same real-world requirement as checkout.
+    if (remainingDue > 0) {
+      const selectedMode = paymentModes.find((m) => m.modeId === Number(data.mode_id));
+      if (selectedMode && paymentRequiresBank(selectedMode)) {
+        if (!data.bank_pos_id) return toast.error('Select the bank account this payment settles to.');
+        if (!data.ref_no?.trim()) return toast.error('Enter a reference number for this payment.');
+      }
     }
     if (!headerConfig.isReady) {
       if (headerConfig.isError) headerConfig.refetch();
@@ -713,6 +731,12 @@ function RepairInvoiceNewForm({ onDone }) {
           amount:         remainingDue,
           mode_id:        Number(data.mode_id),
           ledger_id:      selectedMode?.ledgerId ?? undefined,
+          // Same fields as Scheme Receipt/checkout's receipt_details — NOT
+          // separately confirmed live against this specific endpoint (see
+          // this form's own "UNVERIFIED LIVE" note above), only sent when
+          // the mode actually needed them (prepareSubmit's own gate).
+          bank_pos: data.bank_pos_id || undefined,
+          ref_no:   data.ref_no?.trim() || undefined,
         });
       }
 
@@ -776,7 +800,14 @@ function RepairInvoiceNewForm({ onDone }) {
 
       {remainingDue > 0 && (
         <FormField label={appliedBalances.length > 0 ? `Remaining (${formatINR(remainingDue)}) — Payment Method` : 'Payment Method'} required error={errors.mode_id}>
-          <PaymentModeSelect control={control} name="mode_id" paymentModes={paymentModes} modesLoading={modesLoading} />
+          <PaymentModeSelect
+            control={control}
+            name="mode_id"
+            paymentModes={paymentModes}
+            modesLoading={modesLoading}
+            bankFieldName="bank_pos_id"
+            refFieldName="ref_no"
+          />
         </FormField>
       )}
 

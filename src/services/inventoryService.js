@@ -2,7 +2,7 @@
 
 import axiosInstance from '@/lib/axios/axiosInstance';
 import API from '@/constants/apiEndpoints';
-import { ACTIVE_ENV } from '@/lib/ornaverse/environment';
+import { getClientActiveEnv } from '@/lib/ornaverse/activeEnvClient';
 
 /**
  * Real-time stock check for a specific item SKU as of today.
@@ -109,8 +109,16 @@ export const getStockJournalBOM = ({ itemId, itemLineNo, locationId, companyId, 
  *   for a working lookup on LIVE; ignored on UAT (see above)
  * @returns {Promise<import('axios').AxiosResponse>} { Entities: StockJournalRow[] }
  */
-export const getStockPieceBySku = ({ sku, companyId }) =>
-  axiosInstance.post(API.INVENTORY.STOCK_JOURNAL_LIST, {
+export const getStockPieceBySku = async ({ sku, companyId }) => {
+  // Asks the SERVER which environment it's currently pointed at, rather
+  // than importing a build-time constant — see activeEnvClient.js's own
+  // header. Runs in the browser (this function is called from barcode-scan
+  // UI), so it can't just read environment.js's ACTIVE_ENV directly: that
+  // would get permanently baked into the client bundle at the last
+  // `next build`, defeating the whole point of a server restart being able
+  // to flip environments without a rebuild.
+  const activeEnv = await getClientActiveEnv();
+  return axiosInstance.post(API.INVENTORY.STOCK_JOURNAL_LIST, {
     Skip: 0,
     Take: 1,
     sku,
@@ -120,8 +128,9 @@ export const getStockPieceBySku = ({ sku, companyId }) =>
     // per direct confirmation: it sends `sku` alongside `has_sku` in this
     // exact call for its own search.
     has_sku: true,
-    ...(ACTIVE_ENV === 'LIVE' ? { company_id: companyId } : {}),
+    ...(activeEnv === 'LIVE' ? { company_id: companyId } : {}),
   });
+};
 
 /**
  * Records an "item enquiry" — logs that this physical piece was looked up

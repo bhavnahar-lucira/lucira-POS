@@ -19,6 +19,37 @@ export const metadata = {
     icon: "https://luciraonline.myshopify.com/cdn/shop/files/Favicon_New_10.png?crop=center&height=32&v=1767615434&width=32",
     apple: "https://luciraonline.myshopify.com/cdn/shop/files/Favicon_New_10.png?crop=center&height=32&v=1767615434&width=32",
   },
+  // Installable as an app — public/manifest.json (a plain static file, not
+  // Next's dynamic app/manifest.js generator) is what Chrome/Android reads
+  // for "Install app". No service worker backs this (removed 2026-10-01,
+  // explicit direction) — modern Chrome/Edge offer the install prompt off
+  // the manifest alone; see public/manifest.json's own header if that ever
+  // needs revisiting. appleWebApp below is iOS Safari's separate, older
+  // "Add to Home Screen" mechanism, which ignores the web manifest entirely
+  // and only reads these meta tags.
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Lucira POS',
+  },
+  // `appleWebApp.capable` alone only renders the modern, non-prefixed
+  // "mobile-web-app-capable" tag (confirmed by reading this Next.js
+  // version's own metadata renderer) — older iOS/iPadOS Safari versions
+  // specifically check the legacy Apple-prefixed name for standalone-mode
+  // home-screen installs, so both are sent rather than relying on iOS
+  // having caught up to the new one everywhere a POS tablet might run.
+  other: {
+    'apple-mobile-web-app-capable': 'yes',
+  },
+};
+
+// themeColor lives on this separate `viewport` export (not `metadata`) as of
+// the Next.js version this app runs — tints the browser chrome (Android
+// Chrome's address bar, the splash screen background while the installed
+// app launches) to match the manifest's own theme_color.
+export const viewport = {
+  themeColor: '#5A413F',
 };
 
 export default function RootLayout({ children }) {

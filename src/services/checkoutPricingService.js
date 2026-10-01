@@ -39,9 +39,9 @@
 // buildPricedLineItems branches on which path (Invoice/Order) applies; see
 // buildOrderLineItems for both of the above.
 
-import { getStockPieces, getStockJournalBOM } from '@/services/inventoryService';
+import { getStockPieces } from '@/services/inventoryService';
 import { getItemDetail, getDesignVariants } from '@/services/itemService';
-import { priceStockPiecesForSale, calculateItemRates } from '@/services/pricingService';
+import { priceStockPiecesForSale, calculateItemRates, findRealBomComponents } from '@/services/pricingService';
 import { applyPromotions } from '@/services/promotionService';
 import { sumRealGst } from '@/lib/gst';
 import APP_CONFIG from '@/constants/appConfig';
@@ -264,42 +264,6 @@ async function resolveFullItem({ itemId, styleId }) {
   }
   const response = await getItemDetail(itemId);
   return response?.data?.Entity ?? null;
-}
-
-/**
- * Finds ONE real stock piece of this item_id, anywhere — no company_id
- * filter, unlike claimStockPieces above. This is for BOM REPLICATION only,
- * never for claiming/allocating a piece, so a piece at a different store (or
- * one already claimed elsewhere in this same cart) is just as valid a
- * template to copy real component rates from.
- *
- * Returns null (never throws) whenever no piece exists anywhere, or the BOM
- * lookup itself fails — this is a best-effort accuracy improvement, not a
- * requirement; a genuinely un-stocked item still prices correctly from the
- * master's own default components, same as before this existed.
- *
- * @param {number} itemId
- * @returns {Promise<object[]|null>} real item_components rows, or null
- */
-async function findRealBomComponents(itemId) {
-  try {
-    const stockResponse = await getStockPieces({ itemId, take: 1 });
-    const row = stockResponse?.data?.Entities?.[0];
-    if (!row) return null;
-
-    const bomResponse = await getStockJournalBOM({
-      itemId:     row.item_id,
-      itemLineNo: row.item_line_no,
-      locationId: row.location_id,
-      companyId:  row.company_id,
-      bagNo:      row.bag_no,
-      sku:        row.sku,
-    });
-    const components = bomResponse?.data?.Entities;
-    return components?.length ? components : null;
-  } catch {
-    return null;
-  }
 }
 
 /**

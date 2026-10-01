@@ -4,12 +4,15 @@
 // (2026-10-01): the old pill/chip layout (flex-wrap full of rounded chips)
 // grew as tall as the category count and could fill the whole filter sheet
 // on mobile. Rebuilt to match every OTHER section in that panel (Karat,
-// Metal Color, ...) — a radio row list, searchable past SEARCHABLE_THRESHOLD,
-// capped at max-h-56 with its own scrollbar — same visual language, just a
-// radio instead of a checkbox since only one category can ever be active.
-// This was already the ONLY surviving consumer of this component (the old
-// "sticky top bar" chip-row variant was moved into this panel on 2026-09-28
-// and never used standalone since), so there's no second layout to preserve.
+// Metal Color, ...) — a checkbox-styled row list, searchable past
+// SEARCHABLE_THRESHOLD, capped at max-h-56 with its own scrollbar — same
+// visual language as those sections. Still SINGLE-select underneath (one
+// requested directly right after the first pass, which used a radio input):
+// picking a category still replaces whatever was active, never adds to it —
+// see CategoryCheckboxRow's own comment. This was already the ONLY surviving
+// consumer of this component (the old "sticky top bar" chip-row variant was
+// moved into this panel on 2026-09-28 and never used standalone since), so
+// there's no second layout to preserve.
 
 import { useState } from 'react';
 import { Search } from 'lucide-react';
@@ -25,15 +28,19 @@ function toSlug(name) {
   return name.toLowerCase().replace(/\s+/g, '-');
 }
 
-function CategoryRadioRow({ label, checked, onChange }) {
+// Styled as a checkbox (reported directly, 2026-10-01: match the other
+// sections' look) but still SINGLE-select underneath — clicking a row just
+// calls onSelectCategory(slug) same as before, never toggles independently;
+// "All Categories" is the only way back to none selected, same as the radio
+// version this replaced.
+function CategoryCheckboxRow({ label, checked, onChange }) {
   return (
     <label className="flex items-center gap-2.5 py-2 cursor-pointer select-none text-sm text-foreground">
       <input
-        type="radio"
-        name="category-filter"
+        type="checkbox"
         checked={checked}
         onChange={onChange}
-        className="h-4 w-4 border-border text-accent focus-visible:ring-2 focus-visible:ring-accent accent-accent"
+        className="h-4 w-4 rounded border-border text-accent focus-visible:ring-2 focus-visible:ring-accent accent-accent"
       />
       {label}
     </label>
@@ -79,7 +86,7 @@ export default function CategoryFilter({
         </div>
       )}
       <div className="max-h-56 overflow-y-auto pr-1">
-        <CategoryRadioRow
+        <CategoryCheckboxRow
           label="All Categories"
           checked={!activeCategorySlug}
           onChange={() => onSelectCategory(null)}
@@ -87,7 +94,7 @@ export default function CategoryFilter({
         {filtered.map((cat) => {
           const slug = toSlug(cat.displayName);
           return (
-            <CategoryRadioRow
+            <CategoryCheckboxRow
               key={cat.type_id}
               label={cat.displayName}
               checked={activeCategorySlug === slug}

@@ -3,7 +3,7 @@
 // never fires there once a variant is selected).
 
 import axiosInstance from '@/lib/axios/axiosInstance';
-import { getStockPieces } from '@/services/inventoryService';
+import { getStockPieces, getStockJournalBOM } from '@/services/inventoryService';
 import API from '@/constants/apiEndpoints';
 import APP_CONFIG from '@/constants/appConfig';
 
@@ -93,6 +93,56 @@ export async function priceItemAsSold({ item, companyId }) {
 }
 
 /**
+ * Finds ONE real stock piece of this item_id, anywhere — no company_id
+ * filter, since this is for BOM REPLICATION only, never for claiming/
+ * allocating a piece (a piece at a different store is just as valid a
+ * template to copy real component rates from as one at the active store).
+ *
+ * THE SINGLE SHARED SOURCE for this lookup — every place in the app that
+ * prices an item MASTER (this file's own priceItemAsMaster, and
+ * checkoutPricingService.buildOrderLineItems) calls this SAME function
+ * rather than each keeping its own copy. It used to live only inside
+ * checkoutPricingService.js, which is exactly how this bug happened:
+ * priceItemAsMaster (the product page's own live quote once a quantity
+ * exceeds stock) priced the master's generic default components, while
+ * checkout's buildOrderLineItems substituted a real piece's measured BOM —
+ * two different prices for the same made-to-order line, reported directly
+ * (2026-10-01, item LJ-E00043-14RGLGD: sticky footer total disagreed with
+ * the mini cart for the identical quantity). One shared function closes
+ * that gap at the ROOT rather than patching the one call site that happened
+ * to get reported — any FUTURE caller that needs a master's real price
+ * reaches for this same function instead of re-deriving its own copy.
+ *
+ * Returns null (never throws) whenever no piece exists anywhere, or the BOM
+ * lookup itself fails — this is a best-effort accuracy improvement, not a
+ * requirement; a genuinely un-stocked item still prices correctly from the
+ * master's own default components, same as before this existed.
+ *
+ * @param {number} itemId
+ * @returns {Promise<object[]|null>} real item_components rows, or null
+ */
+export async function findRealBomComponents(itemId) {
+  try {
+    const stockResponse = await getStockPieces({ itemId, take: 1 });
+    const row = stockResponse?.data?.Entities?.[0];
+    if (!row) return null;
+
+    const bomResponse = await getStockJournalBOM({
+      itemId:     row.item_id,
+      itemLineNo: row.item_line_no,
+      locationId: row.location_id,
+      companyId:  row.company_id,
+      bagNo:      row.bag_no,
+      sku:        row.sku,
+    });
+    const components = bomResponse?.data?.Entities;
+    return components?.length ? components : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Prices the item MASTER (nominal spec, not a real piece) — what
  * buildOrderLineItems (checkoutPricingService.js) bills for every unit
  * beyond available shelf stock. Exposed on its own (not just as
@@ -103,11 +153,20 @@ export async function priceItemAsSold({ item, companyId }) {
  * item showed a Total nowhere near what checkout then billed, because the
  * product page's own live price only ever quoted ONE basis (piece OR
  * master), never both at once.
+ *
+ * Substitutes a real stock piece's own BOM (findRealBomComponents, above)
+ * before pricing, same as buildOrderLineItems does — so this quote is always
+ * the exact figure checkout will go on to bill, not a generic-master
+ * approximation of it. See findRealBomComponents' own header for the bug
+ * this fixes.
  * @param {object} item
  * @returns {Promise<object|null>}
  */
 export async function priceItemAsMaster(item) {
-  const [priced] = await calculateItemRates([item], APP_CONFIG.DOCUMENT_TYPES.POS_ORDER);
+  if (!item?.item_id) return null;
+  const bomComponents = await findRealBomComponents(item.item_id);
+  const itemToPrice = bomComponents ? { ...item, item_components: bomComponents } : item;
+  const [priced] = await calculateItemRates([itemToPrice], APP_CONFIG.DOCUMENT_TYPES.POS_ORDER);
   return priced ?? null;
 }
 

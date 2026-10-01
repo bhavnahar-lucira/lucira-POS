@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { useSelector } from 'react-redux';
 import { useForm } from 'react-hook-form';
+import { toast } from 'react-toastify';
 import { AlertTriangle, CreditCard } from 'lucide-react';
 import BottomSheet from '@/components/shared/BottomSheet';
 import { sumRealGst } from '@/lib/gst';
@@ -21,6 +22,7 @@ import { Input } from '@/components/ui/input';
 import { useCancelInvoice } from '@/hooks/invoices/useCancelInvoice';
 import { useAddInvoiceReceipt } from '@/hooks/invoices/useAddInvoiceReceipt';
 import { usePaymentModes } from '@/hooks/checkout/usePaymentModes';
+import { paymentRequiresBank } from '@/lib/checkout/paymentModeRules';
 import { useOrderHeaderConfig } from '@/hooks/checkout/useOrderHeaderConfig';
 import { useInvoiceDetail } from '@/hooks/checkout/useInvoiceDetail';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
@@ -135,7 +137,10 @@ function CollectPaymentPanel({ raw, onDone, onDismiss }) {
   const addReceipt = useAddInvoiceReceipt();
 
   const { control, register, handleSubmit, watch, formState: { errors } } = useForm({
-    defaultValues: { mode_id: '', amount: String(raw.balance_amount ?? 0) },
+    defaultValues: {
+      mode_id: '', amount: String(raw.balance_amount ?? 0),
+      bank_pos_id: '', ref_no: '',
+    },
   });
   const modeId = watch('mode_id');
 
@@ -143,6 +148,12 @@ function CollectPaymentPanel({ raw, onDone, onDismiss }) {
     const amount = Number(data.amount);
     if (!amount || amount <= 0) return;
     const mode = paymentModes.find((m) => m.modeId === Number(data.mode_id));
+    // A bank-settled mode (Card/UPI/etc.) needs a bank account + reference
+    // number, same real-world requirement as checkout.
+    if (mode && paymentRequiresBank(mode)) {
+      if (!data.bank_pos_id) return toast.error('Select the bank account this payment settles to.');
+      if (!data.ref_no?.trim()) return toast.error('Enter a reference number for this payment.');
+    }
     await addReceipt.mutateAsync({
       transactionId:   raw.transaction_id,
       partyId:         raw.party_id,
@@ -150,6 +161,8 @@ function CollectPaymentPanel({ raw, onDone, onDismiss }) {
       financialYearId: headerConfig.financialYearId,
       mode,
       amount,
+      bankPos: data.bank_pos_id || undefined,
+      refNo:   data.ref_no?.trim() || undefined,
     });
     onDone();
   };
@@ -169,7 +182,14 @@ function CollectPaymentPanel({ raw, onDone, onDismiss }) {
 
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-medium text-muted-foreground">Payment Mode <span className="text-destructive">*</span></label>
-        <PaymentModeSelect control={control} name="mode_id" paymentModes={paymentModes} modesLoading={modesLoading} />
+        <PaymentModeSelect
+          control={control}
+          name="mode_id"
+          paymentModes={paymentModes}
+          modesLoading={modesLoading}
+          bankFieldName="bank_pos_id"
+          refFieldName="ref_no"
+        />
       </div>
 
       <div className="flex gap-2 mt-1">

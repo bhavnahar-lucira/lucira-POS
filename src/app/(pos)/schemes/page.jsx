@@ -19,6 +19,7 @@ import { usePaymentModes }       from '@/hooks/checkout/usePaymentModes';
 import { useOrderHeaderConfig }  from '@/hooks/checkout/useOrderHeaderConfig';
 import { useSchemeMonthlyDetails } from '@/hooks/schemes/useSchemeMonthlyDetails';
 import { buildSchemeReceiptPayload } from '@/services/schemeService';
+import { paymentRequiresBank } from '@/lib/checkout/paymentModeRules';
 import { selectActiveStoreId }   from '@/store/slices/storeSlice';
 import { selectCartCustomerId, selectCartCustomerName } from '@/store/slices/cartSlice';
 import APP_CONFIG from '@/constants/appConfig';
@@ -69,6 +70,12 @@ const receiptSchema = z.object({
   // to save without it ("Select Month before Receipt") — see
   // buildSchemeReceiptPayload() for the captured payload this mirrors.
   month_ids:     z.array(z.number()).min(1, 'Select at least one month'),
+  // Required only for a bank-settled mode (Card/UPI/etc.) — enforced in
+  // prepareSubmit below, where the selected mode is actually known (see
+  // that function's own comment for why this isn't a zod .superRefine()
+  // here, matching this file's existing plain-imperative-check convention).
+  bank_pos_id:   z.coerce.number().optional().or(z.literal('')),
+  ref_no:        z.string().optional(),
 });
 
 function ReceiptSheet({ enrollment, isOpen, onClose }) {
@@ -94,6 +101,8 @@ function ReceiptSheet({ enrollment, isOpen, onClose }) {
       mode_name:     '',
       document_date: today,
       month_ids:     [],
+      bank_pos_id:   '',
+      ref_no:        '',
     },
   });
 
@@ -112,6 +121,8 @@ function ReceiptSheet({ enrollment, isOpen, onClose }) {
         mode_name:     '',
         document_date: todayDateString(),
         month_ids:     [],
+        bank_pos_id:   '',
+        ref_no:        '',
       });
     }
   }, [isOpen, enrollment, reset]);
@@ -126,6 +137,17 @@ function ReceiptSheet({ enrollment, isOpen, onClose }) {
   const [isPaymentConfirmOpen, setIsPaymentConfirmOpen] = useState(false);
 
   const prepareSubmit = (data) => {
+    // A bank-settled mode (Card/UPI/etc.) needs a bank account + reference
+    // number — same real-world requirement as checkout, just enforced here
+    // imperatively (matching this file's existing plain-check convention)
+    // rather than via zod, since the schema alone can't know which mode was
+    // picked without a cross-field lookup against paymentModes.
+    const selectedMode = paymentModes.find((m) => m.modeId === Number(data.mode_id));
+    if (selectedMode && paymentRequiresBank(selectedMode)) {
+      if (!data.bank_pos_id) return toast.error('Select the bank account this payment settles to.');
+      if (!data.ref_no?.trim()) return toast.error('Enter a reference number for this payment.');
+    }
+
     // Was a silent no-op before this — a genuinely failed config lookup
     // (see useOrderHeaderConfig's isError) left the Pay button doing
     // nothing at all, with no toast and no way to tell "still loading"
@@ -194,6 +216,14 @@ function ReceiptSheet({ enrollment, isOpen, onClose }) {
         ledgerId:   selectedMode?.ledgerId,
         ledgerName: selectedMode?.ledgerName,
         modeName:   selectedMode?.modeName,
+        // Numeric bank account id, same convention confirmed live for
+        // checkout's own receipt_details (documentFields.js) — NOT
+        // separately confirmed live against SchemeReceipt/Create itself,
+        // so treat a failure here as "verify this field live," not "the
+        // whole payload shape is wrong" (see buildSchemeReceiptPayload's
+        // own header in schemeService.js).
+        bankPos: data.bank_pos_id || undefined,
+        refNo:   data.ref_no?.trim() || undefined,
       }],
     }));
     reset();
@@ -284,6 +314,8 @@ function ReceiptSheet({ enrollment, isOpen, onClose }) {
               modesLoading={modesLoading}
               placeholder="Select mode"
               onSelect={(mode) => setValue('mode_name', mode.modeName)}
+              bankFieldName="bank_pos_id"
+              refFieldName="ref_no"
             />
             {errors.mode_id && <p className="text-xs text-destructive">{errors.mode_id.message}</p>}
           </div>
