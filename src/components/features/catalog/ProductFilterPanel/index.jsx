@@ -163,6 +163,61 @@ function Section({ title, children }) {
   );
 }
 
+// Mobile-only master/detail layout — reported directly (2026-10-01), modeled
+// on a reference site's own mobile filter sheet: a left rail of section
+// names (with a count badge wherever that section has an active selection)
+// and a right pane showing just the ACTIVE section's own content, instead of
+// every section stacked as an accordion the operator has to scroll past one
+// at a time. Purely a different arrangement of the SAME `sections` nodes the
+// desktop accordion below renders — no facet/filter logic lives here, so
+// there is nothing for the two layouts to disagree on.
+function MobileFilterMasterDetail({ sections }) {
+  const [activeKey, setActiveKey] = useState(sections[0]?.key);
+  const active = sections.find((s) => s.key === activeKey) ?? sections[0];
+
+  return (
+    // Negative margins cancel the sheet's own content padding (BottomSheet's
+    // px-3/sm:px-5) so both rails run edge-to-edge like the reference, same
+    // idiom CustomerDetailSheet's tab row already uses for the same reason.
+    // Fixed height (not h-full) — this sits alongside other content inside
+    // BottomSheet's single scrollable body (the mobile search/store block,
+    // the "Clear all" link above), which isn't itself a flex container, so a
+    // percentage height here would resolve against the WHOLE body rather
+    // than "whatever's left after my siblings" and overflow it.
+    <div className="md:hidden -mx-3 flex h-[58vh]">
+      <div className="w-[38%] shrink-0 overflow-y-auto border-r border-border bg-muted/40">
+        {sections.map((s) => {
+          const isActive = s.key === activeKey;
+          return (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => setActiveKey(s.key)}
+              className={[
+                'flex w-full items-center justify-between gap-1.5 border-l-2 px-3 py-3 text-left text-xs font-medium transition-colors',
+                isActive
+                  ? 'border-l-primary bg-card text-primary font-semibold'
+                  : 'border-l-transparent text-muted-foreground hover:bg-muted/70',
+              ].join(' ')}
+            >
+              <span className="truncate">{s.title}</span>
+              {s.badge ? (
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
+                  {s.badge}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="min-w-0 flex-1 overflow-y-auto px-3 py-2">
+        {active?.node}
+      </div>
+    </div>
+  );
+}
+
 /**
  * @param {{
  *   categories: object[], activeCategorySlug: string|null, onSelectCategory: (slug: string|null) => void,
@@ -200,135 +255,176 @@ export default function ProductFilterPanel({
   hasActiveFilters,
   onClearFilters,
 }) {
+  // Built ONCE, consumed by BOTH renderers below (desktop accordion, mobile
+  // master/detail) — same node per section either way, so there is exactly
+  // one implementation of each section's content, never two that could
+  // drift apart. `badge` is a plain derived display count (how many of this
+  // section's own facet values are active) — mobile-only (see
+  // MobileFilterMasterDetail), omitted (null) for the two range-style
+  // sections where "a count" isn't a meaningful idea.
+  const sections = [
+    {
+      key: 'Category', title: 'Category',
+      badge: activeCategorySlug ? 1 : null,
+      node: (
+        <CategoryFilter
+          categories={categories}
+          activeCategorySlug={activeCategorySlug}
+          onSelectCategory={onSelectCategory}
+        />
+      ),
+    },
+    {
+      // Disabled until a category is picked — matches OrnaVerse's own
+      // "Select a category first" placeholder exactly.
+      key: 'Sub Category', title: 'Sub Category',
+      badge: facets.subTypeIds.length || null,
+      node: !activeCategorySlug ? (
+        <p className="py-2 text-xs text-muted-foreground">Select a category first.</p>
+      ) : (
+        <CheckboxGroup
+          options={subCategoryOptions}
+          selected={facets.subTypeIds}
+          isLoading={subCategoryLoading}
+          onToggle={(value) => onFacetsChange({ subTypeIds: toggle(facets.subTypeIds, value) })}
+        />
+      ),
+    },
+    {
+      key: 'Availability', title: 'Availability',
+      badge: showOutOfStock ? 1 : null,
+      node: (
+        <CheckboxRow
+          label="Include out of stock"
+          checked={showOutOfStock}
+          onChange={(e) => onShowOutOfStockChange(e.target.checked)}
+        />
+      ),
+    },
+    {
+      // Independent section, not a From/To pair in Measurements — same
+      // priceMin/priceMax facet as before, just a dual-thumb slider.
+      // ALWAYS rendered (reported directly: hiding the whole section
+      // whenever priceBounds was still null — nothing priced yet, or the
+      // currently-visible page happens to be all unpriceable items, e.g.
+      // Silver925 — made the filter appear to have vanished entirely).
+      // Falls back to a message instead of the slider until real bounds
+      // exist, same convention as CheckboxGroup's own loading/empty states.
+      key: 'Price', title: 'Price', badge: null,
+      node: priceBounds ? (
+        <RangeSlider
+          min={priceBounds.min}
+          max={priceBounds.max}
+          value={[
+            facets.priceMin ?? priceBounds.min,
+            facets.priceMax ?? priceBounds.max,
+          ]}
+          onChange={(lo, hi) => onFacetsChange({ priceMin: lo, priceMax: hi })}
+          formatValue={formatINR}
+        />
+      ) : (
+        <p className="py-2 text-xs text-muted-foreground">
+          Waiting for prices to load…
+        </p>
+      ),
+    },
+    {
+      key: 'Karat', title: 'Karat',
+      badge: facets.karatIds.length || null,
+      node: (
+        <CheckboxGroup
+          options={karatOptions}
+          selected={facets.karatIds}
+          onToggle={(value) => onFacetsChange({ karatIds: toggle(facets.karatIds, value) })}
+        />
+      ),
+    },
+    {
+      key: 'Metal Color', title: 'Metal Color',
+      badge: facets.metalColorIds.length || null,
+      node: (
+        <CheckboxGroup
+          options={metalColorOptions}
+          selected={facets.metalColorIds}
+          onToggle={(value) => onFacetsChange({ metalColorIds: toggle(facets.metalColorIds, value) })}
+        />
+      ),
+    },
+    {
+      key: 'Diamond Shape', title: 'Diamond Shape',
+      badge: facets.shapeIds.length || null,
+      node: (
+        <CheckboxGroup
+          options={diamondShapeOptions}
+          selected={facets.shapeIds}
+          onToggle={(value) => onFacetsChange({ shapeIds: toggle(facets.shapeIds, value) })}
+        />
+      ),
+    },
+    {
+      key: 'Item Size', title: 'Item Size',
+      badge: facets.itemSizeIds.length || null,
+      node: (
+        <CheckboxGroup
+          options={itemSizeOptions}
+          selected={facets.itemSizeIds}
+          onToggle={(value) => onFacetsChange({ itemSizeIds: toggle(facets.itemSizeIds, value) })}
+        />
+      ),
+    },
+    {
+      key: 'Collection', title: 'Collection',
+      badge: facets.collectionIds.length || null,
+      node: (
+        <CheckboxGroup
+          options={collectionOptions}
+          selected={facets.collectionIds}
+          onToggle={(value) => onFacetsChange({ collectionIds: toggle(facets.collectionIds, value) })}
+        />
+      ),
+    },
+    {
+      key: 'Measurements', title: 'Measurements', badge: null,
+      node: (
+        <div className="flex flex-col gap-4">
+          <RangePair
+            label="Weight" unit="g"
+            fromValue={facets.weightFrom} toValue={facets.weightTo}
+            onChange={({ from, to }) => onFacetsChange({ weightFrom: from, weightTo: to })}
+          />
+          <RangePair
+            label="Diamond Weight" unit="ct"
+            fromValue={facets.diamondWeightFrom} toValue={facets.diamondWeightTo}
+            onChange={({ from, to }) => onFacetsChange({ diamondWeightFrom: from, diamondWeightTo: to })}
+          />
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="flex flex-col gap-1">
       {hasActiveFilters && (
+        // Desktop/tablet only now — mobile gets its own "Clear All" in the
+        // sheet's footer (catalog/page.jsx), matching the reference layout
+        // instead of this floating text link stacked above the master/detail
+        // panel too.
         <button
           type="button"
           onClick={onClearFilters}
-          className="self-end text-xs font-medium text-destructive hover:underline mb-1"
+          className="hidden self-end text-xs font-medium text-destructive hover:underline mb-1 md:block"
         >
           Clear all
         </button>
       )}
 
-      <Accordion type="multiple" defaultValue={['Category']} className="w-full">
-        <Section title="Category">
-          <CategoryFilter
-            categories={categories}
-            activeCategorySlug={activeCategorySlug}
-            hasActiveFilters={false}
-            onSelectCategory={onSelectCategory}
-            onClearFilters={() => {}}
-            wrap
-          />
-        </Section>
-
-        {/* Disabled until a category is picked — matches OrnaVerse's own
-            "Select a category first" placeholder exactly. */}
-        <Section title="Sub Category">
-          {!activeCategorySlug ? (
-            <p className="py-2 text-xs text-muted-foreground">Select a category first.</p>
-          ) : (
-            <CheckboxGroup
-              options={subCategoryOptions}
-              selected={facets.subTypeIds}
-              isLoading={subCategoryLoading}
-              onToggle={(value) => onFacetsChange({ subTypeIds: toggle(facets.subTypeIds, value) })}
-            />
-          )}
-        </Section>
-
-        <Section title="Availability">
-          <CheckboxRow
-            label="Include out of stock"
-            checked={showOutOfStock}
-            onChange={(e) => onShowOutOfStockChange(e.target.checked)}
-          />
-        </Section>
-
-        {/* Independent section, not a From/To pair in Measurements — same
-            priceMin/priceMax facet as before, just a dual-thumb slider.
-            ALWAYS rendered (reported directly: hiding the whole section
-            whenever priceBounds was still null — nothing priced yet, or the
-            currently-visible page happens to be all unpriceable items, e.g.
-            Silver925 — made the filter appear to have vanished entirely).
-            Falls back to a message instead of the slider until real bounds
-            exist, same convention as CheckboxGroup's own loading/empty states. */}
-        <Section title="Price">
-          {priceBounds ? (
-            <RangeSlider
-              min={priceBounds.min}
-              max={priceBounds.max}
-              value={[
-                facets.priceMin ?? priceBounds.min,
-                facets.priceMax ?? priceBounds.max,
-              ]}
-              onChange={(lo, hi) => onFacetsChange({ priceMin: lo, priceMax: hi })}
-              formatValue={formatINR}
-            />
-          ) : (
-            <p className="py-2 text-xs text-muted-foreground">
-              Waiting for prices to load…
-            </p>
-          )}
-        </Section>
-
-        <Section title="Karat">
-          <CheckboxGroup
-            options={karatOptions}
-            selected={facets.karatIds}
-            onToggle={(value) => onFacetsChange({ karatIds: toggle(facets.karatIds, value) })}
-          />
-        </Section>
-
-        <Section title="Metal Color">
-          <CheckboxGroup
-            options={metalColorOptions}
-            selected={facets.metalColorIds}
-            onToggle={(value) => onFacetsChange({ metalColorIds: toggle(facets.metalColorIds, value) })}
-          />
-        </Section>
-
-        <Section title="Diamond Shape">
-          <CheckboxGroup
-            options={diamondShapeOptions}
-            selected={facets.shapeIds}
-            onToggle={(value) => onFacetsChange({ shapeIds: toggle(facets.shapeIds, value) })}
-          />
-        </Section>
-
-        <Section title="Item Size">
-          <CheckboxGroup
-            options={itemSizeOptions}
-            selected={facets.itemSizeIds}
-            onToggle={(value) => onFacetsChange({ itemSizeIds: toggle(facets.itemSizeIds, value) })}
-          />
-        </Section>
-
-        <Section title="Collection">
-          <CheckboxGroup
-            options={collectionOptions}
-            selected={facets.collectionIds}
-            onToggle={(value) => onFacetsChange({ collectionIds: toggle(facets.collectionIds, value) })}
-          />
-        </Section>
-
-        <Section title="Measurements">
-          <div className="flex flex-col gap-4">
-            <RangePair
-              label="Weight" unit="g"
-              fromValue={facets.weightFrom} toValue={facets.weightTo}
-              onChange={({ from, to }) => onFacetsChange({ weightFrom: from, weightTo: to })}
-            />
-            <RangePair
-              label="Diamond Weight" unit="ct"
-              fromValue={facets.diamondWeightFrom} toValue={facets.diamondWeightTo}
-              onChange={({ from, to }) => onFacetsChange({ diamondWeightFrom: from, diamondWeightTo: to })}
-            />
-          </div>
-        </Section>
+      <Accordion type="multiple" defaultValue={['Category']} className="hidden w-full md:block">
+        {sections.map((s) => (
+          <Section key={s.key} title={s.title}>{s.node}</Section>
+        ))}
       </Accordion>
+
+      <MobileFilterMasterDetail sections={sections} />
     </div>
   );
 }

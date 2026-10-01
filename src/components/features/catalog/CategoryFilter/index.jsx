@@ -1,54 +1,58 @@
 'use client';
 
+// Single-select category list inside ProductFilterPanel — reported directly
+// (2026-10-01): the old pill/chip layout (flex-wrap full of rounded chips)
+// grew as tall as the category count and could fill the whole filter sheet
+// on mobile. Rebuilt to match every OTHER section in that panel (Karat,
+// Metal Color, ...) — a radio row list, searchable past SEARCHABLE_THRESHOLD,
+// capped at max-h-56 with its own scrollbar — same visual language, just a
+// radio instead of a checkbox since only one category can ever be active.
+// This was already the ONLY surviving consumer of this component (the old
+// "sticky top bar" chip-row variant was moved into this panel on 2026-09-28
+// and never used standalone since), so there's no second layout to preserve.
+
+import { useState } from 'react';
+import { Search } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+
 const EXCLUDED_TYPE_IDS = new Set([0]);
 const EXCLUDED_NAME_PATTERN = /^(metal|color diamond|cubic zirconia|lab ?grown? colou?r? ?stone|labgrown diamond|natural diamond|precious|semi[- ]precious|synthetic)$/i;
+// Matches ProductFilterPanel's own CheckboxGroup threshold — same rule,
+// same reason: a short list never needs a search box.
+const SEARCHABLE_THRESHOLD = 10;
 
 function toSlug(name) {
   return name.toLowerCase().replace(/\s+/g, '-');
 }
 
-function CategoryChip({ label, isActive, onClick }) {
+function CategoryRadioRow({ label, checked, onChange }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={isActive}
-      className={[
-        'shrink-0 min-h-[38px] px-5 py-1.5 rounded-full text-sm font-medium',
-        'border transition-all duration-standard ease-premium whitespace-nowrap',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
-        isActive
-          ? 'bg-accent border-accent text-white shadow-sm'
-          : 'bg-card border-border text-muted-foreground hover:border-accent/50 hover:text-accent hover:shadow-xs',
-      ].join(' ')}
-    >
+    <label className="flex items-center gap-2.5 py-2 cursor-pointer select-none text-sm text-foreground">
+      <input
+        type="radio"
+        name="category-filter"
+        checked={checked}
+        onChange={onChange}
+        className="h-4 w-4 border-border text-accent focus-visible:ring-2 focus-visible:ring-accent accent-accent"
+      />
       {label}
-    </button>
+    </label>
   );
 }
 
 /**
  * @param {object}      props
- * @param {object[]}    props.categories          - Raw API categories array
- * @param {string|null} props.activeCategorySlug  - Active slug from URL
- * @param {boolean}     props.hasActiveFilters    - Whether any filter is active
- * @param {function}    props.onSelectCategory    - Called with slug or null
- * @param {function}    props.onClearFilters      - Clears all filters
- * @param {boolean}     [props.wrap]              - false (default): the
- *   desktop sticky bar's single-row horizontal scroller, with its fade-hint
- *   gradient. true: MobileSortFilterBar's Filter sheet — a bottom sheet
- *   already scrolls vertically as a whole, so a SECOND, nested horizontal
- *   scroll region here just for categories was reported as unnecessary/
- *   confusing on mobile; wraps chips onto as many lines as needed instead.
+ * @param {object[]}    props.categories         - Raw API categories array
+ * @param {string|null} props.activeCategorySlug - Active slug from URL
+ * @param {function}    props.onSelectCategory   - Called with slug or null
  */
 export default function CategoryFilter({
   categories = [],
   activeCategorySlug,
-  hasActiveFilters,
   onSelectCategory,
-  onClearFilters,
-  wrap = false,
 }) {
+  const [query, setQuery] = useState('');
+
   const visibleCategories = categories
     .filter((c) => !c.is_disabled)
     .filter((c) => !EXCLUDED_TYPE_IDS.has(c.type_id))
@@ -56,57 +60,45 @@ export default function CategoryFilter({
     .map((c) => ({ ...c, displayName: c.type_name }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
+  const searchable = visibleCategories.length > SEARCHABLE_THRESHOLD;
+  const filtered = searchable && query.trim()
+    ? visibleCategories.filter((c) => c.displayName.toLowerCase().includes(query.trim().toLowerCase()))
+    : visibleCategories;
+
   return (
-    <div className="relative">
-      <div
-        className={
-          wrap
-            ? 'flex flex-wrap items-center gap-2 py-1'
-            : 'flex items-center gap-2 overflow-x-auto scrollbar-none py-1 pr-6'
-        }
-      >
-
-        <CategoryChip
-          label="ALL"
-          isActive={!activeCategorySlug}
-          onClick={() => onSelectCategory(null)}
+    <div className="flex flex-col">
+      {searchable && (
+        <div className="relative mb-1">
+          <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search…"
+            className="h-9 pl-8 text-sm"
+          />
+        </div>
+      )}
+      <div className="max-h-56 overflow-y-auto pr-1">
+        <CategoryRadioRow
+          label="All Categories"
+          checked={!activeCategorySlug}
+          onChange={() => onSelectCategory(null)}
         />
-
-        {visibleCategories.map((cat) => {
-          const slug     = toSlug(cat.displayName);
-          const isActive = activeCategorySlug === slug;
+        {filtered.map((cat) => {
+          const slug = toSlug(cat.displayName);
           return (
-            <CategoryChip
+            <CategoryRadioRow
               key={cat.type_id}
-              label={cat.displayName.toUpperCase()}
-              isActive={isActive}
-              onClick={() => onSelectCategory(isActive ? null : slug)}
+              label={cat.displayName}
+              checked={activeCategorySlug === slug}
+              onChange={() => onSelectCategory(slug)}
             />
           );
         })}
-
-        {hasActiveFilters && activeCategorySlug && (
-          <>
-            <div className="w-px h-5 bg-border shrink-0 mx-1" aria-hidden="true" />
-            <button
-              type="button"
-              onClick={onClearFilters}
-              className="shrink-0 min-h-[38px] px-3 py-1.5 rounded-full text-xs font-medium border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring whitespace-nowrap"
-            >
-              Clear
-            </button>
-          </>
+        {searchable && !filtered.length && (
+          <p className="py-2 text-xs text-muted-foreground">No match.</p>
         )}
       </div>
-
-      {/* Fade hint — only meaningful for the scrolling variant, signals the
-          chip row scrolls horizontally when it overflows. */}
-      {!wrap && (
-        <div
-          className="pointer-events-none absolute right-0 top-0 h-full w-8 bg-gradient-to-l from-white to-transparent"
-          aria-hidden="true"
-        />
-      )}
     </div>
   );
 }

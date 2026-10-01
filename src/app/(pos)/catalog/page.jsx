@@ -735,10 +735,24 @@ function CatalogScreen() {
         // Static label (2026-09-28, reported: this used to show "Show 100
         // products" from browse mode's unfiltered page size even before any
         // filter was touched, reading as a real result count when it wasn't one).
+        // Mobile also gets a "Clear All" alongside it (2026-10-01, matching
+        // the reference mobile filter layout) — desktop/tablet keeps the
+        // single full-width button, since ProductFilterPanel's own "Clear
+        // all" link already covers that breakpoint.
         footer={
-          <Button type="button" className="w-full min-h-14 rounded-none" onClick={() => setIsFilterPanelOpen(false)}>
-            Apply Filters
-          </Button>
+          <div className="flex items-stretch">
+            <Button
+              type="button"
+              variant="outline"
+              className="md:hidden min-h-14 flex-1 rounded-none"
+              onClick={handleClearFilters}
+            >
+              Clear All
+            </Button>
+            <Button type="button" className="min-h-14 flex-1 rounded-none" onClick={() => setIsFilterPanelOpen(false)}>
+              Apply Filters
+            </Button>
+          </div>
         }
       >
         <div className="flex flex-col gap-4">
