@@ -4,7 +4,7 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { useRouter } from 'next/navigation';
 import { useCallback } from 'react';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 
 import { login as loginToOrnaverse, logout as logoutFromOrnaverse } from '@/services/authService';
 import { getUserStores }       from '@/services/storeService';
@@ -141,7 +141,7 @@ export function useAuth() {
       const rateCheck = await checkMetalRateToday();
       const ratesSet  = rateCheck?.is_set ?? rateCheck?.Entity?.is_set ?? true;
       if (!ratesSet) {
-        toast.warn(TOAST.METAL_RATES.NOT_SET);
+        toast.warning(TOAST.METAL_RATES.NOT_SET);
       }
     } catch {
       // Network or auth issue — don't block login

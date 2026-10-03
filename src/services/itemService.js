@@ -79,3 +79,45 @@ export async function searchMasterItems(query) {
   });
   return response.data;
 }
+
+/**
+ * Which URD catalogue category to search — CONFIRMED LIVE 2026-10-02 by
+ * enumerating OrnaVerse's own "URD — Select Items" dialog: it has a
+ * Jewellery/Metal radio toggle that sends `base_item_id` ("11"/"12") as a
+ * TOP-LEVEL request field (not inside EqualityFilter, which stays
+ * `{base_item_id:null}` in every case — that nested field is unused here).
+ * `filter_items` stays `2` regardless of category — not a discriminator.
+ * Metal is a closed list of exactly 2 real master items on this tenant
+ * (URD GOLD, URDSILVER — item_components:[], no BOM), not a free search.
+ */
+export const URD_CATEGORY = { JEWELLERY: '11', METAL: '12' };
+
+/**
+ * Search catalogue items eligible for URD Purchase (buying a finished piece,
+ * or loose old gold/silver, back from an unregistered dealer) —
+ * Services/Master/AllItems/List (NOT the plain Items/List every other
+ * picker in this app uses), scoped to one URD_CATEGORY at a time, same as
+ * OrnaVerse's own picker. Full record (including item_components/BOM,
+ * required by calculateURDItems/SetURDItems) comes back regardless of
+ * IncludeColumns, same as every other list endpoint in this codebase.
+ *
+ * `ContainsText` (NOT `item_search`, used by the plain Items/List endpoint)
+ * is this endpoint's own free-text search param — confirmed live. Omitted
+ * entirely when empty so the category's full list loads on open, same as
+ * their own dialog (Metal's 2 rows show up before any text is typed).
+ * @param {string} query
+ * @param {string} baseItemId — a URD_CATEGORY value
+ * @returns {Promise<object>} { Entities: ItemRow[] }
+ */
+export async function searchURDItems(query, baseItemId) {
+  if (!baseItemId) return { Entities: [] };
+  const trimmed = (query ?? '').trim();
+  const response = await axiosInstance.post(API.ITEMS.URD_LIST, {
+    is_urd: true,
+    filter_items: 2,
+    base_item_id: baseItemId,
+    ...(trimmed && { ContainsText: trimmed }),
+    Take: 20,
+  });
+  return response.data;
+}

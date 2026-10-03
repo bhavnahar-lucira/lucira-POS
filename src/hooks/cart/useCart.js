@@ -2,7 +2,7 @@
 // Full cart state + actions. Single hook for CartDrawer and its children.
 
 import { useDispatch, useSelector } from 'react-redux';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import {
   selectCartItems,
   selectCartCustomerId,

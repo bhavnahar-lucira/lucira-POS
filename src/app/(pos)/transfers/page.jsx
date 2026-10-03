@@ -26,10 +26,10 @@ import { useSelector } from 'react-redux';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import {
   ArrowLeftRight, Plus, X, Check, ChevronRight, RefreshCw,
-  Calendar, User, Hash, IndianRupee, Building2, Camera,
+  Calendar, User, Hash, IndianRupee, Building2,
 } from 'lucide-react';
 
 import { useInterstoreReturns } from '@/hooks/interstoreReturn/useInterstoreReturns';
@@ -59,6 +59,7 @@ import EmptyState from '@/components/shared/EmptyState';
 import ErrorState from '@/components/shared/ErrorState';
 import InlineLoader from '@/components/shared/InlineLoader';
 import ListRowsSkeleton from '@/components/shared/ListRowsSkeleton';
+import LinePhotoPicker from '@/components/shared/LinePhotoPicker';
 import PageLoader from '@/components/shared/PageLoader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -122,21 +123,6 @@ const createSchema = z.object({
   remark: z.string().optional(),
   selected_keys: z.array(z.string()).min(1, 'Select at least one item'),
 });
-
-function LinePhotoPicker({ file, onChange }) {
-  return (
-    <label className="flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground hover:bg-muted/40 cursor-pointer min-h-[44px]">
-      <Camera size={14} className="shrink-0" aria-hidden="true" />
-      <span className="truncate">{file ? file.name : 'Attach a photo (required)'}</span>
-      <input
-        type="file"
-        accept="image/jpeg,image/png"
-        className="sr-only"
-        onChange={(e) => onChange(e.target.files?.[0] ?? null)}
-      />
-    </label>
-  );
-}
 
 function InterstoreReturnCreateForm({ onDone }) {
   const receivingStoreId = useSelector(selectActiveStoreId);
@@ -261,7 +247,7 @@ function InterstoreReturnCreateForm({ onDone }) {
         ) : soldItems.length === 0 ? (
           <EmptyState className="border-0 py-6" icon={ArrowLeftRight} title="No purchases found for this customer." description="Only previously sold items can be returned." />
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
             {soldItems.map((row) => {
               const key = soldItemKey(row);
               const isSelected = selectedKeys.includes(key);
@@ -573,7 +559,15 @@ function InterstoreReturnList() {
             <button
               key={tab.id}
               type="button"
-              onClick={() => setMode(tab.id)}
+              onClick={() => {
+                setMode(tab.id);
+                // "All" implies no hidden filter — CONFIRMED a real bug
+                // 2026-10-02: pendingOnly stayed on across a tab switch with
+                // no visual cue, silently hiding an already-approved record
+                // from "All" and making a successful Approve look like it
+                // had failed.
+                if (tab.id === 'all') setPendingOnly(false);
+              }}
               className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
                 mode === tab.id ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/70'
               }`}

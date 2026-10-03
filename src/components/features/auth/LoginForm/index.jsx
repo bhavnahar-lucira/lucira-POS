@@ -14,7 +14,7 @@ import { Eye, EyeOff, User, Lock, ArrowRight, ShieldCheck } from 'lucide-react';
 import Diamond from '@/components/shared/icons/BrandDiamond';
 import { useRouter } from 'next/navigation';
 import { useSelector } from 'react-redux';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import Image from 'next/image';
 
 import { loginSchema }           from '@/validators/loginSchema';

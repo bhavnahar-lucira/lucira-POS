@@ -6,7 +6,7 @@
 import { useCallback } from 'react';
 import { useDispatch } from 'react-redux';
 import { useRouter } from 'next/navigation';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 
 import { useActiveStore } from '@/hooks/store/useActiveStore';
 import { clearCart } from '@/store/slices/cartSlice';

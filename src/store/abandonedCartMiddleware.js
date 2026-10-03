@@ -61,7 +61,7 @@
 //      customer-attachment distinction only, not a different cart-resolved
 //      outcome.
 
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import { setAbandonedCart, clearAbandonedCartState } from './slices/abandonedCartSlice';
 import { restoreCart } from './slices/cartSlice';
 import tracker from '@/lib/analytics/tracker';

@@ -10,8 +10,7 @@ import { Provider } from 'react-redux';
 import { PersistGate } from 'redux-persist/integration/react';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
-import { ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
+import { Toaster } from '@/components/ui/sonner';
 
 import { store, persistor } from '@/store';
 import queryClient from '@/lib/queryClient';
@@ -43,16 +42,7 @@ export default function Providers({ children }) {
 
           {children}
 
-          <ToastContainer
-            position="bottom-center"
-            autoClose={3000}
-            hideProgressBar={false}
-            newestOnTop={true}
-            closeOnClick={true}
-            pauseOnHover={true}
-            draggable={false}
-            theme="light"
-          />
+          <Toaster duration={3000} />
 
           {/* TanStack Query DevTools — dev only, removed in production build.
               Wrapped in its own `fixed inset-0` div (pointer-events-none so

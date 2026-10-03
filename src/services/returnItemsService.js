@@ -10,34 +10,44 @@
 
 import axiosInstance from '@/lib/axios/axiosInstance';
 import API from '@/constants/apiEndpoints';
+import APP_CONFIG from '@/constants/appConfig';
 
 /**
  * Items this customer has actually purchased, i.e. what they're allowed to
  * return. Each row is the FULL nested item (get_child:true) and carries
  * ref_transaction_id / ref_document_id pointing back at the original
  * invoice — that linkage is what ties the return to the sale, so never
- * strip it before handing the row to calculateReturnItems().
+ * strip it before handing the row to calculateReturnItems(). Each row's own
+ * `company_id` is the store that originally sold it — never stripped,
+ * needed to detect a cross-store item (see partitionSoldItemsByStore).
  *
- * This endpoint IGNORES company_id server-side (identical rows come back
- * regardless of what's sent), so results are also filtered client-side by
- * companyId — without it, the Returns item picker could let staff attempt to
- * return an item the customer bought at a DIFFERENT store than the one
- * currently active. company_id is still sent in case OrnaVerse fixes this
- * server-side later.
+ * NO LONGER filtered to the active store — CORRECTED 2026-10-02 (real
+ * capture of OrnaVerse's own Returns screen): a cross-store item is
+ * genuinely returnable here, just routed through a separate Interstore
+ * Return alongside the regular Return/Exchange/Buyback document (mandatory
+ * condition photo, approval by the origin store) — see
+ * interstoreReturnService.js and transactions/page.jsx's SoldItemFlowForm.
+ * This endpoint ignores `company_id` server-side regardless (identical rows
+ * come back no matter what's sent); it's still sent in case that changes.
  *
- * CAVEAT: `take` caps how many rows are fetched before filtering, so a
- * customer with more than `take` sold items spread across stores could have
- * some of the active store's own returnable items fall outside the fetched
- * page. Raising `take` (or paginating) would close that gap.
- * @param {{ partyId: number, companyId?: number, take?: number }} params
- * @returns {Promise<object[]>} sold-item rows, scoped to companyId
+ * @param {{ partyId: number, companyId?: number, take?: number, transactionType?: number }} params
+ *   transactionType — CONFIRMED LIVE 2026-10-02 (real network capture of
+ *   OrnaVerse's own Returns screen): Return=1, Exchange=2, Buyback=2 — a
+ *   DIFFERENT enum than APP_CONFIG.INTERSTORE_RETURN_TRANSACTION_TYPE
+ *   (Return=1, Exchange=2, Buyback=3) despite the superficial overlap —
+ *   see transactions/page.jsx's SOLD_ITEM_TRANSACTION_TYPE for the one used
+ *   here. This function used to hardcode 1 regardless of caller, so
+ *   Exchange and Buyback (transactions/page.jsx) were silently showing
+ *   Return's own sold-item population instead of their own — reported
+ *   directly ("unable to see the products"), root-caused via live capture.
+ * @returns {Promise<object[]>} sold-item rows, every store this customer bought from
  */
-export async function getSoldItems({ partyId, companyId, take = 25 }) {
+export async function getSoldItems({ partyId, companyId, take = 25, transactionType = 1 }) {
   if (!partyId) return [];
   const response = await axiosInstance.post(API.RETURNS.SOLD_ITEMS, {
     Take:             take,
     party_id:         partyId,
-    transaction_type: 1,      // 1 = sold items
+    transaction_type: transactionType,
     get_child:        true,   // essential — brings item_components[] etc.
     company_id:       companyId,
     IncludeColumns: [
@@ -45,8 +55,7 @@ export async function getSoldItems({ partyId, companyId, take = 25 }) {
       'net_weight', 'sku', 'document_no',
     ],
   });
-  const rows = response.data?.Entities ?? [];
-  return companyId != null ? rows.filter((r) => r.company_id === companyId) : rows;
+  return response.data?.Entities ?? [];
 }
 
 /**
@@ -114,6 +123,48 @@ export async function calculateExchangeItems({ items, documentDate = new Date() 
     document_date:     documentDate.toDateString(),
     exchange_rate:     1,
     is_tax_applicable: false,
+  });
+  return response.data?.Entities ?? [];
+}
+
+/**
+ * Prices URD (unregistered dealer / old gold) purchase lines — CONFIRMED
+ * LIVE 2026-10-02 via network capture of OrnaVerse's own URD Purchase
+ * screen. Reported directly: our own form was hand-computing sub_total/
+ * net_amount/tax client-side instead of calling this endpoint at all, so it
+ * never applied the real purchase coefficient OrnaVerse itself uses.
+ *
+ * `coef` — their client ALSO queries Services/Costing/Policy/List
+ * (`{policy_type: 10}`) for a possible per-tenant override before falling
+ * back to this default; on this tenant that list came back empty
+ * (TotalCount: 0), so 1.05 is what was actually observed in effect, not a
+ * guess. Not wired here (no confirmed-live example of a NON-empty policy
+ * response to model the override shape against) — if OrnaVerse ever
+ * configures a real policy for this tenant, this default would need
+ * revisiting against a fresh capture.
+ *
+ * `items` must be the REAL master item (useURDMasterItem — already fetched
+ * correctly) with just `weight`/`purity`/`pieces` overridden per line, same
+ * "never hand-build, always pass the real record through" rule as every
+ * other pricing call in this codebase.
+ *
+ * @param {{ items: object[], documentDate?: Date }} params
+ * @returns {Promise<object[]>} priced rows, ready to become line_items
+ */
+export async function calculateURDItems({ items, documentDate = new Date() }) {
+  if (!items?.length) return [];
+  const response = await axiosInstance.post(API.HELPERS.SET_URD_ITEMS, {
+    selected_products:    items,
+    generate_line_no:     true,
+    generate_lot_no:      false,
+    document_date:        documentDate.toDateString(),
+    exchange_rate:        1,
+    is_tax_applicable:    false,
+    is_labour_applicable: false,
+    calculate_rates:      true,
+    document_id:          APP_CONFIG.DOCUMENT_TYPES.URD_PURCHASE,
+    price_list_id:        0,
+    coef:                 1.05,
   });
   return response.data?.Entities ?? [];
 }

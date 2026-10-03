@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import { Info, Gem, Copy, Check } from 'lucide-react';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import BottomSheet from '@/components/shared/BottomSheet';
 
 async function copyToClipboard(text) {

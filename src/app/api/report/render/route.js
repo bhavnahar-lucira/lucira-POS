@@ -132,7 +132,28 @@ export async function POST(request) {
       "base-uri 'none'",
       "form-action 'none'",
     ].join('; ');
-    const wrapped = `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${csp}"></head><body>${result.html}</body></html>`;
+    // FastReport's own viewer ships no @media print rule of its own — its
+    // toolbar (export dropdown, zoom, pager, print/refresh/download icons)
+    // prints along with the report itself, turning a 2-page invoice into a
+    // 3-page printout (confirmed live 2026-10-03). Every toolbar instance
+    // carries a stable, non-hashed `fr-toolbar` class alongside its
+    // per-report hashed one (e.g. `fr-toolbar fr89a028e...-toolbar`) —
+    // clearly meant as the hook for exactly this kind of embedding-site
+    // styling, so hiding it for print is a FastReport-sanctioned
+    // customization point, not reverse-engineered DOM scraping.
+    // Each rendered report page is a fixed-size box (confirmed live
+    // 2026-10-03: `width:794px;height:1123px` — A4 at 96dpi), but with no
+    // `@page` rule the browser falls back to its own default paper size
+    // (commonly Letter, shorter than 1123px), so that one page's content
+    // reflows across multiple physical sheets purely from the size mismatch.
+    // `margin: 0` matters too — FastReport already bakes its own margin into
+    // the 794x1123 box, so the browser's default page margin would shrink
+    // the usable area below that and reintroduce the same overflow.
+    const printStyles = '<style>'
+      + '@page { size: A4; margin: 0; }'
+      + '@media print { .fr-toolbar { display: none !important; } }'
+      + '</style>';
+    const wrapped = `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${csp}">${printStyles}</head><body>${result.html}</body></html>`;
 
     return new Response(wrapped, {
       status:  200,

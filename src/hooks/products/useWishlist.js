@@ -13,7 +13,7 @@
 
 import { useDispatch, useSelector } from 'react-redux';
 import { useQueryClient } from '@tanstack/react-query';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import {
   addWishlistItemLocal,
   removeWishlistItemLocal,

@@ -6,7 +6,7 @@
 // buildCustomerUpdatePayload() in normalizers/customer.js handles this merge.
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import { updateCustomer } from '@/services/customerService';
 import { buildCustomerUpdatePayload } from '@/lib/normalizers/customer';
 import { normalizeCustomer } from '@/lib/normalizers/customer';

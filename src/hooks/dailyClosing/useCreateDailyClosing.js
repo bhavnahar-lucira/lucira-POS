@@ -4,7 +4,7 @@
 // reads 'guest' here — that's expected, not a gap.
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import { createDailyClosing } from '@/services/dailyClosingService';
 import { useSessionTrackingContext } from '@/hooks/analytics/useSessionTrackingContext';
 import { QUERY_KEYS } from '@/constants/queryKeys';

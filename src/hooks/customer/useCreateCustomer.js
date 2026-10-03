@@ -6,7 +6,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import { createCustomer, getCustomer } from '@/services/customerService';
 import { buildCustomerCreatePayload, normalizeCustomer } from '@/lib/normalizers/customer';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';

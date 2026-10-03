@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import { Store, X, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useActiveStore } from '@/hooks/store/useActiveStore';

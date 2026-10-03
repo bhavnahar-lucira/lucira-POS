@@ -2,7 +2,7 @@
 // closeSchemeEnrollment in schemeService.js for exactly what it writes.
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import { closeSchemeEnrollment } from '@/services/schemeService';
 import TOAST from '@/constants/toastMessages';
 

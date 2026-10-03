@@ -5,7 +5,7 @@
 // them directly and bypasses this hook.
 
 import { useDispatch, useSelector } from 'react-redux';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import {
   selectCartCustomerId,
   selectCartCustomerName,

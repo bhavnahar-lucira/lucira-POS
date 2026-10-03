@@ -63,7 +63,7 @@ import { useSelector }        from 'react-redux';
 import { useForm } from 'react-hook-form';
 import { zodResolver }        from '@hookform/resolvers/zod';
 import { z }                  from 'zod';
-import { toast }              from 'react-toastify';
+import { toast }              from 'sonner';
 import {
   Wrench, Hammer, Receipt, ChevronRight,
   RefreshCw, Plus, X, AlertTriangle,
@@ -190,10 +190,8 @@ function RecordPicker({ records, isLoading, selected, onSelect, emptyMessage }) 
 
 const repairOrderSchema = z.object({
   document_date:  z.string().min(1, 'Required'),
-  delivery_date:  z.string().optional(),
   item_keys:      z.array(z.string()).min(1, 'Pick at least one item'),
   repair_at_ho:   z.boolean().optional(),
-  narration:      z.string().optional(),
 });
 
 const soldItemKey = (row) =>
@@ -215,11 +213,11 @@ function RepairInNewForm({ onDone }) {
   const createIn = useCreateRepairIn({ onSuccess: () => {} });
   const postIn   = usePostRepairIn({ onSuccess: () => onDone() });
 
-  const { register, handleSubmit, setValue, reset, watch, formState: { errors } } = useForm({
+  const { handleSubmit, setValue, reset, watch, formState: { errors } } = useForm({
     resolver: zodResolver(repairOrderSchema),
     defaultValues: {
-      document_date: todayDateString(), delivery_date: '',
-      item_keys: [], repair_at_ho: false, narration: '',
+      document_date: todayDateString(),
+      item_keys: [], repair_at_ho: false,
     },
   });
 
@@ -240,6 +238,18 @@ function RepairInNewForm({ onDone }) {
         : [...selectedKeys, key],
       { shouldValidate: true },
     );
+  };
+
+  // Mode/location locks once the cart has an item — CONFIRMED LIVE
+  // 2026-10-02 (real capture of OrnaVerse's own Repair > Accept for Repair
+  // screen): the toggle collapses to a static "Mode: Accepting Repair ·
+  // Workshop" line once an item is added, and attempting to change it shows
+  // "Clear the repair cart before switching mode."
+  const handleLocationChange = (ho) => {
+    if (selectedKeys.length > 0) {
+      return toast.error('Clear the repair cart before switching mode.');
+    }
+    setValue('repair_at_ho', ho);
   };
 
   const onSubmit = async (data) => {
@@ -272,7 +282,6 @@ function RepairInNewForm({ onDone }) {
           financialYearId: headerConfig.financialYearId,
           ledgerId: headerConfig.ledgerId,
           documentDate: data.document_date,
-          deliveryDate: data.delivery_date || null,
           repairType: REPAIR_TYPE.CUSTOMER_ITEM,
           repairLocationType: data.repair_at_ho
             ? REPAIR_LOCATION_TYPE.HEAD_OFFICE
@@ -280,7 +289,6 @@ function RepairInNewForm({ onDone }) {
           repairLocation: storeId,
           locationId: repairLocationId,
           lineItems,
-          narration: data.narration,
           allowBackdatedEntry:      true,
           numberOfBackdatedDays:    headerConfig.numberOfBackdatedDays,
           isDocumentNumberEditable: headerConfig.isDocumentNumberEditable,
@@ -327,32 +335,39 @@ function RepairInNewForm({ onDone }) {
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
       <CustomerAttachedBanner customerId={customerId} customerName={customerName} />
 
-      <FormField label="Date" required error={errors.document_date}>
-        <Input type="date" max={todayDateString()} {...register('document_date')} className="h-11" />
-      </FormField>
-
-      <FormField label="Where will this be repaired?">
-        <div className="flex gap-2">
-          {[
-            { ho: false, label: 'At our workshop' },
-            { ho: true,  label: 'Send to Head Office' },
-          ].map((opt) => (
-            <button
-              key={opt.label}
-              type="button"
-              aria-pressed={!!repairAtHo === opt.ho}
-              onClick={() => setValue('repair_at_ho', opt.ho)}
-              className={`min-h-11 flex-1 rounded-xl border px-3 py-2.5 text-sm transition-colors ${
-                !!repairAtHo === opt.ho
-                  ? 'border-primary bg-primary/10 font-medium text-primary'
-                  : 'border-border bg-card text-foreground hover:bg-muted'
-              }`}
-            >
-              {opt.label}
+      {selectedKeys.length > 0 ? (
+        <FormField label="Where will this be repaired?">
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-input bg-muted/30 px-3 py-2.5 text-sm">
+            <span className="text-foreground">Mode: Accepting Repair · {repairAtHo ? 'Head Office' : 'Workshop'}</span>
+            <button type="button" onClick={() => handleLocationChange(repairAtHo)} className="text-xs font-medium text-primary">
+              Change
             </button>
-          ))}
-        </div>
-      </FormField>
+          </div>
+        </FormField>
+      ) : (
+        <FormField label="Where will this be repaired?">
+          <div className="flex gap-2">
+            {[
+              { ho: false, label: 'At our workshop' },
+              { ho: true,  label: 'Send to Head Office' },
+            ].map((opt) => (
+              <button
+                key={opt.label}
+                type="button"
+                aria-pressed={!!repairAtHo === opt.ho}
+                onClick={() => handleLocationChange(opt.ho)}
+                className={`min-h-11 flex-1 rounded-xl border px-3 py-2.5 text-sm transition-colors ${
+                  !!repairAtHo === opt.ho
+                    ? 'border-primary bg-primary/10 font-medium text-primary'
+                    : 'border-border bg-card text-foreground hover:bg-muted'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </FormField>
+      )}
 
       <FormField label="Items for Repair" required error={errors.item_keys}>
         {!customerId ? (
@@ -366,7 +381,7 @@ function RepairInNewForm({ onDone }) {
             Nothing of this customer&apos;s is eligible for repair.
           </p>
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
             {soldItems.map((row) => {
               const key = soldItemKey(row);
               const isSelected = selectedKeys.includes(key);
@@ -398,14 +413,6 @@ function RepairInNewForm({ onDone }) {
             })}
           </div>
         )}
-      </FormField>
-
-      <FormField label="Promised Delivery (optional)">
-        <Input type="date" {...register('delivery_date')} className="h-11" />
-      </FormField>
-
-      <FormField label="Narration (optional)">
-        <Input {...register('narration')} className="h-11" placeholder="What needs repair" />
       </FormField>
 
       <Button
@@ -518,10 +525,6 @@ function RepairOutNewForm({ onDone }) {
           onSelect={setSelectedIn}
           emptyMessage="No repair intakes found."
         />
-      </FormField>
-
-      <FormField label="Date" required error={errors.document_date}>
-        <Input type="date" max={todayDateString()} {...register('document_date')} className="h-11" />
       </FormField>
 
       {/* No confirmed location/workshop master list exists in this app yet —
@@ -761,10 +764,6 @@ function RepairInvoiceNewForm({ onDone }) {
           onSelect={setSelectedOut}
           emptyMessage="No repair-out jobs found."
         />
-      </FormField>
-
-      <FormField label="Date" required error={errors.document_date}>
-        <Input type="date" max={todayDateString()} {...register('document_date')} className="h-11" />
       </FormField>
 
       <FormField label="Labour Charge (₹)" required error={errors.item_rate}>

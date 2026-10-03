@@ -2,7 +2,7 @@
 
 import { useRef } from 'react';
 import { useDispatch } from 'react-redux';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import { ShoppingCart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { addItem } from '@/store/slices/cartSlice';

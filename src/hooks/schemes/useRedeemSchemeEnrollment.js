@@ -3,7 +3,7 @@
 // action from useCloseSchemeEnrollment (Mature), not a variant of it.
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import { redeemSchemeEnrollment } from '@/services/schemeService';
 import TOAST from '@/constants/toastMessages';
 

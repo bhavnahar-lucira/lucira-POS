@@ -12,7 +12,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSelector, useDispatch } from 'react-redux';
 import { useQueryClient } from '@tanstack/react-query';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 
 import { selectCartCustomerId, selectCartCustomerName }  from '@/store/slices/cartSlice';
 import { selectIsAuthenticated, selectAuthUser } from '@/store/slices/authSlice';
@@ -108,9 +108,9 @@ export default function SessionProvider({ children }) {
     clearIdleTimers();
 
     warningTimerRef.current = setTimeout(() => {
-      toast.warn('Customer session expiring in 30 seconds due to inactivity.', {
-        autoClose: 10000,
-        toastId:   'idle-warning',
+      toast.warning('Customer session expiring in 30 seconds due to inactivity.', {
+        duration: 10000,
+        id:       'idle-warning',
       });
     }, APP_CONFIG.SESSION.IDLE_TIMEOUT_MS - APP_CONFIG.SESSION.WARNING_BEFORE);
 
@@ -120,7 +120,7 @@ export default function SessionProvider({ children }) {
       dispatch(detachCustomer());
       dispatch(clearCart());
       toast.info('Customer session expired due to inactivity.', {
-        toastId: 'idle-expired',
+        id: 'idle-expired',
       });
       router.replace('/dashboard');
     }, APP_CONFIG.SESSION.IDLE_TIMEOUT_MS);
@@ -160,15 +160,15 @@ export default function SessionProvider({ children }) {
     clearStaffIdleTimers();
 
     staffWarningTimerRef.current = setTimeout(() => {
-      toast.warn('You will be logged out in 30 seconds due to inactivity.', {
-        autoClose: 10000,
-        toastId:   'staff-idle-warning',
+      toast.warning('You will be logged out in 30 seconds due to inactivity.', {
+        duration: 10000,
+        id:       'staff-idle-warning',
       });
     }, APP_CONFIG.SESSION.STAFF_IDLE_TIMEOUT_MS - APP_CONFIG.SESSION.WARNING_BEFORE);
 
     staffIdleTimerRef.current = setTimeout(() => {
       toast.dismiss('staff-idle-warning');
-      toast.info('Logged out due to inactivity.', { toastId: 'staff-idle-expired' });
+      toast.info('Logged out due to inactivity.', { id: 'staff-idle-expired' });
       // trackAgent() can't auto-derive store context, so it's passed explicitly
       // here. Distinct from the AGENT_LOGOUT event logout() fires next — this
       // one records why (idle timeout) the logout is happening.

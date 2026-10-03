@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import Image from 'next/image';
 import { LogOut, ChevronsUpDown, Check, CheckCircle2, Store, ArrowRight } from 'lucide-react';
 import Diamond from '@/components/shared/icons/BrandDiamond';

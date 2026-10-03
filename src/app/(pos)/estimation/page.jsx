@@ -25,7 +25,7 @@ import { useSelector }        from 'react-redux';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver }        from '@hookform/resolvers/zod';
 import { z }                  from 'zod';
-import { toast }              from 'react-toastify';
+import { toast }              from 'sonner';
 import { FileText, ChevronRight, RefreshCw, Plus, X, Check, Ban, AlertTriangle } from 'lucide-react';
 
 import { useEstimations } from '@/hooks/estimation/useEstimationList';
@@ -33,6 +33,7 @@ import {
   useCreateEstimation, usePostEstimation, useCancelEstimation,
 } from '@/hooks/estimation/useEstimationMutations';
 import ItemSearchPicker        from '@/components/features/transactions/ItemSearchPicker';
+import CustomEstimateForm      from '@/components/features/estimation/CustomEstimateForm';
 import { useOrderHeaderConfig } from '@/hooks/checkout/useOrderHeaderConfig';
 import { buildTransactionHeaderFields } from '@/services/transactionHeaderService';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
@@ -281,15 +282,20 @@ function EstimationScreen() {
     <div className="p-4 pb-8 flex flex-col gap-4">
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm text-muted-foreground">Price quotes before a purchase</p>
-        {storeId && (
-          <Button
-            size="sm"
-            variant={view === 'new' ? 'outline' : 'default'}
-            className="gap-1.5 shrink-0"
-            onClick={() => setView((v) => (v === 'new' ? 'list' : 'new'))}
-          >
-            {view === 'new' ? <><X className="w-3.5 h-3.5" /> Cancel</> : <><Plus className="w-3.5 h-3.5" /> New</>}
+        {storeId && view !== 'list' && (
+          <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={() => setView('list')}>
+            <X className="w-3.5 h-3.5" /> Cancel
           </Button>
+        )}
+        {storeId && view === 'list' && (
+          <div className="flex gap-2 shrink-0">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setView('custom')}>
+              Custom
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={() => setView('new')}>
+              <Plus className="w-3.5 h-3.5" /> New
+            </Button>
+          </div>
         )}
       </div>
 
@@ -304,6 +310,12 @@ function EstimationScreen() {
       {storeId && view === 'new' && (
         <div className="rounded-xl border border-border bg-card p-4">
           <EstimationNewForm onDone={() => setView('list')} />
+        </div>
+      )}
+
+      {storeId && view === 'custom' && (
+        <div className="rounded-xl border border-border bg-card p-4">
+          <CustomEstimateForm onDone={() => setView('list')} />
         </div>
       )}
     </div>

@@ -77,7 +77,7 @@ const handleLogout = (store) => {
   const queryClient = require('@/lib/queryClient').default;
   const tracker = require('@/lib/analytics/tracker').default;
   const { logout: logoutFromOrnaverse } = require('@/services/authService');
-  const { toast } = require('react-toastify');
+  const { toast } = require('sonner');
 
   // Best-effort — a session that's already timed out server-side may well
   // reject this too; it must never block the local cleanup below.

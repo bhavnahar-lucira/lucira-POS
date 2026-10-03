@@ -197,28 +197,62 @@ export function mapReturnLineToInterstoreReturnLine(returnLine, lineNo) {
     pieces: returnLine.pieces,
     weight: returnLine.weight,
     net_weight: returnLine.net_weight,
+    // Present in a real captured Create payload (2026-10-02) alongside
+    // every other field above — the full priced line, stringified. Exact
+    // purpose on the server isn't documented, but it's what their own
+    // client sends, so sent here too rather than omitted.
+    item_json: JSON.stringify(returnLine),
     images: [],
   };
 }
 
 /**
- * ⚠ STILL CONFIRMED BROKEN as of 2026-09-17, even against OrnaVerse's own
- * documented request shape (`{ interstore_return_item_id, image_path }`,
- * found via ornaverse-advantage.apidog.io — this file used to guess field
- * names for this call; those guesses are gone, this IS the real contract)
- * — live-tested on a real just-created line and it still throws a generic
- * 500. Unlike the Create bug (which was this file's own mapping mistake,
- * fixed by mapReturnLineToInterstoreReturnLine's `line_no` fix), this one
- * really does look like a genuine server-side bug on OrnaVerse's side.
+ * Uploads a photo file to OrnaVerse's generic (not IRR-specific) Serenity
+ * temp-file store, returning a path to reference elsewhere — e.g. in
+ * addInterstoreReturnItemImage's own `image_path`. CONFIRMED LIVE
+ * 2026-10-02 (real capture of OrnaVerse's own Returns screen's cross-store
+ * photo-attach flow): `POST File/TemporaryUpload`, multipart/form-data,
+ * response `{ TemporaryFile: "temporary/<guid>.png", Size, IsImage, Width,
+ * Height }`. `TemporaryFile` is the value to pass as `image_path` — it is
+ * NOT a data URI.
  *
- * NOT CALLED anywhere in this app — use updateInterstoreReturnEntity with
- * the photo embedded in the line's own `images[]` instead (the actual path
- * transfers/page.jsx uses). Kept here, tested and documented, in case
- * OrnaVerse fixes this endpoint — swap the create flow back to it then,
- * since a real AddItemImage call is cheaper than a full-entity Update.
+ * Content-Type is deliberately left for axios/the browser to set (with the
+ * correct multipart boundary) rather than the instance's default
+ * `application/json` — passing a FormData body lets it compute this.
+ *
+ * @param {File} file
+ * @returns {Promise<string>} the `TemporaryFile` path
+ */
+export async function uploadTemporaryFile(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await axiosInstance.post(API.FILES.TEMPORARY_UPLOAD, formData, {
+    headers: { 'Content-Type': undefined },
+  });
+  return response.data?.TemporaryFile;
+}
+
+/**
+ * Attaches a photo to one already-created IRR line — a photo is mandatory
+ * before SubmitForApproval will accept the document (server-enforced:
+ * "Upload at least one photo for '<sku>' before submitting.").
+ *
+ * CORRECTED 2026-10-02 — this was marked "still broken, 500s" as of
+ * 2026-09-17 and bypassed (see git history: the create flow used to embed
+ * the photo in the line's own `images[]` via a full-entity Update instead).
+ * That diagnosis was wrong: the earlier test passed a base64 DATA URI as
+ * `image_path`; the real contract needs a `TemporaryFile` path from
+ * uploadTemporaryFile() first. CONFIRMED LIVE 2026-10-02 (real capture of
+ * OrnaVerse's own Returns screen): `{ interstore_return_item_id, image_path:
+ * "temporary/<guid>.png" }` → `{}` (200, empty body = success), and
+ * "Complete Return" became enabled immediately after. `interstore_return_item_id`
+ * is the PER-LINE id from the Create/Retrieve response's own
+ * `line_items[].interstore_return_item_id` — not the entity's own
+ * `interstore_return_id`.
  *
  * @param {{ interstoreReturnItemId: number, imagePath: string }} params
- *   imagePath — a data URI (`data:image/...;base64,...`).
+ *   imagePath — a `TemporaryFile` path from uploadTemporaryFile(), e.g.
+ *   "temporary/941d9a4f75ea4f3588b81c3d9736f401.png".
  */
 export async function addInterstoreReturnItemImage({ interstoreReturnItemId, imagePath }) {
   const response = await axiosInstance.post(API.INTERSTORE_RETURN.ADD_ITEM_IMAGE, {
@@ -241,6 +275,7 @@ export async function addInterstoreReturnItemImage({ interstoreReturnItemId, ima
 export async function createInterstoreReturn({
   partyId, partyName, originCompanyId, receivingCompanyId,
   documentDate, remark = '', lineItems, headerConfig,
+  transactionType = APP_CONFIG.INTERSTORE_RETURN_TRANSACTION_TYPE.RETURN,
 }) {
   const sum = (f) => +lineItems.reduce((s, li) => s + (li[f] ?? 0), 0).toFixed(2);
 
@@ -253,7 +288,7 @@ export async function createInterstoreReturn({
       party_name: partyName ?? undefined,
       origin_company_id: originCompanyId,
       receiving_company_id: receivingCompanyId,
-      transaction_type: APP_CONFIG.INTERSTORE_RETURN_TRANSACTION_TYPE.RETURN,
+      transaction_type: transactionType,
       country_id: 1,
       financial_year_id: headerConfig.financialYearId,
       is_document_number_editable: headerConfig.isDocumentNumberEditable,
@@ -267,6 +302,59 @@ export async function createInterstoreReturn({
     },
   });
   return response.data;
+}
+
+/**
+ * Full create flow for a cross-store Return/Exchange/Buyback line: creates
+ * the IRR, uploads + attaches each line's mandatory photo, then submits it
+ * for the origin store's approval — the exact sequence CONFIRMED LIVE
+ * 2026-10-02 (Create → AddItemImage per line → SubmitForApproval, strictly
+ * in that order, all three required before the paired regular Return/
+ * Exchange/Buyback document was accepted in the same real test).
+ *
+ * @param {{
+ *   partyId: number, partyName?: string,
+ *   originCompanyId: number, receivingCompanyId: number,
+ *   documentDate: string, remark?: string, transactionType?: number,
+ *   lineItems: object[], photosByLineIndex: (File|undefined)[],
+ *   headerConfig: object,
+ * }} params
+ * @returns {Promise<number>} the new interstore_return_id
+ */
+export async function createInterstoreReturnWithPhotos({
+  partyId, partyName, originCompanyId, receivingCompanyId,
+  documentDate, remark, transactionType, lineItems, photosByLineIndex, headerConfig,
+}) {
+  const created = await createInterstoreReturn({
+    partyId, partyName, originCompanyId, receivingCompanyId,
+    documentDate, remark, transactionType, lineItems, headerConfig,
+  });
+  const interstoreReturnId = created?.EntityId;
+  if (!interstoreReturnId) {
+    throw new Error('Interstore Return creation failed — no record returned.');
+  }
+
+  // A real capture of OrnaVerse's own client (2026-10-02) calls Retrieve
+  // immediately after Create, before AddItemImage — re-fetching rather than
+  // trusting Create's own response for the per-line ids. Matched here
+  // rather than assumed unnecessary: Create's own `Entity.line_items[]` may
+  // not carry a populated `interstore_return_item_id` yet.
+  const entity = await getInterstoreReturnDetail(interstoreReturnId);
+  if (!entity) throw new Error('Interstore Return creation failed — could not re-fetch the new record.');
+
+  const createdLines = entity.line_items ?? [];
+  for (let i = 0; i < createdLines.length; i++) {
+    const photo = photosByLineIndex[i];
+    if (!photo) continue;
+    const tempPath = await uploadTemporaryFile(photo);
+    await addInterstoreReturnItemImage({
+      interstoreReturnItemId: createdLines[i].interstore_return_item_id,
+      imagePath: tempPath,
+    });
+  }
+
+  await submitInterstoreReturnForApproval(interstoreReturnId);
+  return interstoreReturnId;
 }
 
 /**

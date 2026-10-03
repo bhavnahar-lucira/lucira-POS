@@ -6,7 +6,7 @@ import { useRouter, useSearchParams }      from 'next/navigation';
 import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { zodResolver }                     from '@hookform/resolvers/zod';
 import { z }                               from 'zod';
-import { toast }                           from 'react-toastify';
+import { toast }                           from 'sonner';
 import {
   RotateCcw,
   CreditCard,
@@ -48,15 +48,23 @@ import ConfirmDialog                      from '@/components/shared/ConfirmDialo
 import { usePaymentModes }                from '@/hooks/checkout/usePaymentModes';
 import { paymentRequiresBank }             from '@/lib/checkout/paymentModeRules';
 import { useURDMasterItem }                from '@/hooks/transactions/useURDMasterItem';
+import SalesPersonSelect                   from '@/components/features/checkout/SalesPersonSelect';
 import { useSoldItems }                    from '@/hooks/transactions/useSoldItems';
 import { useCustomerCredits }              from '@/hooks/transactions/useCustomerCredits';
 import { useOrderHeaderConfig }            from '@/hooks/checkout/useOrderHeaderConfig';
 import { buildTransactionHeaderFields }    from '@/services/transactionHeaderService';
-import { calculateReturnItems, calculateBuybackItems, calculateExchangeItems } from '@/services/returnItemsService';
+import { calculateReturnItems, calculateBuybackItems, calculateExchangeItems, calculateURDItems } from '@/services/returnItemsService';
+import {
+  calculateInterstoreReturnItems, mapReturnLineToInterstoreReturnLine,
+  createInterstoreReturnWithPhotos,
+} from '@/services/interstoreReturnService';
 import EmptyState                          from '@/components/shared/EmptyState';
 import ErrorState                          from '@/components/shared/ErrorState';
 import InlineLoader                        from '@/components/shared/InlineLoader';
+import LinePhotoPicker                     from '@/components/shared/LinePhotoPicker';
 import ItemSearchPicker                    from '@/components/features/transactions/ItemSearchPicker';
+import { useURDItemSearch }                 from '@/hooks/transactions/useURDItemSearch';
+import { URD_CATEGORY }                     from '@/services/itemService';
 import { selectActiveStoreId }            from '@/store/slices/storeSlice';
 import { selectCartCustomerId, selectCartCustomerName, selectCartCustomerMobile } from '@/store/slices/cartSlice';
 import APP_CONFIG                         from '@/constants/appConfig';
@@ -95,9 +103,23 @@ function FormField({ label, required, error, children }) {
     </div>
   );
 }
+// POS/InvoiceItems/List's own `transaction_type` filter — CONFIRMED LIVE
+// 2026-10-02 via direct network capture of OrnaVerse's own Returns screen
+// for all three modes. Deliberately NOT reusing
+// APP_CONFIG.INTERSTORE_RETURN_TRANSACTION_TYPE — that's a DIFFERENT,
+// unrelated enum (Interstore Return's own transaction_type) that just
+// happens to share small integers; conflating the two is exactly what
+// produced the wrong Buyback value (3) in an earlier pass before this was
+// actually captured live. Return=1, Exchange=2, Buyback=2 (yes, the SAME
+// value as Exchange — both pull from one pooled eligible-items list on this
+// tenant, confirmed by an identical captured request body for both modes).
+const SOLD_ITEM_TRANSACTION_TYPE = { RETURN: 1, EXCHANGE: 2, BUYBACK: 2 };
+
 const SOLD_ITEM_FLOWS = {
   return: {
     documentTypeId: APP_CONFIG.DOCUMENT_TYPES.RETURN,
+    transactionType: SOLD_ITEM_TRANSACTION_TYPE.RETURN,
+    interstoreTransactionType: APP_CONFIG.INTERSTORE_RETURN_TRANSACTION_TYPE.RETURN,
     priceItems:     calculateReturnItems,
     modeLabel:      'Return for Refund',
     modeHint:       'Customer wants a refund for a previous purchase',
@@ -112,6 +134,8 @@ const SOLD_ITEM_FLOWS = {
   },
   buyback: {
     documentTypeId: APP_CONFIG.DOCUMENT_TYPES.BUYBACK,
+    transactionType: SOLD_ITEM_TRANSACTION_TYPE.BUYBACK,
+    interstoreTransactionType: APP_CONFIG.INTERSTORE_RETURN_TRANSACTION_TYPE.BUYBACK,
     priceItems:     calculateBuybackItems,
     modeLabel:      'Buy Back Item',
     modeHint:       'We purchase the item back from the customer',
@@ -126,6 +150,8 @@ const SOLD_ITEM_FLOWS = {
   },
   exchange: {
     documentTypeId: APP_CONFIG.DOCUMENT_TYPES.EXCHANGE,
+    transactionType: SOLD_ITEM_TRANSACTION_TYPE.EXCHANGE,
+    interstoreTransactionType: APP_CONFIG.INTERSTORE_RETURN_TRANSACTION_TYPE.EXCHANGE,
     priceItems:     calculateExchangeItems,
     modeLabel:      'Exchange for Another Item',
     modeHint:       'Swap for a different item',
@@ -155,7 +181,7 @@ function SoldItemFlowForm({ flow, onDone }) {
   const customerName   = useSelector(selectCartCustomerName);
   const headerConfig   = useOrderHeaderConfig(config.documentTypeId);
   const { soldItems, isLoading: soldLoading, isError: soldError, refetch: refetchSold } =
-    useSoldItems(customerId);
+    useSoldItems(customerId, config.transactionType);
   const createReturnDoc   = useCreateReturn({ onSuccess: () => {} });
   const postReturnDoc     = usePostReturn({ onSuccess: () => onDone() });
   const createBuybackDoc  = useCreateBuyback({ onSuccess: () => {} });
@@ -179,6 +205,20 @@ function SoldItemFlowForm({ flow, onDone }) {
   const selectedKeys = watch('selected_keys');
   const selectedRows = soldItems.filter((r) => selectedKeys.includes(soldItemKey(r)));
 
+  // A sold item originating from a DIFFERENT store than the active one is a
+  // genuine Interstore Return candidate, not something to hide — CONFIRMED
+  // LIVE 2026-10-02 (real capture of OrnaVerse's own Returns screen): such a
+  // line requires a mandatory condition photo and is raised as a fully
+  // SEPARATE InterstoreReturn document (Create → AddItemImage →
+  // SubmitForApproval), created and submitted BEFORE the regular Return/
+  // Exchange/Buyback document, which only ever carries the same-store lines.
+  const isCrossStore = (row) => row.company_id != null && row.company_id !== storeId;
+  const crossStoreRows = selectedRows.filter(isCrossStore);
+  const sameStoreRows  = selectedRows.filter((r) => !isCrossStore(r));
+  const [photosByKey, setPhotosByKey] = useState({});
+  const setPhotoForRow = (row, file) =>
+    setPhotosByKey((prev) => ({ ...prev, [soldItemKey(row)]: file }));
+
   const toggleItem = (row) => {
     const key = soldItemKey(row);
     setValue(
@@ -192,7 +232,11 @@ function SoldItemFlowForm({ flow, onDone }) {
 
   const onSubmit = async (data) => {
     if (!customerId) return toast.error('Assign a customer to the session first.');
-    if (!headerConfig.isReady) {
+    const missingPhoto = crossStoreRows.find((row) => !photosByKey[soldItemKey(row)]);
+    if (missingPhoto) {
+      return toast.error('Attach a photo for every item bought at a different store before submitting.');
+    }
+    if (sameStoreRows.length > 0 && !headerConfig.isReady) {
       if (headerConfig.isError) headerConfig.refetch();
       return toast.error(
         headerConfig.isConfigMissing
@@ -204,39 +248,81 @@ function SoldItemFlowForm({ flow, onDone }) {
     }
     try {
       setIsPricing(true);
-      const line_items = await config.priceItems({
-        items: selectedRows,
-        documentDate: new Date(data.document_date),
-      });
-      setIsPricing(false);
-      if (!line_items.length) throw new Error('Could not price the selected items.');
-      const sum = (f) => +line_items.reduce((s, li) => s + (li[f] || li[`base_${f}`] || 0), 0).toFixed(2);
-      const subTotal = sum('sub_total');
-      const taxAmount = sum('tax_amount');
-      const netRaw = sum('net_amount');
 
-      const createRes = await createDoc.mutateAsync({
-        ...buildTransactionHeaderFields({
-          subTotal, taxableAmount: subTotal, taxAmount, netAmount: netRaw,
-          pieces: sum('pieces'), weight: sum('weight'), netWeight: sum('net_weight'),
-          customerId, customerName,
-          activeStoreId: storeId,
-          headerConfig,
-          documentTypeId: config.documentTypeId,
-          receiptAmount: Math.round(netRaw),
-          documentDate: data.document_date,
-          forReturn: true,
-          allowBackdatedEntry: config.allowBackdatedEntry,
-        }),
-        line_items,
-        remark: '',
-      });
-      const transactionId = createRes?.EntityId;
-      if (!transactionId) throw new Error('Creation failed — no EntityId returned.');
-      if (!headerConfig.autoPosting) {
-        await postDoc.mutateAsync(transactionId);
+      // Cross-store lines first, grouped by origin store (one IRR document
+      // = one origin_company_id) — each gets its own independent
+      // Create→AddItemImage→SubmitForApproval before the regular document
+      // below ever fires, matching the confirmed-live order exactly.
+      if (crossStoreRows.length > 0) {
+        const rowsByOrigin = new Map();
+        for (const row of crossStoreRows) {
+          const list = rowsByOrigin.get(row.company_id) ?? [];
+          list.push(row);
+          rowsByOrigin.set(row.company_id, list);
+        }
+        for (const [originCompanyId, rows] of rowsByOrigin) {
+          const pricedLines = await calculateInterstoreReturnItems({
+            items: rows,
+            documentDate: new Date(data.document_date),
+          });
+          if (pricedLines.length !== rows.length) {
+            throw new Error('Could not price one or more items bought at a different store.');
+          }
+          const lineItems = pricedLines.map((line, i) => mapReturnLineToInterstoreReturnLine(line, i + 1));
+          await createInterstoreReturnWithPhotos({
+            partyId: customerId, partyName: customerName,
+            originCompanyId, receivingCompanyId: storeId,
+            documentDate: new Date(data.document_date).toISOString(),
+            transactionType: config.interstoreTransactionType,
+            lineItems,
+            photosByLineIndex: rows.map((row) => photosByKey[soldItemKey(row)]),
+            headerConfig: { financialYearId: null, isDocumentNumberEditable: false, numberOfBackdatedDays: 365 },
+          });
+        }
       }
+
+      if (sameStoreRows.length > 0) {
+        const line_items = await config.priceItems({
+          items: sameStoreRows,
+          documentDate: new Date(data.document_date),
+        });
+        if (!line_items.length) throw new Error('Could not price the selected items.');
+        const sum = (f) => +line_items.reduce((s, li) => s + (li[f] || li[`base_${f}`] || 0), 0).toFixed(2);
+        const subTotal = sum('sub_total');
+        const taxAmount = sum('tax_amount');
+        const netRaw = sum('net_amount');
+
+        const createRes = await createDoc.mutateAsync({
+          ...buildTransactionHeaderFields({
+            subTotal, taxableAmount: subTotal, taxAmount, netAmount: netRaw,
+            pieces: sum('pieces'), weight: sum('weight'), netWeight: sum('net_weight'),
+            customerId, customerName,
+            activeStoreId: storeId,
+            headerConfig,
+            documentTypeId: config.documentTypeId,
+            receiptAmount: Math.round(netRaw),
+            documentDate: data.document_date,
+            forReturn: true,
+            allowBackdatedEntry: config.allowBackdatedEntry,
+          }),
+          line_items,
+          remark: '',
+        });
+        const transactionId = createRes?.EntityId;
+        if (!transactionId) throw new Error('Creation failed — no EntityId returned.');
+        if (!headerConfig.autoPosting) {
+          await postDoc.mutateAsync(transactionId);
+        }
+      }
+
+      setIsPricing(false);
       reset();
+      setPhotosByKey({});
+      // The regular document's own success hooks call onDone() once posted
+      // (see postReturnDoc/postBuybackDoc/postExchangeDoc above) — only a
+      // PURE cross-store submission (no same-store lines at all) has no
+      // such hook to rely on, so it's called directly here instead.
+      if (sameStoreRows.length === 0) onDone();
     } catch (err) {
       setIsPricing(false);
       toast.error(getErrorMessage(err));
@@ -288,10 +374,6 @@ function SoldItemFlowForm({ flow, onDone }) {
         )}
       </div>
 
-      <FormField label="Date" required error={errors.document_date}>
-        <Input type="date" max={todayDateString()} {...register('document_date')} className="h-11" />
-      </FormField>
-
       <div className="flex flex-col gap-2">
         <Label>
           {config.itemsLabel} <span className="text-destructive">*</span>
@@ -316,37 +398,50 @@ function SoldItemFlowForm({ flow, onDone }) {
             description={config.emptyHint}
           />
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
             {soldItems.map((row) => {
               const key = soldItemKey(row);
               const isSelected = selectedKeys.includes(key);
+              const crossStore = isCrossStore(row);
               return (
-                <button
-                  type="button"
-                  key={key}
-                  onClick={() => toggleItem(row)}
-                  aria-pressed={isSelected}
-                  className={`flex items-center justify-between gap-3 rounded-xl border p-3 text-left transition-colors min-h-[44px] ${
-                    isSelected
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border bg-muted hover:bg-muted/70'
-                  }`}
-                >
-                  <div className="flex flex-col gap-0.5 min-w-0">
-                    <span className="truncate text-sm font-medium text-foreground">
-                      {row.item_name ?? row.item_code ?? `Item ${row.item_line_no}`}
-                    </span>
-                    <span className="truncate text-xs text-muted-foreground">
-                      {row.sku} · {row.document_no}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-sm font-semibold tabular-nums text-foreground">
-                      {formatINR(row.net_amount)}
-                    </span>
-                    {isSelected && <Check className="h-4 w-4 text-primary" aria-hidden="true" />}
-                  </div>
-                </button>
+                <div key={key} className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleItem(row)}
+                    aria-pressed={isSelected}
+                    className={`flex items-center justify-between gap-3 rounded-xl border p-3 text-left transition-colors min-h-[44px] ${
+                      isSelected
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border bg-muted hover:bg-muted/70'
+                    }`}
+                  >
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {row.item_name ?? row.item_code ?? `Item ${row.item_line_no}`}
+                      </span>
+                      <span className="truncate text-xs text-muted-foreground">
+                        {row.sku} · {row.document_no}
+                      </span>
+                      {crossStore && (
+                        <span className="text-xs font-medium text-status-made-order">
+                          Origin store {row.company_code ?? row.company_name ?? 'different'} · photo required
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-sm font-semibold tabular-nums text-foreground">
+                        {formatINR(row.net_amount)}
+                      </span>
+                      {isSelected && <Check className="h-4 w-4 text-primary" aria-hidden="true" />}
+                    </div>
+                  </button>
+                  {isSelected && crossStore && (
+                    <LinePhotoPicker
+                      file={photosByKey[key]}
+                      onChange={(file) => setPhotoForRow(row, file)}
+                    />
+                  )}
+                </div>
               );
             })}
           </div>
@@ -371,7 +466,10 @@ function SoldItemFlowForm({ flow, onDone }) {
 
       <Button
         type="submit"
-        disabled={isSubmitting || !customerId || selectedRows.length === 0}
+        disabled={
+          isSubmitting || !customerId || selectedRows.length === 0 ||
+          crossStoreRows.some((row) => !photosByKey[soldItemKey(row)])
+        }
         className="h-12 mt-1"
       >
         {isSubmitting ? config.busyLabel : config.submitLabel}
@@ -380,12 +478,17 @@ function SoldItemFlowForm({ flow, onDone }) {
   );
 }
 
+const URD_PICKER_CATEGORIES = [
+  { value: URD_CATEGORY.JEWELLERY, label: 'Jewellery' },
+  { value: URD_CATEGORY.METAL,     label: 'Metal' },
+];
+
 const METAL_TYPE_CONFIGS = {
   urd: {
-    amountField: 'amount',
-    pickerMode:  'fixed',
+    pickerMode:  'search',
     createHook:  useCreateURDPurchase,
     postHook:    usePostURDPurchase,
+    priceItems:  calculateURDItems,
     submitLabel: 'Submit URD Purchase',
     processingLabel: 'Processing Purchase…',
     documentTypeId: APP_CONFIG.DOCUMENT_TYPES.URD_PURCHASE,
@@ -394,27 +497,31 @@ const METAL_TYPE_CONFIGS = {
 
 function buildMetalLineItemSchema(config) {
   const shape = {
-    weight:     z.coerce.number().min(0.001, 'Required'),
-    purity:     z.coerce.number().min(0, 'Required'),
-    item_rate:  z.coerce.number().min(0, 'Required'),
-    [config.amountField]: z.coerce.number().min(0, 'Required'),
+    weight: z.coerce.number().min(0.001, 'Required'),
+    purity: z.coerce.number().min(0, 'Required'),
   };
   if (config.pickerMode === 'search') {
     shape.item = z.object({ item_id: z.number() }).nullable()
       .refine((v) => v !== null, { message: 'Select an item' });
+    // The one-time SetURDItems row fetched at add-time (static fields: rate,
+    // ledgers, tax template — see MetalLineItemForm's handleAddItems). Not
+    // user-facing, just carried through the form so onSubmit doesn't need a
+    // second server round trip — z.any() so zod's parse doesn't strip it.
+    shape.baseRow = z.any();
   }
   return z.object(shape);
 }
 
 function buildMetalFormSchema(config) {
   return z.object({
-    document_date: z.string().min(1, 'Required'),
-    line_items:    z.array(buildMetalLineItemSchema(config)).min(1, 'Add at least one item'),
+    document_date:   z.string().min(1, 'Required'),
+    sales_person_id: z.coerce.number().min(1, 'Select a sales person'),
+    line_items:      z.array(buildMetalLineItemSchema(config)).min(1, 'Add at least one item'),
   });
 }
 
 function emptyMetalLineItem(config) {
-  const item = { weight: '', purity: '', item_rate: '', [config.amountField]: '' };
+  const item = { weight: '', purity: '' };
   if (config.pickerMode === 'search') item.item = null;
   return item;
 }
@@ -434,22 +541,72 @@ function MetalLineItemForm({ type, onDone }) {
 
   const schema = buildMetalFormSchema(config);
 
-  const { register, handleSubmit, control, watch, setValue, reset, formState: { errors } } = useForm({
+  const { register, handleSubmit, control, watch, getValues, reset, formState: { errors } } = useForm({
     resolver: zodResolver(schema),
     defaultValues: {
       document_date: todayDateString(),
-      line_items: [emptyMetalLineItem(config)],
+      sales_person_id: '',
+      line_items: config.pickerMode === 'search' ? [] : [emptyMetalLineItem(config)],
     },
   });
   const { fields, append, remove } = useFieldArray({ control, name: 'line_items' });
   const watchedItems = watch('line_items');
-  const total = watchedItems.reduce((sum, i) => sum + (Number(i[config.amountField]) || 0), 0);
-  const handleItemSelect = (index, item) => {
-    setValue(`line_items.${index}.item`, item);
-    setValue(`line_items.${index}.weight`, item.weight ?? item.net_weight ?? '');
-    setValue(`line_items.${index}.purity`, item.purity ?? '');
-    setValue(`line_items.${index}.item_rate`, item.item_rate ?? '');
+  const [showPicker, setShowPicker] = useState(false);
+  const [addingItems, setAddingItems] = useState(false);
+
+  // SetURDItems is called ONCE per item, right here at add-time — NOT on
+  // every weight/purity edit. CONFIRMED LIVE 2026-10-02 (captured OrnaVerse's
+  // own client directly): typing a new weight into an already-added line
+  // fires NO further SetURDItems call at all; its on-screen Subtotal/Net
+  // update instantly from pure client arithmetic instead. This call's only
+  // job is to fetch each item's real item_rate (plus ledgers/tax template)
+  // once; weight-dependent fields are computed below on every render.
+  const handleAddItems = async (items) => {
+    setAddingItems(true);
+    try {
+      const baseRows = await config.priceItems({
+        items, documentDate: new Date(getValues('document_date')),
+      });
+      if (baseRows.length !== items.length) {
+        throw new Error('Live pricing failed — the server priced a different number of items than were sent.');
+      }
+      baseRows.forEach((baseRow, i) => {
+        const item = items[i];
+        append({
+          item, baseRow,
+          weight: item.weight || item.net_weight || '',
+          purity: item.purity ?? '',
+        });
+      });
+      setShowPicker(false);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setAddingItems(false);
+    }
   };
+
+  // pure_weight = weight × purity; sub_total = net_amount = pure_weight ×
+  // item_rate (no tax — is_tax_applicable:false) — CONFIRMED LIVE 2026-10-02
+  // against OrnaVerse's own client's exact on-screen numbers (weight=10,
+  // purity=0.92, item_rate=16800 → Subtotal/Net 1,54,560.00, matching this
+  // formula exactly). Recomputed on every render — cheap pure arithmetic, no
+  // network call needed after the one-time add-time fetch above.
+  const pricedPreview = watchedItems.map((i) => {
+    if (!i.baseRow) return null;
+    const weight = Number(i.weight) || 0;
+    const purity = Number(i.purity) || 0;
+    const pureWeight = +(weight * purity).toFixed(3);
+    const amount = +(pureWeight * (i.baseRow.item_rate || 0)).toFixed(2);
+    return {
+      ...i.baseRow,
+      weight, net_weight: weight, purity, pure_weight: pureWeight,
+      sub_total: amount, net_amount: amount,
+      base_sub_total: amount, base_net_amount: amount,
+      taxable_amount: amount, tax_amount: 0, base_tax_amount: 0,
+    };
+  });
+  const total = pricedPreview.reduce((sum, row) => sum + (Number(row?.net_amount) || 0), 0);
 
   const onSubmit = async (data) => {
     if (!customerId) return toast.error('Assign a customer to the session before submitting.');
@@ -466,100 +623,60 @@ function MetalLineItemForm({ type, onDone }) {
             : 'Store configuration is still loading — try again in a moment.'
       );
     }
+    if (pricedPreview.some((row) => !row)) {
+      return toast.error('Still finishing pricing for one or more items — try again in a moment.');
+    }
     try {
-      const line_items = data.line_items.map((i) => {
-        const resolvedItem = config.pickerMode === 'fixed' ? urdItem : i.item;
-        const amount = Number(i[config.amountField]);
-        const weight = Number(i.weight);
-        const purity = Number(i.purity);
-        return {
-          item_id:   resolvedItem.item_id,
-          item_code: resolvedItem.item_code,
-          item_name: resolvedItem.item_name,
-          party_id:   customerId,
-          company_id: storeId,
-          item_attribute_id: resolvedItem.item_attribute_id,
-          hsn:               resolvedItem.hsn,
-          tax_template_id:   resolvedItem.tax_template_id,
-          item_group_id:     resolvedItem.item_group_id,
-          base_item_id:      resolvedItem.base_item_id,
-          karat_id:     resolvedItem.karat_id     ?? 1022,
-          metal_id:     resolvedItem.metal_id     ?? 0,
-          type_id:      resolvedItem.type_id      ?? 13,
-          sub_type_id:  resolvedItem.sub_type_id  ?? 0,
-          base_item:    resolvedItem.base_item    ?? 'METAL',
-          uom_id:       resolvedItem.uom_id       ?? 7,
-          uoc_id:       resolvedItem.uoc_id       ?? 4,
-          metal_color_id:  resolvedItem.metal_color_id  ?? 0,
-          stone_color_id:  resolvedItem.stone_color_id  ?? 0,
-          quality_id:      resolvedItem.quality_id      ?? 0,
-          shape_id:        resolvedItem.shape_id        ?? 0,
-          stone_size_id:   resolvedItem.stone_size_id   ?? 0,
-          sieve_id:        resolvedItem.sieve_id        ?? 0,
-          group_sieve_id:  resolvedItem.group_sieve_id  ?? 0,
-          sales_costing_id:    resolvedItem.sales_costing_id    ?? 9,
-          purchase_costing_id: resolvedItem.purchase_costing_id ?? 9,
+      // Reuse the already-computed preview rather than re-pricing — matches
+      // OrnaVerse's own confirmed-live behavior (they never re-call
+      // SetURDItems before Create either, see pricedPreview's own header
+      // comment above), and guarantees Submit can never disagree with what
+      // was just shown on screen.
+      //
+      // location_id: 1 — same "Finish Goods" default every other stock-in
+      // flow in this app uses; see repairService.js's own getRepairLocationId
+      // for the one place this is actually looked up instead of assumed.
+      const salesPersonId = Number(data.sales_person_id);
+      const line_items = pricedPreview.map((row) => ({
+        ...row,
+        party_id:   customerId,
+        company_id: storeId,
+        location_id: 1,
+        is_urd: true,
+        is_acknowledged: true,
+        type_of_document: 1,
+        sales_person_id: salesPersonId,
+      }));
 
-          weight, net_weight: weight,
-          purity,
-          pure_weight: +(weight * purity).toFixed(3),
-          item_rate: Number(i.item_rate),
-          item_labour: 0,
-          item_cost: 0,
-          sub_total: amount,
-          net_amount: amount,
-          base_sub_total: amount,
-          base_net_amount: amount,
-          taxable_amount: amount,
-          base_unit_cost: 0,
-          mf: 0,
-          mf_amount: 0,
-          tax_amount: 0,
-          base_tax_amount: 0,
-          metal_amount: 0, diamond_amount: 0, color_stone_amount: 0, stone_amount: 0, other_amount: 0,
-          diamond_pieces: 0, diamond_weight: 0, stone_pieces: 0, stone_weight: 0,
-          other_pieces: 0, other_weight: 0, color_stone_pieces: 0, color_stone_weight: 0,
+      const sum = (f) => +line_items.reduce((s, li) => s + (li[f] || li[`base_${f}`] || 0), 0).toFixed(2);
+      const subTotal  = sum('sub_total');
+      const taxAmount = sum('tax_amount');
+      const netRaw    = sum('net_amount');
+      const totalWeight = sum('weight');
 
-          location_id: 1,
-          is_urd: true,
-          is_finished: false,
-          is_acknowledged: true,
-          is_tax_applicable: true, // line-level; the HEADER's own is_tax_applicable stays false (see below).
-          is_gift: false,
-          is_allocated: false,
-          stone_status_id: 1,
-          hallmark_state_id: 1,
-          bag_status_id: 0,
-          group_id: 0,
-          item_line_no: 0,
-          pieces: 0,
-          discount: 0,
-          discount_percent: 0,
-          pointer_weight: 0,
-          parts: 0,
-          export_pieces: 0,
-          stone_rate: 0,
-          other_rate: 0,
-          ref_transaction_item_id: 0, ref_document_id: 0, ref_transaction_id: 0,
-          bag_no: '', sku: '', lot_no: '', certificate_no: '', ref_no: '', huid: '',
-          image: '', narration: '', special_instructions: '', user_description: '',
-          type_of_document: 1,
-        };
-      });
-      const totalWeight = line_items.reduce((s, i) => s + i.weight, 0);
-
-      const { mobile: _unusedMobile, receipt_amount: _unusedReceiptAmount, ...headerFields } = buildTransactionHeaderFields({
-        subTotal: total, taxableAmount: total, taxAmount: 0, netAmount: total,
+      // forReturn: true — CONFIRMED LIVE 2026-10-02 (real URDPurchase/Create
+      // capture from OrnaVerse's own client): the header has no mobile/
+      // promotion_details/taxable_amount, but DOES carry payable_ledger_id/
+      // receivable_ledger_id and number_of_backdated_days: 60 — exactly the
+      // "RETURN variant" shape (see buildTransactionHeaderFields' own
+      // header), not the generic branch this used to call. Same family as
+      // Return/Exchange/Buyback in that specific sense, despite being a
+      // purchase rather than a credit-raising document.
+      const { receipt_amount: _unusedReceiptAmount, ...headerFields } = buildTransactionHeaderFields({
+        subTotal, taxableAmount: subTotal, taxAmount, netAmount: netRaw,
         pieces: line_items.length, weight: totalWeight, netWeight: totalWeight,
         customerId, customerName, customerMobile,
         activeStoreId: storeId,
         headerConfig,
         documentTypeId: config.documentTypeId,
-        receiptAmount: total,
+        receiptAmount: Math.round(netRaw),
         documentDate: data.document_date,
+        forReturn: true,
+        allowBackdatedEntry: false,
       });
       const payload = {
         ...headerFields,
+        sales_person_id: salesPersonId,
         line_items,
       };
       const createRes = await create.mutateAsync(payload);
@@ -580,41 +697,66 @@ function MetalLineItemForm({ type, onDone }) {
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
       <CustomerAttachedBanner customerId={customerId} customerName={customerName} />
 
-      <FormField label="Date" required error={errors.document_date}>
-        <Input type="date" max={todayDateString()} {...register('document_date')} className="h-11" />
+      <FormField label="Sales Person" required error={errors.sales_person_id}>
+        <Controller
+          name="sales_person_id"
+          control={control}
+          render={({ field }) => (
+            <SalesPersonSelect
+              companyId={storeId}
+              value={field.value}
+              onChange={field.onChange}
+            />
+          )}
+        />
       </FormField>
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <Label>Line Items <span className="text-destructive">*</span></Label>
-          <Button type="button" variant="outline" size="sm" className="h-8 gap-1 text-xs"
-            onClick={() => append(emptyMetalLineItem(config))}>
-            <Plus size={12} /> Add Item
-          </Button>
+          {config.pickerMode === 'fixed' && (
+            <Button type="button" variant="outline" size="sm" className="h-8 gap-1 text-xs"
+              onClick={() => append(emptyMetalLineItem(config))}>
+              <Plus size={12} /> Add Item
+            </Button>
+          )}
+          {config.pickerMode === 'search' && (
+            <Button type="button" variant="outline" size="sm" className="h-8 gap-1 text-xs"
+              onClick={() => setShowPicker((v) => !v)}>
+              <Plus size={12} /> Add Items
+            </Button>
+          )}
         </div>
+
+        {config.pickerMode === 'search' && showPicker && (
+          <div className="rounded-xl border border-border bg-card p-3">
+            {addingItems ? (
+              <p className="text-xs text-muted-foreground">Fetching prices for selected items…</p>
+            ) : (
+              <ItemSearchPicker
+                multiple
+                onAdd={handleAddItems}
+                useSearch={useURDItemSearch}
+                categories={URD_PICKER_CATEGORIES}
+              />
+            )}
+          </div>
+        )}
+
         {fields.map((field, index) => (
           <div key={field.id} className="rounded-xl border border-border bg-muted p-3 flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-muted-foreground">Item {index + 1}</span>
-              {fields.length > 1 && (
-                <RemoveLineItemButton onClick={() => remove(index)} />
-              )}
+              <RemoveLineItemButton onClick={() => remove(index)} />
             </div>
 
             {config.pickerMode === 'search' && (
-              <FormField label="Item" required error={errors.line_items?.[index]?.item}>
-                <Controller
-                  name={`line_items.${index}.item`}
-                  control={control}
-                  render={({ field: itemField }) => (
-                    <ItemSearchPicker
-                      selectedItem={itemField.value}
-                      onSelect={(item) => handleItemSelect(index, item)}
-                      onClear={() => setValue(`line_items.${index}.item`, null)}
-                    />
-                  )}
-                />
-              </FormField>
+              <div className="rounded-lg border border-input bg-muted/30 px-3 py-2.5 text-sm">
+                <p className="font-medium text-foreground">
+                  {watchedItems[index]?.item?.item_name || watchedItems[index]?.item?.item_code}
+                </p>
+                <p className="text-xs text-muted-foreground">{watchedItems[index]?.item?.item_code}</p>
+              </div>
             )}
 
             {config.pickerMode === 'fixed' && (
@@ -639,12 +781,19 @@ function MetalLineItemForm({ type, onDone }) {
               <FormField label="Purity" required error={errors.line_items?.[index]?.purity}>
                 <Input type="number" inputMode="decimal" step="0.01" placeholder="e.g. 0.75" {...register(`line_items.${index}.purity`)} className="h-9 text-sm" />
               </FormField>
-              <FormField label="Rate (₹/g)" required error={errors.line_items?.[index]?.item_rate}>
-                <Input type="number" inputMode="decimal" {...register(`line_items.${index}.item_rate`)} className="h-9 text-sm" />
-              </FormField>
-              <FormField label={config.amountField === 'exchange_value' ? 'Exchange Value (₹)' : 'Amount (₹)'} required error={errors.line_items?.[index]?.[config.amountField]}>
-                <Input type="number" inputMode="decimal" {...register(`line_items.${index}.${config.amountField}`)} className="h-9 text-sm" />
-              </FormField>
+              {/* Server-computed (once, at add-time) rate + instant client-side amount — see pricedPreview above. */}
+              <div className="flex flex-col justify-end gap-1 rounded-lg border border-input bg-muted/30 px-3 py-2 text-sm">
+                <span className="text-xs text-muted-foreground">Rate (₹/g)</span>
+                <span className="font-medium text-foreground">
+                  {pricedPreview[index] ? formatINR(pricedPreview[index].item_rate) : '—'}
+                </span>
+              </div>
+              <div className="flex flex-col justify-end gap-1 rounded-lg border border-input bg-muted/30 px-3 py-2 text-sm">
+                <span className="text-xs text-muted-foreground">Amount (₹)</span>
+                <span className="font-medium text-foreground">
+                  {pricedPreview[index] ? formatINR(pricedPreview[index].net_amount) : '—'}
+                </span>
+              </div>
             </div>
           </div>
         ))}
@@ -727,10 +876,6 @@ function CreditNoteNewForm({ onDone }) {
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
       <CustomerAttachedBanner customerId={customerId} customerName={customerName} />
-
-      <FormField label="Date" required error={errors.document_date}>
-        <Input type="date" max={todayDateString()} {...register('document_date')} className="h-11" />
-      </FormField>
 
       <FormField label="Credit Amount (₹)" required error={errors.net_amount}>
         <Input type="number" inputMode="decimal" placeholder="0.00" {...register('net_amount')} className="h-11" />
@@ -838,10 +983,6 @@ function RefundNewForm({ onDone }) {
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
       <CustomerAttachedBanner customerId={customerId} customerName={customerName} />
 
-      <FormField label="Date" required error={errors.document_date}>
-        <Input type="date" max={todayDateString()} {...register('document_date')} className="h-11" />
-      </FormField>
-
       <div className="flex flex-col gap-2">
         <Label>
           Credit to Refund <span className="text-destructive">*</span>
@@ -866,7 +1007,7 @@ function RefundNewForm({ onDone }) {
             description="Raise a return, exchange or buy back first — a refund settles the credit it creates."
           />
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
             {credits.map((c) => {
               const isSelected = creditKeys.includes(c.transaction_id);
               return (

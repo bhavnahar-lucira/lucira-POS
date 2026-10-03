@@ -9,6 +9,12 @@ const API = {
     SWITCH_COMPANY: 'Account/SwitchCompany',
   },
 
+  // Not under Services/ — Serenity's generic file-upload endpoint, used by
+  // the Interstore Return photo-attach flow (see interstoreReturnService.js).
+  FILES: {
+    TEMPORARY_UPLOAD: 'File/TemporaryUpload',
+  },
+
   // ─────────────────────────────────────────────────────────────────────────
   // STORES
   // ─────────────────────────────────────────────────────────────────────────
@@ -56,6 +62,7 @@ const API = {
   // ─────────────────────────────────────────────────────────────────────────
   ITEMS: {
     LIST:          'Services/Master/Items/List',
+    URD_LIST:      'Services/Master/AllItems/List',
     RETRIEVE:      'Services/Master/Items/Retrieve',
     SIZES:         'Services/Master/ItemsSizes/List',
     ATTRIBUTES:    'Services/Master/Attributes/List',
@@ -84,11 +91,13 @@ const API = {
   // ─────────────────────────────────────────────────────────────────────────
   HELPERS: {
     GET_RATE:           'Services/Helpers/GetRate',
+    GET_LABOUR_RATE:    'Services/Helpers/GetLabourRate',
     GET_METAL_RATE:     'Services/Helpers/GetMetalRate',
     SET_SALES_ITEMS:    'Services/Helpers/SetSalesItems',
     SET_RETURN_ITEMS:   'Services/Helpers/SetReturnItems',
     SET_BUYBACK_ITEMS:  'Services/Helpers/SetBuyBackItems',
     SET_EXCHANGE_ITEMS: 'Services/Helpers/SetExchangeItems',
+    SET_URD_ITEMS:      'Services/Helpers/SetURDItems',
   },
 
   // ─────────────────────────────────────────────────────────────────────────

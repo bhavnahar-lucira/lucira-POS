@@ -8,7 +8,7 @@
 import { Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { useSelector } from 'react-redux';
-import { toast }     from 'react-toastify';
+import { toast }     from 'sonner';
 import { useReducedMotion } from 'motion/react';
 
 import { useProductDetail }     from '@/hooks/products/useProductDetail';
@@ -633,8 +633,11 @@ function ProductDetailScreen() {
                 piece" right below it. */}
             <TodaysRateStrip />
 
-            {/* Full-width, placed before the spec cards: cost first, then composition. */}
-            {numericUnitPrice != null && <PriceBreakdown priced={livePricing} />}
+            {/* Full-width, placed before the spec cards: cost first, then composition.
+                showComponents matches Cart/Checkout's own PriceBreakdown usage
+                (CartItemRow's showComponentDetails) — same piece-count/weight
+                subtitle under each segment everywhere this card appears. */}
+            {numericUnitPrice != null && <PriceBreakdown priced={livePricing} showComponents />}
 
           </div>
         </div>

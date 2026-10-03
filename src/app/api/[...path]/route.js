@@ -61,15 +61,22 @@ async function proxy(request, { params }) {
     if (session.csrf) headers.set('X-CSRF-TOKEN', session.csrf);
   }
 
+  // Read as raw bytes, not .text() — a multipart file upload (e.g. the IRR
+  // photo-attach flow's /File/TemporaryUpload call) is binary, and decoding
+  // it through .text() before re-encoding would corrupt the file. ArrayBuffer
+  // passthrough is lossless for both this and every existing JSON body.
   const hasBody = !['GET', 'HEAD'].includes(request.method);
-  const body = hasBody ? await request.text() : undefined;
+  const body = hasBody ? await request.arrayBuffer() : undefined;
 
   // Short-TTL cache for a small allowlist of read-only, tenant-wide
   // reference endpoints (payment modes, sales persons, document numbering,
   // today's metal rate) — see lib/security/proxyReadCache.js. Keyed on
   // path+body, not just path, since these are POST reads that vary by
-  // company_id in the body.
-  const cacheKey = isCacheableReadPath(resolvedPath) ? `${resolvedPath}::${body ?? ''}` : null;
+  // company_id in the body. These are always small JSON bodies, so decoding
+  // as UTF-8 text purely for the cache key string is safe.
+  const cacheKey = isCacheableReadPath(resolvedPath)
+    ? `${resolvedPath}::${body ? Buffer.from(body).toString('utf-8') : ''}`
+    : null;
   if (cacheKey) {
     const cached = getCachedRead(cacheKey);
     if (cached) {

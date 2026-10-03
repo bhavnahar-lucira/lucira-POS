@@ -20,7 +20,7 @@
 // item count read from the create payload itself.
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast }                       from 'react-toastify';
+import { toast }                       from 'sonner';
 import {
   createReturn,    postReturn,    cancelReturn,
   deleteRefund,

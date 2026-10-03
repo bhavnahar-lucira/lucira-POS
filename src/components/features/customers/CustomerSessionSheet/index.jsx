@@ -28,7 +28,7 @@
 // unconditionally — so switching customers is now fully automatic.
 
 import { useEffect, useState } from 'react';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import Link from 'next/link';
 import { ChevronLeft, Loader2, UserCircle } from 'lucide-react';
 import BottomSheet from '@/components/shared/BottomSheet';

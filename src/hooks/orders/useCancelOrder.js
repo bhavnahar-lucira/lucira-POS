@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import { cancelOrder } from '@/services/orderService';
 import { useSessionTrackingContext } from '@/hooks/analytics/useSessionTrackingContext';
 import { QUERY_KEYS } from '@/constants/queryKeys';

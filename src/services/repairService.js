@@ -42,17 +42,25 @@ export const REPAIR_LOCATION_TYPE = {
 /**
  * Sold items eligible for repair.
  *
- * `transaction_type: 3` is the repair-specific value — Return/Buyback/
- * Exchange use 1 and Credit Note uses 4.
+ * `transaction_type: 3` CONFIRMED LIVE 2026-10-02 (real network capture of
+ * OrnaVerse's own Repair > Accept for Repair screen) — this part was
+ * already correct. What was NOT correct, and is the actual root cause of
+ * "no products show for a genuinely-purchased customer" (reported
+ * directly): their own client sends `company_id: null` here — no store
+ * restriction at all, since a customer can reasonably bring an item in for
+ * repair at a different branch than the one they bought it from. This used
+ * to send the ACTIVE store's real company_id instead, silently hiding every
+ * item purchased at any other branch. `companyId` param kept (unused in the
+ * request) only so existing callers don't need to change.
  *
- * @param {{ partyId: number, companyId: number, take?: number }} params
+ * @param {{ partyId: number, companyId?: number, take?: number }} params
  */
-export async function getRepairableSoldItems({ partyId, companyId, take = 25 }) {
+export async function getRepairableSoldItems({ partyId, take = 25 }) {
   if (!partyId) return [];
   const response = await axiosInstance.post(API.REPAIR.REPAIR_SOLD_ITEMS, {
     Take: take,
     party_id: partyId,
-    company_id: companyId,
+    company_id: null,
     transaction_type: 3,
     get_child: true,
   });

@@ -4,7 +4,7 @@
 // registered here show up in useCrmLeads (same underlying CRM.Customer table).
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import { registerWalkIn } from '@/services/crmService';
 import { normalizeCrmLead } from '@/lib/normalizers/customer';
 import { QUERY_KEYS } from '@/constants/queryKeys';

@@ -31,7 +31,7 @@
 // entirely — both can be applied to the same sale.
 
 import { useMutation } from '@tanstack/react-query';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import { listPromotions } from '@/services/promotionService';
 import { applyPromotionsToLines } from '@/services/checkoutPricingService';
 import { useCart } from '@/hooks/cart/useCart';

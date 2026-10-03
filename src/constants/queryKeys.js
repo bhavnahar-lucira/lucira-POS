@@ -51,6 +51,7 @@ export const QUERY_KEYS = {
     SIZES:           ()        => ['items', 'sizes'],
     DESIGN_VARIANTS: (styleId) => ['items', 'design-variants', styleId],
     MASTER_SEARCH:   (query)   => ['items', 'master-search', query],
+    URD_SEARCH:      (query, baseItemId) => ['items', 'urd-search', query, baseItemId],
     PRICING:         (itemId, companyId) => ['items', 'pricing', itemId, companyId],
     MASTER_PRICING:  (itemId) => ['items', 'master-pricing', itemId],
     SEARCH: (params) => ['items', 'search', {
@@ -138,7 +139,7 @@ export const QUERY_KEYS = {
   RETURNS: {
     LIST:       (params)        => ['returns', 'list', params],
     DETAIL:     (transactionId) => ['returns', 'detail', transactionId],
-    SOLD_ITEMS: (partyId, companyId) => ['returns', 'sold-items', partyId, companyId],
+    SOLD_ITEMS: (partyId, companyId, transactionType) => ['returns', 'sold-items', partyId, companyId, transactionType],
   },
 
   REFUNDS: {

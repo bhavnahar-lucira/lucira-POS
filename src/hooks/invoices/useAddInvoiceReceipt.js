@@ -7,7 +7,7 @@
 // "shape is wrong."
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import { createInvoiceReceipt } from '@/services/orderService';
 import TOAST from '@/constants/toastMessages';
 import tracker from '@/lib/analytics/tracker';

@@ -18,7 +18,17 @@ const APP_CONFIG = {
     METAL_COLOR:   18,
     DIAMOND_SHAPE: 19,
     COLLECTION:    12,
+    // Custom Estimate's stone table (Diamonds/stones) — CONFIRMED LIVE 2026-10-02.
+    STONE_QUALITY: 20,
+    STONE_COLOR:   23,
   },
+
+  // ── CUSTOM ESTIMATE ────────────────────────────────────────────────────────
+  // Stone item-group options are item groups whose base_item_id is 13 (raw
+  // stone), filtered client-side from the full ItemGroups/List response —
+  // CONFIRMED LIVE 2026-10-02 (Diamond/Color Stone/Cubic Zirconia on this
+  // tenant). Not an attribute_type_id lookup like the others above.
+  CUSTOM_ESTIMATE_STONE_BASE_ITEM_ID: 13,
 
   // ── URD PURCHASE MASTER ITEMS ─────────────────────────────────────────────
   URD_MASTER_ITEMS: {

@@ -1,7 +1,7 @@
 // Record a monthly scheme instalment payment from a customer.
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import { createSchemeReceipt } from '@/services/schemeService';
 import { useSessionTrackingContext } from '@/hooks/analytics/useSessionTrackingContext';
 import { QUERY_KEYS } from '@/constants/queryKeys';

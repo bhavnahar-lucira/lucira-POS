@@ -2,7 +2,7 @@
 
 import { useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import { getStockPieceBySku, createItemEnquiry } from '@/services/inventoryService';
 import tracker from '@/lib/analytics/tracker';
 import EVENTS from '@/lib/analytics/events';

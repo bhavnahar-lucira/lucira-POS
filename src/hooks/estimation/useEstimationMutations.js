@@ -5,7 +5,7 @@
 // off the payload posted to OrnaVerse.
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import {
   createEstimation, postEstimation, cancelEstimation,
 } from '@/services/estimationService';
