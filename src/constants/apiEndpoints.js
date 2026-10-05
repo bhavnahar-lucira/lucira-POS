@@ -402,10 +402,12 @@ const API = {
   },
 
   // ─────────────────────────────────────────────────────────────────────────
-  // COSTING / METAL RATES
+  // COSTING — metal rates + tenant-wide policy configuration (return
+  // window, cash limits, credit limits, etc. — see complianceService.js)
   // ─────────────────────────────────────────────────────────────────────────
   COSTING: {
     ADD_METAL_RATE: 'Services/Costing/MetalRates/Create',
+    POLICY_LIST:    'Services/Costing/Policy/List',
   },
 
   // ─────────────────────────────────────────────────────────────────────────

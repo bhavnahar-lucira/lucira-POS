@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useState, useCallback } from 'react';
+import { useQuery }                        from '@tanstack/react-query';
 import { useSelector }                     from 'react-redux';
 import { useRouter, useSearchParams }      from 'next/navigation';
 import { useForm, useFieldArray, Controller } from 'react-hook-form';
@@ -45,11 +46,14 @@ import {
   useCreateURDPurchase,usePostURDPurchase,useCancelURDPurchase,
 }                                          from '@/hooks/transactions/useTransactionMutations';
 import ConfirmDialog                      from '@/components/shared/ConfirmDialog';
+import PaymentStatusBadge                  from '@/components/shared/PaymentStatusBadge';
+import InvoiceReportButton                 from '@/components/features/checkout/InvoiceReportButton';
 import { usePaymentModes }                from '@/hooks/checkout/usePaymentModes';
 import { paymentRequiresBank }             from '@/lib/checkout/paymentModeRules';
 import { useURDMasterItem }                from '@/hooks/transactions/useURDMasterItem';
 import SalesPersonSelect                   from '@/components/features/checkout/SalesPersonSelect';
 import { useSoldItems }                    from '@/hooks/transactions/useSoldItems';
+import { useCompliancePolicy }             from '@/hooks/transactions/useCompliancePolicy';
 import { useCustomerCredits }              from '@/hooks/transactions/useCustomerCredits';
 import { useOrderHeaderConfig }            from '@/hooks/checkout/useOrderHeaderConfig';
 import { buildTransactionHeaderFields }    from '@/services/transactionHeaderService';
@@ -68,7 +72,7 @@ import { URD_CATEGORY }                     from '@/services/itemService';
 import { selectActiveStoreId }            from '@/store/slices/storeSlice';
 import { selectCartCustomerId, selectCartCustomerName, selectCartCustomerMobile } from '@/store/slices/cartSlice';
 import APP_CONFIG                         from '@/constants/appConfig';
-import { todayDateString, formatDatePadded } from '@/lib/dateUtils';
+import { todayDateString, formatDatePadded, resolveDocumentDateTime } from '@/lib/dateUtils';
 import { formatAmountOrDash } from '@/lib/priceUtils';
 
 import PageLoader                          from '@/components/shared/PageLoader';
@@ -170,8 +174,57 @@ function SoldItemFlowForm({ flow, onDone }) {
   const customerId     = useSelector(selectCartCustomerId);
   const customerName   = useSelector(selectCartCustomerName);
   const headerConfig   = useOrderHeaderConfig(config.documentTypeId);
-  const { soldItems, isLoading: soldLoading, isError: soldError, refetch: refetchSold } =
+  const { soldItems: allSoldItems, isLoading: soldLoading, isError: soldError, refetch: refetchSold } =
     useSoldItems(customerId, config.transactionType);
+  const { salesReturnDays } = useCompliancePolicy();
+
+  // COMPLIANCE (2026-10-05, reported live): OrnaVerse's own Return/Create
+  // rejects an item still within the tenant's sales_return_days window
+  // ("... is outside the return window") — confirmed this is a real,
+  // server-enforced compliance rule (Services/Costing/Policy/List, policy
+  // "Compliance"), not a bug. But Buyback/Exchange have no such check
+  // server-side, so an item could silently route around a Return's
+  // cooling-off period via Buyback/Exchange instead — reported directly:
+  // "the product ordered wont be visible in buyback and exchange until it
+  // is out of the return window". Return itself stays unfiltered (its own
+  // server call already enforces this correctly); only hide the item from
+  // Buyback/Exchange's own picker.
+  const now = Date.now();
+  const withinReturnWindow = (row) => {
+    if (salesReturnDays == null || !row.document_date) return false;
+    const soldAt = new Date(row.document_date).getTime();
+    if (isNaN(soldAt)) return false;
+    const daysSinceSale = (now - soldAt) / (24 * 60 * 60 * 1000);
+    return daysSinceSale < salesReturnDays;
+  };
+  const soldItems = mode === 'return' ? allSoldItems : allSoldItems.filter((r) => !withinReturnWindow(r));
+  const hiddenForWindowCount = allSoldItems.length - soldItems.length;
+
+  // PRICE PREVIEW (2026-10-05, reported live: "buyback and exchange price in
+  // POS is different and on ornaverse is different"). Root cause: Buyback
+  // and Exchange each carry a real OrnaVerse policy (Services/Costing/
+  // Policy/List, policy_code "BuyBack"/"Exchange") that revalues each
+  // component — on this tenant 90% stone / 100% metal / 0% making charges
+  // for BuyBack, 100% stone / 100% metal / 0% making charges (no tax) for
+  // Exchange — which SetBuybackItems/SetExchangeItems already applies
+  // server-side (confirmed live: diamond rate came back at exactly 0.9× the
+  // original sale's rate). The Create payload was always built from that
+  // real priced response, so the CREATED document was always correct — but
+  // this picker and the running total were showing the raw original sale's
+  // net_amount, which doesn't match what actually gets charged/credited.
+  // Return needs no such preview — confirmed live its priced net_amount
+  // always equals the raw sale net_amount (a return reverses the sale 1:1).
+  const needsPricePreview = mode !== 'return';
+  const pricePreview = useQuery({
+    queryKey: ['transactions', 'sold-items-price-preview', mode, storeId, soldItems.map(soldItemKey)],
+    queryFn: () => config.priceItems({ items: soldItems, documentDate: resolveDocumentDateTime(todayDateString()) }),
+    enabled: needsPricePreview && soldItems.length > 0,
+    staleTime: APP_CONFIG.STALE_TIME.STOCK,
+  });
+  const pricedByKey = new Map((pricePreview.data ?? []).map((row) => [soldItemKey(row), row]));
+  const displayAmountFor = (row) =>
+    needsPricePreview ? (pricedByKey.get(soldItemKey(row))?.net_amount ?? row.net_amount) : row.net_amount;
+
   const createReturnDoc   = useCreateReturn({ onSuccess: () => {} });
   const postReturnDoc     = usePostReturn({ onSuccess: () => onDone() });
   const createBuybackDoc  = useCreateBuyback({ onSuccess: () => {} });
@@ -240,7 +293,7 @@ function SoldItemFlowForm({ flow, onDone }) {
         for (const [originCompanyId, rows] of rowsByOrigin) {
           const pricedLines = await calculateInterstoreReturnItems({
             items: rows,
-            documentDate: new Date(data.document_date),
+            documentDate: resolveDocumentDateTime(data.document_date),
           });
           if (pricedLines.length !== rows.length) {
             throw new Error('Could not price one or more items bought at a different store.');
@@ -249,7 +302,7 @@ function SoldItemFlowForm({ flow, onDone }) {
           await createInterstoreReturnWithPhotos({
             partyId: customerId, partyName: customerName,
             originCompanyId, receivingCompanyId: storeId,
-            documentDate: new Date(data.document_date).toISOString(),
+            documentDate: resolveDocumentDateTime(data.document_date).toISOString(),
             transactionType: config.interstoreTransactionType,
             lineItems,
             photosByLineIndex: rows.map((row) => photosByKey[soldItemKey(row)]),
@@ -261,7 +314,7 @@ function SoldItemFlowForm({ flow, onDone }) {
       if (sameStoreRows.length > 0) {
         const line_items = await config.priceItems({
           items: sameStoreRows,
-          documentDate: new Date(data.document_date),
+          documentDate: resolveDocumentDateTime(data.document_date),
         });
         if (!line_items.length) throw new Error('Could not price the selected items.');
         const sum = (f) => +line_items.reduce((s, li) => s + (li[f] || li[`base_${f}`] || 0), 0).toFixed(2);
@@ -278,7 +331,7 @@ function SoldItemFlowForm({ flow, onDone }) {
             headerConfig,
             documentTypeId: config.documentTypeId,
             receiptAmount: Math.round(netRaw),
-            documentDate: data.document_date,
+            documentDate: resolveDocumentDateTime(data.document_date).toISOString(),
             forReturn: true,
             allowBackdatedEntry: config.allowBackdatedEntry,
           }),
@@ -302,7 +355,7 @@ function SoldItemFlowForm({ flow, onDone }) {
     }
   };
 
-  const total = selectedRows.reduce((s, r) => s + (r.net_amount ?? 0), 0);
+  const total = selectedRows.reduce((s, r) => s + (displayAmountFor(r) ?? 0), 0);
 
   const isSubmitting = isPricing || createDoc.isPending || postDoc.isPending;
 
@@ -354,6 +407,16 @@ function SoldItemFlowForm({ flow, onDone }) {
         <p className="text-xs text-muted-foreground -mt-1">
           Pick from what this customer has purchased — tap to select.
         </p>
+        {mode !== 'return' && hiddenForWindowCount > 0 && (
+          <p className="text-xs text-muted-foreground -mt-1">
+            {hiddenForWindowCount} item{hiddenForWindowCount > 1 ? 's are' : ' is'} still within the
+            {' '}{salesReturnDays}-day return window and {hiddenForWindowCount > 1 ? "aren't" : "isn't"} shown
+            here — use Return for those instead.
+          </p>
+        )}
+        {needsPricePreview && pricePreview.isFetching && (
+          <p className="text-xs text-muted-foreground -mt-1">Calculating current {mode === 'buyback' ? 'buy back' : 'exchange'} value…</p>
+        )}
 
         {!customerId ? (
           <p className="rounded-xl border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
@@ -367,8 +430,10 @@ function SoldItemFlowForm({ flow, onDone }) {
           <EmptyState
             className="border-0 py-6"
             icon={RotateCcw}
-            title={config.emptyTitle}
-            description={config.emptyHint}
+            title={hiddenForWindowCount > 0 ? 'All purchases are still within the return window.' : config.emptyTitle}
+            description={hiddenForWindowCount > 0
+              ? `These items can only be returned (not bought back or exchanged) until their ${salesReturnDays}-day return window passes.`
+              : config.emptyHint}
           />
         ) : (
           <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
@@ -403,7 +468,7 @@ function SoldItemFlowForm({ flow, onDone }) {
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="text-sm font-semibold tabular-nums text-foreground">
-                        {formatINR(row.net_amount)}
+                        {formatINR(displayAmountFor(row))}
                       </span>
                       {isSelected && <Check className="h-4 w-4 text-primary" aria-hidden="true" />}
                     </div>
@@ -476,10 +541,6 @@ function buildMetalLineItemSchema(config) {
   if (config.pickerMode === 'search') {
     shape.item = z.object({ item_id: z.number() }).nullable()
       .refine((v) => v !== null, { message: 'Select an item' });
-    // The one-time SetURDItems row fetched at add-time (static fields: rate,
-    // ledgers, tax template — see MetalLineItemForm's handleAddItems). Not
-    // user-facing, just carried through the form so onSubmit doesn't need a
-    // second server round trip — z.any() so zod's parse doesn't strip it.
     shape.baseRow = z.any();
   }
   return z.object(shape);
@@ -530,7 +591,7 @@ function MetalLineItemForm({ type, onDone }) {
     setAddingItems(true);
     try {
       const baseRows = await config.priceItems({
-        items, documentDate: new Date(getValues('document_date')),
+        items, documentDate: resolveDocumentDateTime(getValues('document_date')),
       });
       if (baseRows.length !== items.length) {
         throw new Error('Live pricing failed — the server priced a different number of items than were sent.');
@@ -610,7 +671,7 @@ function MetalLineItemForm({ type, onDone }) {
         headerConfig,
         documentTypeId: config.documentTypeId,
         receiptAmount: Math.round(netRaw),
-        documentDate: data.document_date,
+        documentDate: resolveDocumentDateTime(data.document_date).toISOString(),
         forReturn: true,
         allowBackdatedEntry: false,
       });
@@ -796,7 +857,7 @@ function CreditNoteNewForm({ onDone }) {
           activeStoreId: storeId,
           headerConfig,
           documentTypeId: APP_CONFIG.DOCUMENT_TYPES.CREDIT_NOTE,
-          documentDate: data.document_date,
+          documentDate: resolveDocumentDateTime(data.document_date).toISOString(),
         }),
         ref_transaction_id: data.ref_transaction_id ? Number(data.ref_transaction_id) : undefined,
         narration: data.narration || undefined,
@@ -894,7 +955,7 @@ function RefundNewForm({ onDone }) {
         partyName: customerName,
         activeStoreId: storeId,
         financialYearId: headerConfig.financialYearId,
-        documentDate: data.document_date,
+        documentDate: resolveDocumentDateTime(data.document_date).toISOString(),
         credits: selectedCredits.map((credit) => ({ credit, amount: credit.amount })),
         payout: {
           modeId:   Number(data.mode_id),
@@ -1016,6 +1077,21 @@ const CANCEL_LABEL_BY_TYPE = {
   urd:            'Cancel URD Purchase',
 };
 
+// Print — reuses the exact same report-picker/printer checkout already uses
+// for Invoice (InvoiceReportButton is generic over documentId); just the
+// right document_id + label per transaction type. Self-hides if OrnaVerse
+// has no report configured for that document type (see component's own
+// `reports.length === 0` check), so adding it here is zero-risk even for a
+// type that turns out to have none.
+const PRINT_CONFIG_BY_TYPE = {
+  returns:        { documentId: APP_CONFIG.DOCUMENT_TYPES.RETURN,       label: 'Return' },
+  refunds:        { documentId: APP_CONFIG.DOCUMENT_TYPES.REFUND,       label: 'Refund' },
+  'credit-notes': { documentId: APP_CONFIG.DOCUMENT_TYPES.CREDIT_NOTE,  label: 'Credit Note' },
+  exchange:       { documentId: APP_CONFIG.DOCUMENT_TYPES.EXCHANGE,     label: 'Exchange' },
+  buyback:        { documentId: APP_CONFIG.DOCUMENT_TYPES.BUYBACK,      label: 'Buy Back' },
+  urd:            { documentId: APP_CONFIG.DOCUMENT_TYPES.URD_PURCHASE, label: 'URD Purchase' },
+};
+
 function TransactionDetailSheet({ transaction, type, onClose }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const cancelReturn     = useCancelReturn({ onSuccess: onClose });
@@ -1033,7 +1109,7 @@ function TransactionDetailSheet({ transaction, type, onClose }) {
   if (!transaction) return null;
   const raw = transaction.raw ?? {};
 
-  const cancelLabel = CANCEL_LABEL_BY_TYPE[type];
+  const cancelLabel = transaction.status !== 'cancelled' ? CANCEL_LABEL_BY_TYPE[type] : null;
   const cancelMutation = mutationByType[type];
 
   const headerRows = [
@@ -1041,8 +1117,8 @@ function TransactionDetailSheet({ transaction, type, onClose }) {
     { icon: Calendar,    label: 'Date',        value: formatDate(transaction.documentDate) },
     { icon: User,        label: 'Customer',    value: transaction.customerName ?? '—' },
     { icon: IndianRupee, label: 'Amount',      value: formatINR(transaction.amount) },
-    ...(raw.document_status != null
-      ? [{ icon: AlertCircle, label: 'Status', value: `${raw.document_status}${raw.posted_by_name ? ` · posted by ${raw.posted_by_name}` : ''}` }]
+    ...(raw.posted_by_name
+      ? [{ icon: AlertCircle, label: 'Posted By', value: raw.posted_by_name }]
       : []),
   ];
 
@@ -1052,6 +1128,8 @@ function TransactionDetailSheet({ transaction, type, onClose }) {
     .filter(([k, v]) => !skipKeys.has(k) && v !== null && v !== undefined && v !== 'NA' && v !== '' && typeof v !== 'object')
     .map(([k, v]) => ({ label: k.replace(/_/g, ' '), value: String(v) }));
 
+  const printConfig = PRINT_CONFIG_BY_TYPE[type];
+
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
@@ -1059,7 +1137,10 @@ function TransactionDetailSheet({ transaction, type, onClose }) {
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <div>
             <p className="text-xs text-muted-foreground">Transaction</p>
-            <p className="text-sm font-semibold text-foreground">{transaction.documentNo ?? `#${transaction.transactionId}`}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold text-foreground">{transaction.documentNo ?? `#${transaction.transactionId}`}</p>
+              {transaction.status && <PaymentStatusBadge status={transaction.status} size="sm" />}
+            </div>
           </div>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted/50 transition-colors" aria-label="Close">
             <X className="w-4 h-4 text-muted-foreground" />
@@ -1092,18 +1173,27 @@ function TransactionDetailSheet({ transaction, type, onClose }) {
           )}
         </div>
 
-        {cancelLabel && (
-          <div className="border-t border-border p-4">
-            <Button
-              type="button"
-              variant="destructive"
-              className="w-full h-11 gap-1.5"
-              disabled={cancelMutation.isPending}
-              onClick={() => setConfirmOpen(true)}
-            >
-              <Ban className="w-4 h-4" />
-              {cancelMutation.isPending ? 'Working…' : cancelLabel}
-            </Button>
+        {(printConfig || cancelLabel) && (
+          <div className="border-t border-border p-4 flex flex-col gap-2">
+            {printConfig && (
+              <InvoiceReportButton
+                transactionId={transaction.transactionId}
+                documentId={printConfig.documentId}
+                documentLabel={printConfig.label}
+              />
+            )}
+            {cancelLabel && (
+              <Button
+                type="button"
+                variant="destructive"
+                className="w-full h-11 gap-1.5"
+                disabled={cancelMutation.isPending}
+                onClick={() => setConfirmOpen(true)}
+              >
+                <Ban className="w-4 h-4" />
+                {cancelMutation.isPending ? 'Working…' : cancelLabel}
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -1131,7 +1221,10 @@ function TransactionRow({ item, onSelect }) {
         <p className="text-xs text-muted-foreground">{formatDate(item.documentDate)}</p>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <p className="text-sm font-semibold text-foreground tabular-nums">{formatINR(item.amount)}</p>
+        <div className="flex flex-col items-end gap-1">
+          <p className="text-sm font-semibold text-foreground tabular-nums">{formatINR(item.amount)}</p>
+          {item.status && <PaymentStatusBadge status={item.status} size="sm" />}
+        </div>
         <ChevronRight className="w-4 h-4 text-muted-foreground" />
       </div>
     </button>

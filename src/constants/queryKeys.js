@@ -146,6 +146,10 @@ export const QUERY_KEYS = {
     SOLD_ITEMS: (partyId, companyId, transactionType) => ['returns', 'sold-items', partyId, companyId, transactionType],
   },
 
+  COMPLIANCE: {
+    POLICY: () => ['compliance', 'policy'],
+  },
+
   REFUNDS: {
     LIST:             (params)   => ['refunds', 'list', params],
     DETAIL:           (refundId) => ['refunds', 'detail', refundId],

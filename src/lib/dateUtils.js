@@ -16,6 +16,33 @@ export function todayDateString() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+/**
+ * Resolves a `<input type="date">` value (YYYY-MM-DD, no time) to a real
+ * Date for a document's `document_date` — FIXED (2026-10-05, reported: a
+ * Return/Buyback/Exchange placed just now still recorded midnight instead
+ * of the real time, unlike Order/Invoice checkout, which has no editable
+ * date field and always uses `new Date()` fresh). Every one of these forms
+ * defaults the field to todayDateString() so an operator backdating a
+ * Buyback/Exchange/URD intake can still pick an earlier date, but
+ * `new Date(dateOnlyString)` always parses to midnight regardless of
+ * whether the date is actually "today" (not backdated at all) or a real
+ * backdate — losing the actual submission time for the overwhelmingly
+ * common case where nothing was backdated.
+ *
+ * `new Date(y, m-1, d)` (not `new Date(dateOnlyString)`) for the backdated
+ * branch — a bare "YYYY-MM-DD" string parses as UTC midnight per spec,
+ * which rolls back to the previous LOCAL day for any IST (UTC+5:30) user,
+ * the same class of bug todayDateString()'s own header documents.
+ *
+ * @param {string} dateOnlyString — YYYY-MM-DD, e.g. from the form field
+ * @returns {Date}
+ */
+export function resolveDocumentDateTime(dateOnlyString) {
+  if (dateOnlyString === todayDateString()) return new Date();
+  const [yyyy, mm, dd] = dateOnlyString.split('-').map(Number);
+  return new Date(yyyy, mm - 1, dd);
+}
+
 // Five distinct display styles, each its own named export (a list row's
 // compact "8 Sep" vs. a detail sheet's full "08 Sep 2026" are genuinely
 // different contexts). "Missing" behavior differs by function ON PURPOSE —

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Ban } from 'lucide-react';
 
 import BottomSheet from '@/components/shared/BottomSheet';
 import { sumRealGst } from '@/lib/gst';
@@ -29,9 +29,11 @@ function Row({ label, value, bold, border }) {
 }
 
 const STATUS_LABELS = {
-  paid:    'Paid',
-  partial: 'Partially Paid',
-  due:     'Payment Due',
+  paid:      'Paid',
+  partial:   'Partially Paid',
+  due:       'Payment Due',
+  cancelled: 'Cancelled',
+  draft:     'Draft',
 };
 
 function OrderContent({ raw, status }) {
@@ -185,15 +187,23 @@ export default function OrderDetailSheet({ order, isOpen, onClose }) {
   // Only show cancel for orders with an outstanding balance, and only for
   // the 'order' document type — this sheet also renders Invoice-origin rows
   // (see useAllOrders), which must not be cancelled via the Order endpoint.
+  //
+  // Also requires order.status !== 'cancelled' — reported directly
+  // (2026-10-05): OrnaVerse doesn't zero out balance_amount on cancel, so
+  // without this check the button stayed visible after a successful cancel
+  // and clicking it again just failed with "order is already cancelled".
+  const isCancelled = order?.status === 'cancelled';
   const isCancellable = !!(
-    raw && order?.documentType !== 'invoice' &&
+    raw && order?.documentType !== 'invoice' && !isCancelled &&
     (raw.balance_amount ?? 0) > 0 && raw.transaction_id
   );
 
   // Fulfillment doesn't require an outstanding balance (an order can be
   // fully paid and still await a made-to-order piece); same document-type
-  // guard as Cancel.
-  const isFulfillable = !!(raw && order?.documentType !== 'invoice' && raw.transaction_id);
+  // guard as Cancel. Also excludes cancelled orders — found live (2026-10-05)
+  // alongside the Cancel-button bug: a cancelled order still showed "Fulfill
+  // from Order", same root cause (no status check).
+  const isFulfillable = !!(raw && order?.documentType !== 'invoice' && !isCancelled && raw.transaction_id);
 
   const handleConfirmCancel = async () => {
     if (!raw?.transaction_id) return;
@@ -223,6 +233,13 @@ export default function OrderDetailSheet({ order, isOpen, onClose }) {
           />
 
           {isFulfillable && <FulfillOrderAction raw={raw} />}
+
+          {isCancelled && (
+            <div className="rounded-xl border border-border bg-muted/40 p-3 flex items-center gap-2 text-sm text-muted-foreground">
+              <Ban size={16} className="shrink-0" aria-hidden="true" />
+              This order has been cancelled.
+            </div>
+          )}
 
           {isCancellable && !showCancelConfirm && (
             <Button

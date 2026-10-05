@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 
 const CONFIG = {
   settled:   { label: 'Paid',      classes: 'bg-status-in-stock/10 text-status-in-stock ring-1 ring-status-in-stock/20' },
+  completed: { label: 'Completed', classes: 'bg-status-in-stock/10 text-status-in-stock ring-1 ring-status-in-stock/20' },
   partial:   { label: 'Partial',   classes: 'bg-status-made-order/10 text-status-made-order ring-1 ring-status-made-order/20' },
   overdue:   { label: 'Due',       classes: 'bg-status-error/10 text-status-error ring-1 ring-status-error/20' },
   pending:   { label: 'Pending',   classes: 'bg-muted text-muted-foreground ring-1 ring-border' },
@@ -20,6 +21,16 @@ export function mapScheduleStatus(raw) {
 }
 export function mapReturnStatus(raw) {
   return { refunded: 'settled', partial: 'partial', pending: 'pending' }[raw] ?? 'pending';
+}
+// document_status: 0 Draft / 1 Posted / 2 Cancelled — same Serenity-wide
+// convention as deriveDocumentStatus (useCustomerOrders.js), but these
+// transaction types (Return/Refund/Exchange/Buyback/Credit Note/URD) have
+// no partial/due balance state, so Posted just reads as "Completed".
+export function mapTransactionStatus(documentStatus) {
+  if (documentStatus == null) return null;
+  if (documentStatus === 2) return 'cancelled';
+  if (documentStatus === 0) return 'draft';
+  return 'completed';
 }
 
 export default function PaymentStatusBadge({ status, labelOverride, size = 'md' }) {

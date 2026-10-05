@@ -10,6 +10,7 @@ import {
 }                        from '@/services/transactionService';
 import { QUERY_KEYS }    from '@/constants/queryKeys';
 import APP_CONFIG        from '@/constants/appConfig';
+import { mapTransactionStatus } from '@/components/shared/PaymentStatusBadge';
 
 function isNA(v) {
   return v === null || v === undefined || v === 'NA' || v === '';
@@ -30,6 +31,7 @@ export function normalizeTransaction(entity) {
     // RefundRow has no net_amount field — it uses total_amount instead.
     amount:        get(entity, 'net_amount') ?? get(entity, 'total_amount'),
     companyId:     get(entity, 'company_id') ?? get(entity, 'current_company_id'),
+    status:        mapTransactionStatus(get(entity, 'document_status')),
     raw: entity,
   };
 }
