@@ -1,9 +1,3 @@
-// Paginated list hooks for all 6 POS transaction types (Returns, Refunds,
-// Credit Notes, Exchange, Buyback, URD Purchase). Each hook follows the same
-// pattern: useQuery keyed by QUERY_KEYS.[TYPE].LIST(params), guarded on
-// storeId, returning { items[], totalCount, take, isLoading, isFetching,
-// isError, refetch }.
-
 import { useQuery }      from '@tanstack/react-query';
 import { useSelector }   from 'react-redux';
 import {
@@ -16,9 +10,6 @@ import {
 }                        from '@/services/transactionService';
 import { QUERY_KEYS }    from '@/constants/queryKeys';
 import APP_CONFIG        from '@/constants/appConfig';
-
-// Maps raw API transaction row → consistent display shape used by
-// TransactionListRow. "NA" string values from OrnaVerse are treated as null.
 
 function isNA(v) {
   return v === null || v === undefined || v === 'NA' || v === '';
@@ -42,9 +33,6 @@ export function normalizeTransaction(entity) {
     raw: entity,
   };
 }
-
-// Builds a useQuery hook for a given transaction type. Not exported —
-// consumed internally by the named hooks below.
 
 function makeTransactionListHook({ queryKeyFn, fetchFn }) {
   return function useTransactionList({ skip = 0, enabled = true } = {}) {

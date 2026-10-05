@@ -1,6 +1,3 @@
-// TanStack Query hooks for category filter data. Service functions return
-// response.data directly (not the Axios wrapper): { Entities: [], ... }
-
 import { useQuery }                              from '@tanstack/react-query';
 import { getCategories, getSubTypes, getItemGroups } from '@/services/categoryService';
 import { QUERY_KEYS }                            from '@/constants/queryKeys';

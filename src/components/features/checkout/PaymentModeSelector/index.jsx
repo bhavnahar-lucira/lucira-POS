@@ -1,9 +1,5 @@
 'use client';
 
-// Icon-on-top payment mode tiles. The mode set is fully data-driven from
-// usePaymentModes; the icon is a cosmetic lookup by mode_code with a
-// generic fallback, so an unmapped mode is never hidden.
-
 import { Loader2, CreditCard, Check, Smartphone, Banknote, Landmark, Wallet, Calculator, Coins } from 'lucide-react';
 import APP_CONFIG from '@/constants/appConfig';
 
@@ -19,8 +15,6 @@ const ICON_BY_CODE = {
 };
 
 function iconFor(mode) {
-  // Checked by modeType first, not modeCode — Loyalty's mode_code differs
-  // by environment ("Nector" on UAT vs "NectorLoyalty" on LIVE).
   if (mode.modeType === APP_CONFIG.PAYMENT_MODES.LOYALTY_MODE_TYPE) return Coins;
   const key = (mode.modeCode ?? '').toUpperCase().replace(/[^A-Z]/g, '');
   return ICON_BY_CODE[key] ?? CreditCard;
@@ -36,11 +30,6 @@ function iconFor(mode) {
  *   disabledModeIds?: number[],
  *   disabledReasons?: Record<number, string>,
  * }} props
- *   disabledModeIds/disabledReasons — a fetched-but-currently-unusable mode
- *   (Nector Loyalty with no eligible redemption right now) renders greyed
- *   out with its reason as a tooltip, rather than being hidden — the mode
- *   is real and fetched from OrnaVerse either way, only its usability
- *   depends on this specific customer/cart.
  */
 export default function PaymentModeSelector({
   paymentModes,
@@ -75,11 +64,6 @@ export default function PaymentModeSelector({
   }
 
   return (
-    // Reported directly: side-by-side like before, not stacked — auto-fit
-    // (rather than a fixed grid-cols-3) is what actually fixes the original
-    // complaint, a half-empty trailing row when the mode count isn't a
-    // multiple of 3 — each row's tiles now stretch to fill the full width
-    // evenly no matter how many land in it.
     <div className="grid grid-cols-[repeat(auto-fit,minmax(90px,1fr))] gap-2">
       {paymentModes.map((mode) => {
         const isSelected = selectedModeIds.includes(mode.modeId);

@@ -1,11 +1,3 @@
-// src/lib/analytics/pageType.js
-//
-// Route-prefix -> semantic page type (2026-09-28, explicit direction) — so
-// PAGE_VIEW events can be segmented by "what kind of screen was this"
-// (checkout, catalog, product_detail, ...) instead of only the raw
-// pathname. Longer/more specific prefixes are listed before their shorter
-// parents (e.g. '/customers/' before '/customers') since getPageType below
-// returns on the FIRST match.
 const ROUTES = [
   ['/products/',        'product_detail'],
   ['/customers/',       'customer_profile'],

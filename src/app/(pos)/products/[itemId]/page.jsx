@@ -1,10 +1,5 @@
 'use client';
 
-// Product detail screen — split panel with sticky add-to-cart bar, image
-// zoom, and trust/certification sections. Pricing and stock status are
-// always resolved live (see useVariantPricing/useStockByStores usage below)
-// rather than read from stale catalog snapshot fields.
-
 import { Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { useSelector } from 'react-redux';
@@ -151,13 +146,10 @@ function ProductDetailScreen() {
   const isSelectedVariantMTO = !!selectedVariant &&
     (selectedVariant._isMTO || (selectedVariant.pieces ?? 0) === 0);
     
-  // customization instead of freezing on the base product.
   const stockStatus = selectedVariant
     ? (isSelectedVariantMTO ? 'out_stock' : 'in_stock')
     : baseStockStatus;
-
-  // Karat/color/size + SKU for whichever item is active — feeds the
-  // always-visible "product details" block below the price.
+    
   const na = (v) => (v && v !== 'NA' ? v : null);
   const activeKarat = na(activeItem?.karat_name);
   const activeColor = na(activeItem?.metal_color_name);
@@ -166,8 +158,6 @@ function ProductDetailScreen() {
     [activeKarat, activeColor].filter(Boolean).join(' · ') +
     (activeSize ? ` · Size ${activeSize}` : '');
   const activeCode = activeItem?.item_code ?? null;
-
-  // Copy-to-clipboard for the SKU line.
   const [skuCopied, setSkuCopied] = useState(false);
   const skuCopyTimeoutRef = useRef(null);
   useEffect(() => () => clearTimeout(skuCopyTimeoutRef.current), []);
@@ -327,8 +317,7 @@ function ProductDetailScreen() {
                 <h1 className="font-heading text-xl text-foreground leading-snug md:text-3xl">
                   {product.item_name ?? 'Product'}
                 </h1>
-
-                {/* Click smooth-scrolls to Customer Reviews at the bottom; hidden when there are none. */}
+                
                 <ProductReviewSummaryLink shopifyProductId={externalProductId} />
               </div>
 
@@ -340,9 +329,7 @@ function ProductDetailScreen() {
                 />
               )}
             </div>
-
-            {/* No strikethrough/"% OFF": compare_price is a stale master field —
-                showing a discount against a mismatched figure is worse than none. */}
+            
             <div>
               <div className="flex items-baseline gap-2">
                 {pricingLoading ? (
@@ -361,8 +348,6 @@ function ProductDetailScreen() {
                     </button>
                   </p>
                 ) : (
-                  // Server prices this at 0 (currently every Silver925 item on
-                  // this tenant — OrnaVerse's own POS also totals it at 0).
                   <p className="text-sm font-medium text-status-made-order">
                     Price not available for this option — needs costing before it can be sold
                   </p>
@@ -480,8 +465,7 @@ function ProductDetailScreen() {
                 </button>
               </p>
             )}
-
-            {/* Hidden once the confirmed customization is Made to Order (no real stock anywhere to report). */}
+            
             {!isSelectedVariantMTO && (
               <CrossStoreStockPanel
                 storeStocks={storeStocks}
@@ -503,15 +487,13 @@ function ProductDetailScreen() {
         <ProductStorySection body={shopifyDescription} isLoading={imagesLoading} product={product} />
 
         <ProductSpecifications product={activeItem} pricedItem={livePricing} />
-
-        {/* Reuses externalProductId already resolved for Shopify images — no extra OrnaVerse calls. */}
+        
         <ProductReviewsList shopifyProductId={externalProductId} />
         
         <SimilarProductsCarousel product={product} activeStoreId={activeStoreId} />
 
-        <ProductTrustSection />        
-
-        {/* Only ever populated for an attached customer — see useRecordProductView above. */}
+        <ProductTrustSection /> 
+        
         <RecentlyViewedCarousel excludeItemId={product.item_id} />
 
       </div>

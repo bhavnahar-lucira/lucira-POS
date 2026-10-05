@@ -1,5 +1,3 @@
-// Cross-store stock breakdown for a product.
-
 import { useQuery } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 import APP_CONFIG from '@/constants/appConfig';
@@ -37,8 +35,6 @@ export function useStockByStores(itemId) {
     },
   });
 
-  // isError/refetch surfaced explicitly — a failed fetch must never be
-  // indistinguishable from a genuine zero-stock result to callers.
   return {
     data:      query.data,
     isLoading: query.isLoading,

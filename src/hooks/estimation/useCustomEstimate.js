@@ -1,6 +1,3 @@
-// Data hooks for the Custom Estimate line-item builder — see
-// customEstimateService.js for the confirmed-live contract each of these wraps.
-
 import { useQuery } from '@tanstack/react-query';
 import {
   getCustomEstimateItems, getItemSizesByType, getStoneTypeDetails,

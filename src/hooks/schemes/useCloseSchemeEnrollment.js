@@ -1,6 +1,3 @@
-// Records a calculated closure benefit against a scheme enrollment — see
-// closeSchemeEnrollment in schemeService.js for exactly what it writes.
-
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { closeSchemeEnrollment } from '@/services/schemeService';

@@ -1,8 +1,3 @@
-// SKU search across URD-eligible catalogue items, scoped to a Jewellery/Metal
-// category (see itemService.URD_CATEGORY) — used by the URD Purchase item
-// picker. See itemService.searchURDItems for why this hits a different
-// endpoint/param shape than the generic master search.
-
 import { useQuery } from '@tanstack/react-query';
 import { searchURDItems } from '@/services/itemService';
 import { QUERY_KEYS } from '@/constants/queryKeys';

@@ -1,11 +1,3 @@
-// src/hooks/checkout/useBankPosAccounts.js
-// Fetch bank/POS accounts a bank-settled payment can be deposited against.
-// Cached for STALE_TIME.STATIC (30 min) — same bucket as usePaymentModes,
-// bank accounts change about as rarely as payment modes do.
-//
-// Confirmed BankPosAccountRow fields (live UAT 2026-08-13):
-//   id, code, name, ledger_id, company_id
-
 import { useQuery } from '@tanstack/react-query';
 import { getBankPosAccounts } from '@/services/settingsService';
 import { QUERY_KEYS } from '@/constants/queryKeys';

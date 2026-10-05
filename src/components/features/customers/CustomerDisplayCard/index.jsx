@@ -1,10 +1,5 @@
 'use client';
 
-// Compact customer summary card with PAN row and initials avatar. PAN is
-// shown in full, unmasked — OrnaVerse does not mask it server-side (see
-// report), so client-side masking would only hide real data staff already
-// have full access to.
-
 import { User, Mail, Phone, MapPin, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 

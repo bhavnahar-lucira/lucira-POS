@@ -1,8 +1,5 @@
 'use client';
 
-// Customize sheet — shown when user taps "Customize" on product detail.
-// Uses shared BottomSheet (bottom on mobile, side sheet on tablet).
-
 import { useState, useCallback, useMemo } from 'react';
 import { Store, Loader2 } from 'lucide-react';
 import BottomSheet from '@/components/shared/BottomSheet';
@@ -54,12 +51,6 @@ function LoadingSkeleton() {
 }
 
 // ── Stock status dot ──────────────────────────────────────────────────────────
-// Green dot = in stock, no dot at all otherwise (2026-08-23) — matches
-// lucirajewelry.com's own customize UI, confirmed against a real screenshot:
-// the site never marks a Made to Order option with any dot, it just leaves
-// it plain and lets the absence speak for itself. This used to also render
-// an amber dot for made_to_order, which read as a second, competing signal
-// next to the green one instead of matching the brand's plainer treatment.
 
 function StockDot({ status }) {
   if (status !== 'in_stock') return null;
@@ -188,18 +179,6 @@ export default function CustomizeSheet({
   const [selectedMetalColorId, setSelectedMetalColorId] = useState(null);
   const [selectedKaratId,      setSelectedKaratId]      = useState(null);
   const [selectedSizeId,       setSelectedSizeId]       = useState(null);
-
-  // Seed from product defaults every time the sheet opens.
-  // FIX: previously did this in a useEffect keyed on [isOpen], which React
-  // Compiler flags (setState-synchronously-in-effect risks a cascading
-  // render). This sheet stays mounted across open/close for its slide
-  // transition, so remounting via `key` (the fix used on the product
-  // detail page for the same class of problem) isn't an option here — it
-  // would break the close animation. Instead this uses React's documented
-  // "adjust state during render" pattern: track the previous isOpen in a
-  // plain useState and compare during render, calling setState only when
-  // the tracked value actually changes. This runs synchronously during
-  // render (not in an effect), so there's no extra render pass.
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
   if (isOpen !== prevIsOpen) {
     setPrevIsOpen(isOpen);
@@ -208,13 +187,6 @@ export default function CustomizeSheet({
       setSelectedMetalColorId(source?.metal_color_id ?? null);
       setSelectedKaratId(source?.karat_id             ?? null);
       setSelectedSizeId(source?.item_size_id          ?? null);
-
-      // ADDED 2026-09-08 — CUSTOMIZE_OPENED existed in events.js but had
-      // zero call sites anywhere (confirmed by audit) — opening this sheet
-      // went entirely untracked. Fired here, in the same render-time state
-      // adjustment already guarded against re-firing on every render (see
-      // this block's own comment above for why a useEffect isn't used).
-      // Base product only — no variant has been selected yet at this point.
       tracker.track(EVENTS.CUSTOMIZE_OPENED, buildProductAttributes({ product }));
     }
   }
@@ -231,10 +203,6 @@ export default function CustomizeSheet({
   const karatOk    = !hasKarats      || selectedKaratId      != null;
   const sizeOk     = !hasSizes       || selectedSizeId       != null;
   const allSelected = metalOk && karatOk && sizeOk;
-
-  // When no exact variant exists but user has selected all options,
-  // build a pseudo-variant from base product + selections.
-  // This enables Made-to-Order for any valid combination.
   const mtoFallback = useMemo(() => {
     if (exactVariant || !allSelected || !product) return null;
     const karatName      = karats.find((k) => k.id === selectedKaratId)?.name      ?? '';
@@ -259,26 +227,9 @@ export default function CustomizeSheet({
   // Use exact variant when available, MTO fallback otherwise
   const matchedVariant = exactVariant ?? mtoFallback;
   const canConfirm     = allSelected && !!matchedVariant;
-
-  // Single source of truth for "does the ACTIVE store itself have this
-  // matched variant" — matchedVariant.pieces is already patched by
-  // useDesignVariants to the active store's own stock count, never a
-  // network-wide total, so this is the one condition the badge, the card
-  // background, and the store-list copy below all key off — no more each
-  // repeating `matchedVariant._isMTO || (matchedVariant.pieces ?? 0) === 0`
-  // (or its inverse) slightly differently in three places.
   const matchedVariantInStockHere = !matchedVariant?._isMTO && (matchedVariant?.pieces ?? 0) > 0;
 
   // ── Live price for the matched variant ────────────────────────────────────
-  // Only for a real exact-variant match — the MTO fallback is a pseudo-item
-  // with no real item_components[] BOM, so there's nothing for
-  // SetSalesItems to price.
-  //
-  // Priced live REGARDLESS of item_rate. This used to fall back to the
-  // stored item_rate whenever it was non-zero; that rate understates the
-  // piece by 2-3x because it omits stone value (measured on UAT
-  // 2026-08-05), and this price flows into the cart. See
-  // catalogService.attachStaticPrice.
   const needsLivePricing = !!exactVariant;
   const {
     data:      livePricing,
@@ -286,32 +237,9 @@ export default function CustomizeSheet({
     isError:   pricingError,
     refetch:   refetchPricing,
   } = useVariantPricing(needsLivePricing ? exactVariant : null);
-  // No item_rate fallback: an unpriceable variant shows no price rather than
-  // a wrong one. Tax-inclusive (net_amount) — this is a pure preview label,
-  // not a cart-facing value (the parent page re-derives its own pricing off
-  // `sub_total` once this variant becomes active — see page.jsx), so it can
-  // freely match the customer-facing convention used everywhere else on the
-  // PDP (2026-09-29).
   const matchedVariantPrice = formatPrice(livePricing?.net_amount);
 
   // ── Other-store stock list for the currently matched variant ──────────────
-  // MTO (no real exact-variant match, or zero stock everywhere) always hides
-  // this — there's no store to point to. Recomputes on every selection
-  // change, so switching to a different variant updates/hides it live.
-  //
-  // ALWAYS excludes the active store itself (2026-08-22 fix). storesByItemId
-  // is built from the unfiltered stock rows (every company, not just the
-  // active one — see useDesignVariants.js), so before this filter, whenever
-  // the active store ALSO had stock it would appear in this same list right
-  // next to a GREEN "In Stock" badge that already said as much — redundant
-  // at best. Worse, when the active store had NONE (the badge reads amber
-  // "Made to Order"), the list still rendered as a bare "In stock at X" with
-  // nothing to say X wasn't the store the badge was talking about — read as
-  // a flat contradiction between the dot/badge and this line, even though
-  // both facts were individually correct. Excluding the active store here
-  // makes this list mean exactly one thing everywhere it's used: "elsewhere
-  // in the network," never "here too" — see the render below for the
-  // matching copy.
   const matchedVariantStores = useMemo(() => {
     if (!matchedVariant || matchedVariant._isMTO || matchedVariant.item_id == null) return [];
     const stores = storesByItemId.get(matchedVariant.item_id) ?? [];
@@ -351,13 +279,6 @@ export default function CustomizeSheet({
   const sizeValue = sizes.find((s) => s.id === selectedSizeId)?.name ?? null;
 
   const handleConfirm = () => {
-    // ADDED 2026-09-08 — CUSTOMIZE_CONFIRMED existed in events.js but had
-    // zero call sites anywhere (confirmed by audit). needsLivePricing/
-    // livePricing here is the SAME gating this sheet's own price display
-    // above uses (a real exact-variant match only — the MTO fallback has
-    // no real item_components BOM for SetSalesItems to price), so this
-    // event's price breakup is only ever populated when it's genuinely
-    // available, same as everywhere else on this sheet.
     tracker.track(EVENTS.CUSTOMIZE_CONFIRMED, buildProductAttributes({
       product,
       activeItem: matchedVariant,
@@ -385,11 +306,6 @@ export default function CustomizeSheet({
       ].join(' ')}
     >
       {canConfirm
-        // Plain "Confirm" (2026-08-23) — used to append the full selection
-        // as "Confirm — 14KT · Yellow Gold · Size 6.5 Inch", which is
-        // already shown just above in the matched-variant summary card and
-        // in the section labels next to each selector; repeating it here
-        // was the reason this button overflowed/wrapped in tablet width.
         ? 'Confirm'
         : !metalOk || !karatOk
           ? 'Select a colour and karat to continue'
@@ -414,19 +330,12 @@ export default function CustomizeSheet({
         <div className="flex flex-col gap-6">
 
           {hasMetalColors && hasKarats ? (
-            // No "🟢 In Stock" legend below the grid (removed 2026-08-23,
-            // along with the "Made to Order" line it originally paired
-            // with) — the brand site's own customize UI doesn't caption its
-            // dot either, and once there's only one dot meaning left it
-            // doesn't need a legend to be self-explanatory.
             <div className="flex flex-col gap-3">
               <SectionLabel
                 label="Select Gold Colour & Karat"
                 value={metalKaratValue}
               />
               <div className="grid grid-cols-3 gap-3">
-                {/* Karat-first ordering: all 14KT options (any colour)
-                    together, then all 18KT — not grouped by colour. */}
                 {karats.flatMap((karat) =>
                   metalColors.map((color) => {
                     const isSelected =
@@ -551,19 +460,12 @@ export default function CustomizeSheet({
                   ? `${matchedVariant.karat_name} · ${matchedVariant.metal_color_name}${matchedVariant.item_size_name ? ` · Size ${matchedVariant.item_size_name}` : ''}`
                   : <>
                       Item Code: {matchedVariant.item_code}
-                      {/* The real, scannable per-piece sku — only resolves
-                          once useVariantPricing above has actually priced a
-                          physical piece for this variant (never for MTO,
-                          which has none). item_code alone is what this line
-                          used to mislabel "SKU:". */}
                       {livePricing?.sku && <> · SKU: {livePricing.sku}</>}
                       {(matchedVariant.pieces ?? 0) > 0 && ` · ${matchedVariant.pieces} pc${matchedVariant.pieces !== 1 ? 's' : ''}`}
                     </>
                 }
               </p>
 
-              {/* Price for this exact variant — MTO has no real SKU to
-                  price, so this only ever shows for a real matched variant. */}
               {!matchedVariant._isMTO && (
                 needsLivePricing && pricingLoading ? (
                   <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground mt-1.5">
@@ -589,15 +491,7 @@ export default function CustomizeSheet({
                   </p>
                 )
               )}
-
-              {/* Other-store availability. matchedVariantStores never
-                  includes the active store (filtered in the useMemo above),
-                  so it always means "elsewhere in the network" — worded
-                  differently depending on whether the badge above already
-                  says "In Stock" (this is bonus info: also available
-                  elsewhere) or "Made to Order" (this is the contrast: not
-                  here, but there — see the useMemo comment for why this
-                  distinction matters). */}
+              
               {matchedVariantStores.length > 0 && (
                 matchedVariantInStockHere ? (
                   <div className="flex items-start gap-1.5 mt-2 pt-2 border-t border-status-in-stock/30">

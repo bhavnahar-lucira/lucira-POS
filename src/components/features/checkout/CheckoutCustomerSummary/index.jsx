@@ -1,9 +1,5 @@
 'use client';
 
-// Read-only customer summary for the checkout screen. Reads
-// useCustomerSession, shared with HeaderCustomerControl / CartCustomerTag.
-// Prompts the associate to attach a customer before order submission.
-
 import { useState } from 'react';
 import { AlertCircle, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';

@@ -1,10 +1,3 @@
-// Live price for a single item/variant — THE figure the customer is quoted.
-// Called for every item, never the stored item_rate (unreliable — see the
-// PRICING note in catalogService.js). This result becomes the cart's
-// unitPrice, so it must match what checkout collects: priceItemAsSold prices
-// the physical piece when the shelf has one, the master only for
-// made-to-order, keeping the two paths consistent.
-
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { priceItemAsSold } from '@/services/pricingService';
@@ -23,7 +16,6 @@ export function useVariantPricing(item) {
     queryKey: QUERY_KEYS.ITEMS.PRICING(item?.item_id, activeStoreId),
     queryFn: () => priceItemAsSold({ item, companyId: activeStoreId }),
     enabled: !!item?.item_id,
-    // Metal rates can change same-day — STOCK's short window keeps this live.
     staleTime: APP_CONFIG.STALE_TIME.STOCK,
   });
 }

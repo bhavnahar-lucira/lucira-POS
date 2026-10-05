@@ -1,7 +1,3 @@
-// Cascading location dropdowns: Countries -> States -> Cities, each level
-// enabled only once its parent is selected. Gated on isAuthenticated so
-// queries don't fire (and 401) before the auth token is ready.
-
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { getCountries, getStates, getCities } from '@/services/locationService';

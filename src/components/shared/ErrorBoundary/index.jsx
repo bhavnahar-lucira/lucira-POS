@@ -1,21 +1,5 @@
 'use client';
 
-// Reusable local error boundary (2026-09-28, reported: the Leads tab
-// crashing broke the whole page) — src/app/error.jsx already catches a
-// render crash for a WHOLE ROUTE, but that blanks everything on the page,
-// not just the one broken panel. This wraps a single risky panel (a tab,
-// a widget fed by a live third-party API) so a crash there shows a small
-// inline "something went wrong" card with a retry, while the rest of the
-// page — search bars, other tabs, navigation — keeps working.
-//
-// Must be a class component: componentDidCatch/getDerivedStateFromError
-// have no hook equivalent in React.
-//
-// `resetKey`: pass something that changes when the user picks a different
-// view (e.g. the active tab) — changing it remounts the boundary, so
-// switching away from and back to a broken tab doesn't stay stuck on the
-// old error state.
-
 import { Component } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';

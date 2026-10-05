@@ -1,8 +1,5 @@
 'use client';
 
-// Shown when the cart has no items. CTA navigates to the catalog
-// and (if used inside the drawer) closes the drawer first.
-
 import { useRouter } from 'next/navigation';
 import { ShoppingBag } from 'lucide-react';
 

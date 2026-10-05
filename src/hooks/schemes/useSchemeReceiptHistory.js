@@ -1,16 +1,8 @@
-// Payment (receipt) history for a single scheme enrollment.
-// SchemeReceipt/List returns { Entities: SchemeReceiptRow[] }, each row a
-// payment header with mode/ledger details nested under
-// scheme_receipt_details[] (same nesting used when creating a receipt — see
-// schemeService.js createSchemeReceipt).
-
 import { useQuery } from '@tanstack/react-query';
 import { getSchemeReceipts } from '@/services/schemeService';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 
 function normalizeReceipt(raw) {
-  // A receipt can (in theory) carry multiple mode splits — join names for
-  // display rather than assuming exactly one.
   const details  = raw.scheme_receipt_details ?? [];
   const modeName = details.map((d) => d.mode_name).filter(Boolean).join(', ') || null;
 

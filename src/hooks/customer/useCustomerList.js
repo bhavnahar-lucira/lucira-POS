@@ -1,6 +1,3 @@
-// src/hooks/customer/useCustomerList.js
-// Paginated customer directory for the active store — /customers page.
-
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { getCustomerList } from '@/services/customerService';

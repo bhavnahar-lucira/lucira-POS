@@ -1,10 +1,3 @@
-// src/constants/navItems.js
-//
-// Single source of truth for sidebar navigation config. Extracted out of
-// Sidebar/index.jsx so other pieces of the shell (e.g. Header's page-title
-// lookup) can reuse the same labels instead of maintaining a second,
-// duplicate list that could drift out of sync.
-
 import {
   LayoutDashboard,
   ShoppingBag,

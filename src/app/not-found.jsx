@@ -1,90 +1,56 @@
 'use client';
 
-// Root 404 — no AppShell (Sidebar/Header) wraps this route, so it's fully
-// self-contained. Built around the brand's gemstone motif: a spotlighted
-// gem that tilts toward the cursor and catches a gold-sheen shimmer, on
-// the theory that a "missing piece" fits a jewellery POS better than a
-// generic error screen. All animation is gated on useReducedMotion() —
-// the global CSS reduced-motion rule (globals.css) only zeroes out plain
-// CSS transitions/keyframes, not these JS-driven Motion values.
-
-import { useRef } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
 import Link from 'next/link';
-import {
-  motion, useMotionValue, useSpring, useTransform, useReducedMotion,
-} from 'motion/react';
 import { Gem, ArrowLeft, ShoppingBag } from 'lucide-react';
 import Diamond from '@/components/shared/icons/BrandDiamond';
 import { Button } from '@/components/ui/button';
 import { EASE_PREMIUM, DURATION } from '@/lib/motion';
 
-const SPARKLES = [
-  { top: '4%',  left: '10%', size: 14, delay: 0 },
-  { top: '14%', left: '84%', size: 10, delay: 0.6 },
-  { top: '70%', left: '88%', size: 16, delay: 1.2 },
-  { top: '80%', left: '8%',  size: 11, delay: 1.8 },
-  { top: '2%',  left: '52%', size: 9,  delay: 2.4 },
+const STONES = [
+  { Icon: Diamond, size: 30, top: '2%',  left: '14%', duration: 5.5, delay: 0,   rotate: -14 },
+  { Icon: Gem,     size: 56, top: '18%', left: '46%', duration: 6.5, delay: 0.4, rotate: 10  },
+  { Icon: Diamond, size: 22, top: '6%',  left: '76%', duration: 4.8, delay: 0.9, rotate: 18  },
 ];
 
-function GemSpotlight({ reduceMotion }) {
-  const ref = useRef(null);
-  const mvX = useMotionValue(0);
-  const mvY = useMotionValue(0);
-  const rotateX = useSpring(useTransform(mvY, [-1, 1], [14, -14]), { stiffness: 200, damping: 20 });
-  const rotateY = useSpring(useTransform(mvX, [-1, 1], [-14, 14]), { stiffness: 200, damping: 20 });
-
-  function handleMouseMove(e) {
-    if (reduceMotion || !ref.current) return;
-    const rect = ref.current.getBoundingClientRect();
-    mvX.set(((e.clientX - rect.left) / rect.width) * 2 - 1);
-    mvY.set(((e.clientY - rect.top) / rect.height) * 2 - 1);
-  }
-
-  function handleMouseLeave() {
-    mvX.set(0);
-    mvY.set(0);
-  }
-
+function ScatteredStones({ reduceMotion }) {
   return (
-    <div
-      ref={ref}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-      className="relative flex h-44 w-44 items-center justify-center rounded-full bg-gradient-to-br from-brand-blush via-brand-cream to-transparent shadow-lg sm:h-52 sm:w-52"
-      style={{ perspective: 700 }}
-    >
-      {SPARKLES.map((s, i) => (
-        <motion.span
+    <div className="relative h-28 w-72" aria-hidden="true">
+      {STONES.map(({ Icon, size, top, left, duration, delay, rotate }, i) => (
+        <motion.div
           key={i}
-          className="absolute text-accent"
-          style={{ top: s.top, left: s.left }}
-          animate={reduceMotion ? undefined : { opacity: [0, 1, 0], scale: [0.6, 1.15, 0.6] }}
-          transition={reduceMotion ? undefined : {
-            duration: 2.4, repeat: Infinity, delay: s.delay, ease: 'easeInOut',
+          className="absolute text-accent drop-shadow-sm"
+          style={{ top, left }}
+          initial={reduceMotion ? undefined : { opacity: 0, y: -16, rotate: 0 }}
+          animate={reduceMotion ? { opacity: 1 } : {
+            opacity: 1,
+            y: [0, -10, 0],
+            rotate: [rotate, rotate + 8, rotate],
           }}
-          aria-hidden="true"
+          transition={reduceMotion ? { duration: 0.4 } : {
+            opacity: { duration: 0.6, delay },
+            y:      { duration, repeat: Infinity, ease: 'easeInOut', delay },
+            rotate: { duration, repeat: Infinity, ease: 'easeInOut', delay },
+          }}
         >
-          <Diamond size={s.size} fill="currentColor" />
-        </motion.span>
+          <Icon size={size} strokeWidth={1.25} fill={Icon === Diamond ? 'currentColor' : 'none'} />
+        </motion.div>
       ))}
-
-      {!reduceMotion && (
-        <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-full" aria-hidden="true">
-          <motion.div
-            className="absolute -inset-y-6 w-1/3 -skew-x-12 bg-grad-gold-sheen opacity-60"
-            animate={{ x: ['-140%', '240%'] }}
-            transition={{ duration: 2.6, repeat: Infinity, repeatDelay: 1.8, ease: 'easeInOut' }}
-          />
-        </div>
-      )}
-
-      <motion.div
-        style={reduceMotion ? undefined : { rotateX, rotateY }}
-        transition={{ duration: DURATION.standard, ease: EASE_PREMIUM }}
-      >
-        <Gem size={72} strokeWidth={1.25} className="text-primary drop-shadow-sm" aria-hidden="true" />
-      </motion.div>
     </div>
+  );
+}
+
+function GemWatermark({ reduceMotion }) {
+  return (
+    <motion.div
+      className="pointer-events-none absolute left-1/2 top-1/2 text-primary"
+      style={{ x: '-50%', y: '-50%' }}
+      animate={reduceMotion ? undefined : { rotate: 360 }}
+      transition={reduceMotion ? undefined : { duration: 90, repeat: Infinity, ease: 'linear' }}
+      aria-hidden="true"
+    >
+      <Gem size={620} strokeWidth={0.5} className="opacity-[0.05]" />
+    </motion.div>
   );
 }
 
@@ -95,10 +61,11 @@ export default function NotFound() {
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background px-6 py-16 text-center">
       <div className="pointer-events-none absolute inset-0 bg-grad-corner-wash" aria-hidden="true" />
+      <GemWatermark reduceMotion={reduceMotion} />
 
-      <div className="relative flex flex-col items-center gap-8">
+      <div className="relative flex flex-col items-center gap-6">
         <motion.div {...fadeUp} transition={{ duration: DURATION.panel, ease: EASE_PREMIUM }}>
-          <GemSpotlight reduceMotion={reduceMotion} />
+          <ScatteredStones reduceMotion={reduceMotion} />
         </motion.div>
 
         <motion.div
@@ -107,7 +74,7 @@ export default function NotFound() {
           transition={{ duration: DURATION.panel, ease: EASE_PREMIUM, delay: 0.1 }}
         >
           <h1
-            className="animate-shimmer-text bg-clip-text text-7xl font-bold tracking-tight text-transparent"
+            className="animate-shimmer-text bg-clip-text text-8xl font-bold tracking-tight text-transparent"
             style={{
               backgroundImage: 'linear-gradient(100deg, var(--primary) 20%, var(--accent) 45%, var(--status-made-order) 60%, var(--primary) 85%)',
             }}
@@ -115,7 +82,7 @@ export default function NotFound() {
             404
           </h1>
           <p className="text-lg font-medium text-foreground">
-            This piece isn&apos;t in our display case.
+            A few stones have come loose.
           </p>
           <p className="max-w-sm text-sm text-muted-foreground">
             The page you&apos;re looking for may have been moved, renamed, or doesn&apos;t exist.

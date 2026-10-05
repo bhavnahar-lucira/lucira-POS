@@ -1,12 +1,5 @@
 'use client';
 
-// Compact recent-activity panel for the dashboard — 4 tabs (MTO / Invoice /
-// Return / URD), one per real OrnaVerse document type, reported directly
-// (2026-09-30): the old single merged list gave no way to tell what kind of
-// document a row actually was at a glance. Status badge is the shared
-// PaymentStatusBadge (src/components/shared/PaymentStatusBadge) so status
-// colors stay consistent with the /orders page.
-
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Inbox, PackagePlus, Receipt, RotateCcw, Coins } from 'lucide-react';
@@ -15,10 +8,6 @@ import PillTabs from '@/components/shared/PillTabs';
 import PaymentStatusBadge, { mapOrderStatus } from '@/components/shared/PaymentStatusBadge';
 import OrderDetailSheet from '@/components/features/orders/OrderDetailSheet';
 
-// viewAllHref/emptyLabel per tab — each points at the ONE real page that
-// actually owns that document type's full list, not a shared/mixed one, so
-// "View all" never lands the operator somewhere showing a different mix of
-// documents than what this tab just showed them.
 const TABS = [
   {
     key: 'mto', label: 'MTO', icon: PackagePlus,
@@ -46,7 +35,6 @@ function getInitials(name) {
   return (first + last).toUpperCase();
 }
 
-// Formats a row's own date as "Today, h:mm AM/PM", or a plain date otherwise.
 function formatTimestamp(iso) {
   if (!iso) return null;
   const d = new Date(iso);
@@ -57,12 +45,6 @@ function formatTimestamp(iso) {
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 
-// MTO/Invoice rows (useAllOrders/normalizeCustomerOrder) and Return/URD rows
-// (useTransactionLists/normalizeTransaction) carry DIFFERENT field names for
-// the same concepts (orderNo/orderDate/totalAmount vs documentNo/
-// documentDate/amount) — mapped here into ONE shape so the same row
-// renderer works for every tab, rather than four near-identical branches
-// that could quietly drift apart.
 function toDisplayRow(item, tabKey) {
   if (tabKey === 'return' || tabKey === 'urd') {
     return {
@@ -137,13 +119,7 @@ export default function RecentOrdersList({
   const itemsByTab = { mto: mtoOrders, invoice: invoices, return: returns, urd: urdPurchases };
   const activeItems = itemsByTab[activeTab] ?? [];
   const activeTabConfig = TABS.find((t) => t.key === activeTab) ?? TABS[0];
-
-  // Was routing every click straight to the generic /orders list, ignoring
-  // which row was actually clicked (reported directly, 2026-09-29) — opens
-  // the SAME sheet /orders itself uses, in place, instead. Return/URD have
-  // no equivalent lightweight sheet yet — their own full detail view lives
-  // inline in /transactions, so a click there navigates to it directly
-  // rather than duplicating that view here.
+  
   const handleSelect = (item) => {
     if (activeTab === 'return' || activeTab === 'urd') {
       router.push(activeTabConfig.viewAllHref);

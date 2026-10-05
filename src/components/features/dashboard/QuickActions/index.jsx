@@ -20,18 +20,10 @@ import { cn } from '@/lib/utils';
 import { useBarcodeLookup } from '@/hooks/catalog/useBarcodeLookup';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
 
-// Code-split — pulls in @zxing/browser, only needed once the operator
-// actually opens the scanner (same lazy pattern as ProductSearchBar's own).
 const BarcodeScannerModal = dynamic(
   () => import('@/components/features/catalog/BarcodeScannerModal'),
   { ssr: false }
 );
-
-// All six transaction types route to the single /transactions page, which
-// deep-links via ?tab=<id>. &new=1 additionally opens straight into that
-// tab's "New" entry form — these buttons are labeled as actions ("New
-// Return", "Refund", "Credit Note"...), not "go look at the Returns tab", so
-// landing on the plain list defeated the point (reported directly, 2026-09-29).
 
 const QUICK_ACTIONS = [
   {
@@ -47,8 +39,6 @@ const QUICK_ACTIONS = [
     label:       'Scan Barcode',
     description: 'Look up a product',
     icon:        ScanLine,
-    // No href — opens the camera scanner directly (see QuickActionGrid's
-    // `kind: 'scan'` handling below) instead of navigating anywhere first.
     kind:        'scan',
     accent:      'bg-card text-foreground border border-border shadow-sm hover:shadow-md hover:border-accent/40 hover:text-accent',
   },

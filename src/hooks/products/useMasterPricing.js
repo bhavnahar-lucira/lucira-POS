@@ -1,7 +1,3 @@
-// Master (nominal-spec) price for one item — the rate a Made to Order
-// shortfall actually bills at, distinct from useVariantPricing's real-piece
-// price. Only needed once a requested quantity exceeds available stock.
-
 import { useQuery } from '@tanstack/react-query';
 import { priceItemAsMaster } from '@/services/pricingService';
 import { QUERY_KEYS } from '@/constants/queryKeys';

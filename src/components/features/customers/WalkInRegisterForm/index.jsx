@@ -1,11 +1,5 @@
 'use client';
 
-// Real WalkIn/Register form — a CRM lead (customer_id), not a billing
-// customer. Deliberately NOT a variant of NewCustomerForm: the two shapes
-// only overlap on name + mobile (see crmService.js's header for the real
-// field list) — this form is lead-qualification detail (source/interest/
-// budget/notes), not KYC.
-
 import { useEffect } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { useSelector } from 'react-redux';
@@ -32,8 +26,6 @@ import { useCountries, useStates, useCities } from '@/hooks/settings/useLocation
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import { todayDateString } from '@/lib/dateUtils';
 
-// Same enums NewCustomerForm already uses for a real customer — OrnaVerse's
-// own WalkIn/Register form uses the identical gender/marital_status values.
 const GENDER_OPTIONS = [
   { value: 1, label: 'Male' },
   { value: 2, label: 'Female' },
@@ -83,10 +75,6 @@ export default function WalkInRegisterForm({ defaultMobile = '', onRegistered })
       : [...interest, typeId]);
   };
 
-  // CAPTURED VERBATIM from OrnaVerse's own WalkIn form (2026-09-30, partial
-  // fill): a field left blank is OMITTED from the request entirely, never
-  // sent as null/''. Mirrored here — see crmService.js's own header for the
-  // full captured payload this confirms.
   const onSubmit = async (values) => {
     const { mobile, phone, ...rest } = values;
     const cleaned = Object.fromEntries(

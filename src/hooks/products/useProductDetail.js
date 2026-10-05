@@ -1,6 +1,3 @@
-// Fetches a single item's full detail from Items/Retrieve.
-// OrnaVerse /Retrieve endpoints always wrap single records in Entity (not Entities).
-
 import { useQuery } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 import APP_CONFIG from '@/constants/appConfig';

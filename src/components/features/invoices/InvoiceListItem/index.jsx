@@ -1,8 +1,5 @@
 'use client';
 
-// Invoice number sourced from invoice.raw.document_no (confirmed from
-// InvoiceDetailSheet). Design mirrors OrderListItem card layout.
-
 import { User, Calendar, Store, Phone, Mail } from 'lucide-react';
 import ListItemCard from '@/components/shared/ListItemCard';
 import { formatDateSlashed } from '@/lib/dateUtils';

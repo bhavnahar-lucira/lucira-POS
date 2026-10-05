@@ -1,17 +1,5 @@
 'use client';
 
-// Settings — was a single Metal Rate entry form pretending to be a whole
-// settings screen. Tax config, payment-mode config, and reason codes all
-// had working read endpoints already sitting unused in the service layer
-// (settingsService.js) — this exposes them as read-only reference tabs.
-// "Read-only" isn't a shortcut taken here: there is no write endpoint for
-// any of these three in the API at all (they're configured in OrnaVerse's
-// own back-office admin, not the POS) — showing them for reference is the
-// most this screen can honestly offer.
-//
-// Two of the four new tabs surface real, confirmed-live problems rather
-// than hiding them — see useReasonCodes/useTaxes headers.
-
 import { Suspense, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { useForm, Controller } from 'react-hook-form';
@@ -279,9 +267,6 @@ function ReasonCodesTab() {
   const { reasonCodes, isLoading, isError, refetch } = useReasonCodes();
 
   if (isLoading) return <InlineLoader className="py-12" label="Loading reason codes…" />;
-  // CONFIRMED BROKEN server-side 2026-08-14 (see useReasonCodes header) —
-  // this tab's error state is expected to show right now on every store,
-  // not a bug introduced by adding this tab.
   if (isError) {
     return (
       <ErrorState

@@ -1,13 +1,5 @@
 'use client';
 
-// Enroll the currently-attached customer into a jewellery savings scheme.
-//
-// Requires a customer to be attached to the session (header control).
-// Staff picks a scheme — amount/tenure prefill from the scheme's own
-// defaults (still editable) and a live payment-plan preview renders below,
-// mirroring OrnaVerse's own Scheme Enrollment screen — optionally adds a
-// nominee, then submits.
-
 import { Suspense, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSelector } from 'react-redux';
@@ -86,35 +78,15 @@ function EnrollScreen() {
   const watchedTenure      = watch('tenure');
   const watchedDocumentDate = watch('document_date');
   const selectedScheme  = schemes.find((s) => s.scheme_id === Number(watchedSchemeId));
-
-  // ADDED 2026-09-08 — the amount field prefills from the scheme's own
-  // default (see the effect below) but was still fully freeform after
-  // that: nothing stopped staff from typing in a SMALLER monthly amount
-  // than the scheme actually defines. Enforced here, not in enrollSchema's
-  // static Zod shape — the minimum depends on selectedScheme, which is
-  // derived from the picked scheme_id, not something a static schema can
-  // reference; gating the submit button (below) plus this warning is a
-  // complete, simpler equivalent to a schema-level refinement here.
   const isBelowMinimumAmount = !!selectedScheme
     && selectedScheme.scheme_amount != null
     && Number(watchedAmount) > 0
     && Number(watchedAmount) < selectedScheme.scheme_amount;
-
-  // Prefill amount/tenure from the scheme's own defaults — mirrors OrnaVerse's
-  // own Scheme Enrollment screen, which loads these the moment a scheme is
-  // picked instead of leaving staff to type in numbers the scheme already
-  // defines (SchemesRow.scheme_amount / .tenure, confirmed live — see
-  // Lucira_Scheme_Module_Documentation.md §2). Still editable after prefill.
   useEffect(() => {
     if (!selectedScheme) return;
     if (selectedScheme.scheme_amount != null) setValue('scheme_amount', selectedScheme.scheme_amount);
     if (selectedScheme.tenure != null)        setValue('tenure', selectedScheme.tenure);
   }, [selectedScheme, setValue]);
-
-  // Live payment-plan preview — same month-by-month schedule that gets sent
-  // as scheme_monthly_details[] on submit, so staff see it before committing
-  // instead of only after (mirrors OrnaVerse's own live preview once amount/
-  // tenure/date are filled in).
   const monthlyPreview = useMemo(() => {
     const amount = Number(watchedAmount);
     const tenure = Number(watchedTenure);
@@ -124,15 +96,7 @@ function EnrollScreen() {
 
   const onSubmit = async (data) => {
     if (!customerId || !selectedScheme) return;
-    // Defensive — the submit button is already disabled in this state
-    // (isBelowMinimumAmount above); this just guards the same rule at the
-    // actual submit path too, in case the two ever fall out of sync.
     if (isBelowMinimumAmount) return;
-
-    // FIXED 2026-09-16 — mirrors ReceiptSheet.prepareSubmit's own gate
-    // (schemes/page.jsx). Without this, submitting while the financial-year
-    // lookup was still loading (or had genuinely failed) sent
-    // financial_year_id: undefined with no warning at all.
     if (!headerConfig.isReady) {
       if (headerConfig.isError) headerConfig.refetch();
       toast.error(
@@ -156,51 +120,27 @@ function EnrollScreen() {
       scheme_id:     Number(data.scheme_id),
       scheme_amount: schemeAmount,
       tenure:        tenure,
-      // Required by OrnaVerse (400: "Scheme Amount field is required!" / total_amount).
-      // Total principal committed over the full tenure — monthly amount × months.
       total_amount:  schemeAmount * tenure,
       document_date: data.document_date,
-      // scheme_status: 1 (active) — confirmed sent explicitly on Create, not
-      // left for the server to default (Lucira_Scheme_Module_Documentation.md §4).
       scheme_status: 1,
-      // scheme_monthly_details[] — confirmed the client MUST build and send
-      // this (was previously guessed to be server-generated and omitted —
-      // that guess was wrong, see buildSchemeMonthlyDetails() header comment).
       scheme_monthly_details: buildSchemeMonthlyDetails(data.document_date, schemeAmount, tenure),
-      // Document header fields — confirmed present on the live Create capture.
       document_id:       APP_CONFIG.DOCUMENT_TYPES.SCHEME_ENROLLMENT,
       financial_year_id: headerConfig.financialYearId ?? undefined,
       currency_id:       APP_CONFIG.CURRENCY.INR_ID,
       exchange_rate:     1,
-      // Present explicitly on OrnaVerse's own real Create capture
-      // (2026-09-18) — harmless either way (Create already worked without
-      // them), added purely to match the real payload exactly.
       user_id: null,
       is_document_number_editable: false,
-      // Confirmed required on SchemeEnrollmentRow (v1.json) — picked from a
-      // store-scoped list (see useSalesPersonOptions.js), mirroring the
-      // vendor's own Scheme Enrollment screen.
       sales_person_id: Number(data.sales_person_id),
-      // Copied from the scheme's own definition (SchemesRow) rather than guessed —
-      // these are enum/config values that belong to the scheme itself, not invented
-      // per-enrollment. All confirmed present on SchemesRow in v1.json.
       scheme_type:   selectedScheme.scheme_type,
       frequency:     selectedScheme.frequency,
       bonus_type:    selectedScheme.bonus_type,
       bonus_value:   selectedScheme.bonus_value,
       use_rules:     selectedScheme.use_rules,
-      // scheme_bonus_value / scheme_code / max_installment_amount — confirmed
-      // present on the live Create capture; scheme_bonus_value is the base
-      // bonus's cash value (one bonus-rated instalment), scheme_code/
-      // max_installment_amount are copied straight from the scheme master.
       scheme_bonus_value:     schemeAmount * (selectedScheme.bonus_value ?? 0),
       scheme_code:            selectedScheme.scheme_code,
       max_installment_amount: selectedScheme.max_installment_amount,
       ...(data.nominee    ? { nominee:     data.nominee }               : {}),
       ...(data.nominee_age ? { nominee_age: Number(data.nominee_age) } : {}),
-      // NOT sent — no reliable source yet, will not guess:
-      //   scheme_unique_code  — generation format unknown
-      //   email, party_code   — not captured anywhere in the customer session today
     });
 
     router.push('/schemes');
@@ -245,11 +185,6 @@ function EnrollScreen() {
                 <SelectContent className="max-h-56 overflow-y-auto">
                   {schemes.map((s) => (
                     <SelectItem key={s.scheme_id} value={String(s.scheme_id)}>
-                      {/* CONFIRMED 2026-09-17 against a live Services/CRM/
-                          Schemes/List capture: this row (the scheme product
-                          master) has no scheme_display_name field at all —
-                          scheme_code is its only name. See SchemeCard's own
-                          header for the full finding. */}
                       {s.scheme_code}
                     </SelectItem>
                   ))}

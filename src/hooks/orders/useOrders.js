@@ -1,11 +1,3 @@
-// Paginated sales list — (pos)/orders page. Paginates client-side over the
-// same merged Orders+Invoices dataset as useAllOrders (identical query key,
-// so the two hooks share one network round trip when mounted together, as
-// orders/page.jsx does) — true server-side pagination isn't possible since
-// Order/List and Invoice/List are independently-paginated endpoints whose
-// pages can't be sliced and concatenated without desyncing chronological
-// order. See useAllOrders.js for why both document types are included.
-
 import { useMemo } from 'react';
 import { useAllOrders } from '@/hooks/orders/useAllOrders';
 import APP_CONFIG from '@/constants/appConfig';

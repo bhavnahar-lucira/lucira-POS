@@ -1,6 +1,3 @@
-// Used by the edit form to pre-load the latest data before update.
-// Also used by CustomerDetailSheet when opened from the directory.
-
 import { useQuery } from '@tanstack/react-query';
 import { retrieveCustomer } from '@/services/customerService';
 import { normalizeCustomer } from '@/lib/normalizers/customer';

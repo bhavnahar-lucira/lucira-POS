@@ -1,6 +1,3 @@
-// Reusable animated loading spinner (full screen or inline). Used by
-// PersistGate during Redux rehydration, and across the app for async loading.
-//
 // @param {{ fullScreen?: boolean, size?: 'sm' | 'md' | 'lg' }} props
 export default function LoadingSpinner({ fullScreen = false, size = 'md' }) {
   const sizeClasses = {

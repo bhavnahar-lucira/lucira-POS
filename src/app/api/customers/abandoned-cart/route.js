@@ -1,28 +1,7 @@
-// Reads/writes a customer's abandoned-cart snapshot in Mongo. Same
-// signed-in-session requirement as api/customers/recently-viewed/route.js
-// and for the same reason — middleware.js excludes all /api paths from its
-// auth matcher, so without this every one of these would be an
-// unauthenticated read/write surface. Only a signed-in operator can call
-// this, same trust boundary as the rest of the app.
-//
-// POST   — upsert the current cart snapshot for a customer.
-// GET    — fetch the stored snapshot (party_id + customer_mobile query
-//          params — see lib/mongo/abandonedCart.js's buildFilter for why
-//          both are accepted: mobile is the real lookup key now, party_id
-//          is the fallback for the rare case a normalizable mobile isn't
-//          available).
-// DELETE — remove it (same two query params) — called once the cart is no
-//          longer pending, whether from a completed sale or a manual clear.
-
 import { upsertAbandonedCartSchema } from '@/validators/abandonedCartSchema';
 import { upsertAbandonedCart, getAbandonedCart, deleteAbandonedCart } from '@/lib/mongo/abandonedCart';
 import { getSessionFromRequest } from '@/lib/ornaverse/session';
 
-// FIXED 2026-09-09 — customer_mobile added alongside party_id (see this
-// file's own header + lib/mongo/abandonedCart.js's buildFilter). party_id
-// alone used to be the whole lookup; it's now only the fallback, so a
-// caller that omits customer_mobile still works exactly as before for that
-// edge case, but the common case resolves by mobile instead.
 function parseIdentity(request) {
   const url = new URL(request.url);
   const partyId = Number(url.searchParams.get('party_id'));

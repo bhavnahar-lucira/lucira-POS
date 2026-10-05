@@ -1,25 +1,3 @@
-// src/lib/normalizers/customer.js
-// Shared normalizers for OrnaVerse customer (party) records.
-//
-// CONFIRMED FIELD NAMES (v1.json schemas):
-//
-// POS.CustomerRow (top-level):
-//   party_id, party_name, mobile, email, pan_no (NOT pan)
-//   address, address_1, pin_code (int32)
-//   city_id, state_id, country_id  (numeric IDs)
-//   city_name, state_name, country_name  (display strings)
-//   birth_date, anniversary  (datetime strings)
-//   gender, marital_status
-//   party_address[]  → PartyAddressRow[]
-//
-// Master.PartyAddressRow (inside party_address[]):
-//   address_id, party_id, address_type
-//   address, address_1
-//   city_id, state_id, country_id  (numeric IDs)
-//   city, state, country            (display strings — NOT city_name)
-//   pin_code  (string — different type from CustomerRow)
-//   is_default
-
 /**
  * Normalises an address record into the flat shape used by:
  *   cart.customerAddress
@@ -133,50 +111,17 @@ export function normalizeCustomer(entity) {
     customerId:     entity.party_id,
     customerName:   entity.party_name,
     customerMobile: entity.mobile,
-    // Re-added 2026-09-26 (was dropped 2026-09-17 per explicit direction at
-    // the time) — confirmed live on UAT's own edit-customer form: Mobile and
-    // Phone are two separate fields there, Phone optional. See
-    // phoneToStoredValue/storedValueToPhone below for the E.164 <-> bare
-    // OrnaVerse-storage conversion these forms need at their boundary.
     customerPhone:  entity.phone && entity.phone !== 'NA' ? entity.phone : null,
 
     // Nullable fields — treat "NA" and empty strings as null
     customerEmail:  entity.email  && entity.email  !== 'NA' ? entity.email  : null,
     customerPan:    entity.pan_no && entity.pan_no !== 'NA' ? entity.pan_no : null, // pan_no not pan
-    // Confirmed field on POS.CustomerRow via v1.json (2026-08-14) — a
-    // string, holds either a stored path (once saved) or the base64 payload
-    // just sent on this same Update call. See CheckoutPanCapture: OrnaVerse
-    // rejects Create above the PAN threshold with "Please upload PAN & its
-    // number", not just the number, so this has to be resolved alongside
-    // customerPan, not instead of it.
     customerPanDocument: entity.pan_document && entity.pan_document !== 'NA' ? entity.pan_document : null,
     customerOtherDocument: entity.other_document && entity.other_document !== 'NA' ? entity.other_document : null,
-
-    // Added 2026-09-17 — for GST-registered business customers. Confirmed
-    // via a 200-row live sample that every existing customer already has
-    // tax_reg_type populated (server-defaulted to 4 regardless of creation
-    // path), but tax_no was never collected by either form — the field this
-    // app was actually missing for B2B customers. (business_name was also
-    // added in that same pass, then removed 2026-09-17 once the user
-    // checked OrnaVerse's own live create form and confirmed it doesn't
-    // show that field at all — only tax_no/GSTIN, under "Identity
-    // Documents" alongside PAN.)
     taxNo: entity.tax_no && entity.tax_no !== 'NA' ? entity.tax_no : null,
-
-    // Added 2026-09-17 — the rest of OrnaVerse's "Identity Documents"
-    // section this app never collected. `phone` (separate landline field)
-    // was also added in this pass, then dropped per explicit direction —
-    // keep mobile as the only phone-type field, as before. Credit
-    // (allow_credit/credit_limit) and religion_id deliberately NOT added
-    // yet — held back per explicit direction pending real enum labels for
-    // religion_id (OrnaVerse's own docs render that enum's values
-    // client-side, not scrapeable) and a considered decision on credit.
     passportNumber: entity.passport_number && entity.passport_number !== 'NA' ? entity.passport_number : null,
     aadhaarNumber:  entity.aadhaar_number || null,
     dlNumber:       entity.dl_number       && entity.dl_number       !== 'NA' ? entity.dl_number       : null,
-    // Confirmed live: nationality_id is a country_id (a real customer had
-    // country_id:101 and nationality_id:101, both "India") — resolved via
-    // the same Master/Countries/List this app already loads for Country.
     nationalityId:  entity.nationality_id ?? null,
 
     birthDate:    entity.birth_date   ?? null,
@@ -219,26 +164,11 @@ export function normalizeCustomer(entity) {
  * }} formValues
  * @returns {object} CustomerRow entity ready for { Entity: ... } payload
  */
-// The Mobile/Phone form fields hold a full E.164 string (e.g.
-// "+919812345670") — see PhoneNumberField's own header for why. OrnaVerse
-// itself, and every other system that reads this tenant's mobile field
-// (Nector, WebEngage, wishlist/abandoned-cart lookups), assumes a BARE
-// 10-digit Indian mobile with no country prefix — 100% of this tenant's
-// real data is shaped that way. So a +91 number is stripped back to bare
-// digits at this boundary to match; any OTHER country is kept in full E.164
-// form, since there's no bare-digit convention to match it to. That's a
-// known, deliberate ceiling: a genuinely international customer's number
-// won't be found by the Nector/WebEngage mobile-keyed lookups above — not
-// an oversight, there's simply nothing to match against for those today.
 function phoneToStoredValue(e164) {
   if (!e164) return undefined;
   return e164.startsWith('+91') ? e164.slice(3) : e164;
 }
 
-// The reverse direction — pre-fills PhoneNumberField from whatever
-// OrnaVerse already has on file. A bare 10-digit Indian mobile becomes
-// "+91XXXXXXXXXX"; anything already carrying a "+" (a genuinely
-// international number stored by a previous edit) passes through as-is.
 export function storedValueToPhone(raw) {
   if (!raw || raw === 'NA') return '';
   const value = String(raw);
@@ -275,26 +205,6 @@ export function buildCustomerCreatePayload(formValues) {
 }
 
 /**
- * Builds the Entity payload for POS/Customer/Update.
- * Merges the original raw CustomerRow with form changes.
- * OrnaVerse requires the full record — partial updates are not supported.
- *
- * IMPORTANT: Always call retrieveCustomer() first to get the latest raw record,
- * then pass it here as `originalRaw`. Never use stale data from the list response.
- *
- * FIXED 2026-09-18 — confirmed live on UAT: sending gender/marital_status/
- * religion_id back as `0` 500s Update, even with every other field
- * unchanged (bisected field-by-field; each one alone reproduces it). `0` is
- * OrnaVerse's own Retrieve default for "never explicitly set" on these
- * three enums, not a real value any of them can hold — a customer created
- * without picking a gender, for instance, always retrieves as `0`. Since
- * this function unconditionally spreads the full raw record back in,
- * EVERY customer who has never had these three set would 500 on their
- * very next edit, regardless of what the operator actually changed.
- * religion_id in particular flows through purely from the raw record —
- * this app's own form doesn't even collect it (see customerSchema.js).
- * Dropping the key (rather than sending 0) lets Update succeed the same
- * way it already does when a field is simply absent.
  *
  * @param {object} originalRaw    — raw POS.CustomerRow from Customer/Retrieve
  * @param {object} formChanges    — only the fields the user changed
@@ -311,17 +221,6 @@ export function buildCustomerUpdatePayload(originalRaw, formChanges) {
 
   return {
     ...merged,
-    // formChanges.mobile/phone are E.164 strings from PhoneNumberField (see
-    // buildCustomerCreatePayload's own phoneToStoredValue comment for why
-    // these convert back to OrnaVerse's bare-digit convention here) — the
-    // plain spread above would otherwise send "+919812345670" straight
-    // through unconverted. mobile is schema-mandatory (never legitimately
-    // empty here); phone is optional, and CONFIRMED LIVE 2026-09-26 that
-    // sending an OMITTED phone key (phoneToStoredValue's own undefined
-    // result for '') does NOT clear a previously-set value — OrnaVerse just
-    // silently keeps the old one. Explicit "NA" (this schema's own established
-    // empty-string convention, per every other field's `!== 'NA'` check
-    // above) is what actually clears it — confirmed on the same live test.
     mobile: 'mobile' in formChanges ? phoneToStoredValue(formChanges.mobile) : originalRaw.mobile,
     phone:  'phone'  in formChanges ? (phoneToStoredValue(formChanges.phone) ?? 'NA') : originalRaw.phone,
     gender:         merged.gender         === 0 ? undefined : merged.gender,
@@ -331,16 +230,6 @@ export function buildCustomerUpdatePayload(originalRaw, formChanges) {
 }
 
 /**
- * Normalises the `Customer` object from Services/POS/WalkIn/Lookup.
- *
- * IMPORTANT: this is a DIFFERENT identity space from POS.CustomerRow —
- * `customer_id` here is a CRM-level walk-in profile id, NOT a party_id.
- * Confirmed live 2026-07-19: a mobile with a WalkIn/Lookup match can still
- * return zero results from Customer/GetCustomer (customer_id 787 has no
- * matching party — they visited but were never onboarded as a billing
- * customer). Never pass walkInCustomerId anywhere a party_id is expected
- * (cart.attachCustomer, Order/Invoice Create, etc.) — use it only for
- * display ("welcome back") and to pre-fill the signup form.
  *
  * @param {object|null} entity — raw WalkIn/Lookup `Customer` object
  * @returns {{
@@ -366,12 +255,6 @@ export function normalizeWalkInCustomer(entity) {
   };
 }
 
-/**
- * A single real visit record — from Services/CRM/CustomerVisits/List
- * (CONFIRMED LIVE 2026-09-28), replacing the old Mongo-backed walkins_POS
- * log entirely. Flat rows (no nested arrays), already store-scoped by the
- * caller's EqualityFilter — see crmService.js's getCustomerVisits.
- */
 export function normalizeCrmVisit(entity) {
   if (!entity) return null;
   return {
@@ -388,12 +271,6 @@ export function normalizeCrmVisit(entity) {
   };
 }
 
-/**
- * Full CRM lead detail — from Services/CRM/Customer/List, the same table
- * WalkIn/Register writes into (see crmService.js's own header). Same
- * customer_id identity space as normalizeWalkInCustomer above — never a
- * party_id.
- */
 export function normalizeCrmLead(entity) {
   if (!entity) return null;
 
@@ -401,11 +278,6 @@ export function normalizeCrmLead(entity) {
 
   return {
     leadId:      entity.customer_id,
-    // CONFIRMED LIVE 2026-09-28: this table is the tenant's FULL CRM
-    // history (3,926 rows, unfiltered), not just open walk-in leads — most
-    // rows already carry a party_id, meaning they're a real, already-created
-    // billing customer, not someone still waiting to be converted. Carried
-    // through so useCrmLeads.js can filter to genuinely open leads only.
     partyId:     entity.party_id ?? null,
     name:        name || null,
     mobile:      entity.mobile ?? null,

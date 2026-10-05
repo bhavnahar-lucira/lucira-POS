@@ -1,6 +1,3 @@
-// Manages all catalog filter state, synced to URL query params.
-// Covers: category, search, sortBy, showOutOfStock, catalogStoreId.
-
 'use client';
 
 import { useCallback, useMemo } from 'react';
@@ -8,10 +5,6 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import tracker from '@/lib/analytics/tracker';
 import EVENTS from '@/lib/analytics/events';
 
-/**
- * Sort options available in the catalog. Value is used in URL params and
- * matched client-side.
- */
 export const SORT_OPTIONS = [
   { value: 'name_asc',    label: 'Name A → Z' },
   { value: 'name_desc',   label: 'Name Z → A' },
@@ -35,24 +28,6 @@ export function useCatalogFilters() {
   const catalogStoreId      = params.get('store')
     ? Number(params.get('store'))
     : null;
-
-  // ── Direct server-side filters (2026-09-30 redesign) — Sub Category,
-  // Karat, Metal Color, Diamond Shape, Item Size, Collection (id arrays) and
-  // Weight/Diamond Weight (ranges), matching OrnaVerse's own real Filters
-  // panel field-for-field (sub_type_ids/karat_ids/metal_ids/shape_ids/
-  // item_size_ids/collection_ids/from_weight-to_weight/
-  // from_diamond_weight-to_diamond_weight — confirmed live against their own
-  // client). These replace the old client-side bucket facets, which existed
-  // only because ProductCatalog/List was believed to have no server-side
-  // filter for any of them — wrong (see catalogService.js's corrected
-  // comment) — so every one of these now goes straight to the server via
-  // useCatalogProducts, no full-tenant sweep required.
-  //
-  // Price stays a client-side-only range (rawPriceMin/rawPriceMax below):
-  // ProductCatalog/List's own rows never carry a populated `price` field on
-  // this tenant (see catalogService.js's PRICING note) — a server-side
-  // from_price/to_price would filter against a value that's always null, so
-  // Price still narrows whatever's already been live-priced instead.
   const rawSubCategory       = params.get('subCategory');
   const rawKarat             = params.get('karat');
   const rawMetalColor        = params.get('metalColor');
@@ -65,15 +40,6 @@ export function useCatalogFilters() {
   const rawDiamondWeightTo   = params.get('diamondWeightTo');
   const rawPriceMin          = params.get('priceMin');
   const rawPriceMax          = params.get('priceMax');
-
-  // Memoized on the raw param STRINGS, not derived on every render as plain
-  // consts — FIXED (2026-09-28, reported: pricing/results feel like they
-  // "refetch on every filter click"). `facets` used to be a brand-new object
-  // (with brand-new .split(',') arrays inside it) on every single render,
-  // which fed straight into several useMemo dependency arrays elsewhere
-  // (searchResults, facetOptions, useLiveCatalogPrices' inputs) — none of
-  // those could ever actually memoize, so they recomputed on every render,
-  // not just when a filter genuinely changed.
   const facets = useMemo(() => {
     const csvNum = (v) => (v ? v.split(',').map(Number) : []);
     return {
@@ -98,12 +64,6 @@ export function useCatalogFilters() {
     subTypeIds, karatIds, metalColorIds, shapeIds, itemSizeIds, collectionIds,
     weightFrom, weightTo, diamondWeightFrom, diamondWeightTo, priceMin, priceMax,
   } = facets;
-
-  // Build the baseline from window.location.search rather than
-  // useSearchParams()'s React-managed snapshot, which only updates on its
-  // own render schedule — calling this again before a previous update has
-  // been reflected could otherwise silently re-apply/restore a param this
-  // call meant to remove. Falls back to the hook's snapshot pre-mount (SSR).
   const setParam = useCallback((updates) => {
     const currentSearch = typeof window !== 'undefined' ? window.location.search : `?${params.toString()}`;
     const next = new URLSearchParams(currentSearch);
@@ -119,18 +79,11 @@ export function useCatalogFilters() {
 
   const actions = useMemo(() => ({
     setSearch: (q) => setParam({ q: q || null }),
-
-    // Every filter action below fires its own tracked event — reported
-    // directly: filter usage went completely untracked despite
-    // CATEGORY_FILTERED existing in events.js with zero callers. `filter_name`
-    // identifies WHICH filter (so it can be segmented/fetched in WebEngage);
-    // customer_id/name are NOT passed explicitly here — tracker.track()
-    // already pulls them from the active session automatically for every
-    // event, same as CLICK/PAGE_VIEW do.
+    
     selectCategory: (slug) => {
       const value = slug === 'all' ? null : (slug ?? null);
       tracker.track(EVENTS.CATEGORY_FILTERED, { filter_name: 'category', filter_value: value ?? 'all' });
-      setParam({ category: value });
+      setParam({ category: value, subCategory: null });
     },
 
     setSortBy: (val) => {
@@ -146,21 +99,6 @@ export function useCatalogFilters() {
     setCatalogStore: (storeId) => setParam({
       store: storeId ?? null,
     }),
-
-    // Single batched facet update — FIXED (2026-09-28, reported: the Weight
-    // panel's Diamond tab "isn't clickable"). Its onClick patches BOTH
-    // weightMode and weightBuckets in one object; the old per-field
-    // setShapes/setWeightMode/etc actions each called setParam separately,
-    // and setParam rebuilds the URL from window.location.search — the
-    // SECOND call in the same click handler ran before router.replace()
-    // from the FIRST call had actually updated the address bar, so it read
-    // the pre-update URL and clobbered the first change. One object in, one
-    // setParam call out — no intermediate URL for a second call to race against.
-    //
-    // Tracking mirrors the same batching — one FILTER_APPLIED event per
-    // facet key actually present in the patch (a "Weight: Diamond" tap
-    // patches weightMode+weightBuckets together, so that's two events, one
-    // per real change), not one vague "facets changed" event.
     setFacets: (patch) => {
       if ('subTypeIds'        in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'sub_category',    filter_value: patch.subTypeIds.join(',') || null });
       if ('karatIds'          in patch) tracker.track(EVENTS.FILTER_APPLIED, { filter_name: 'karat',           filter_value: patch.karatIds.join(',') || null });
@@ -193,20 +131,14 @@ export function useCatalogFilters() {
 
     clearFilters: () => {
       tracker.track(EVENTS.FILTERS_CLEARED, {});
-      // Same reasoning as setParam above — read the store param from the
-      // real browser URL, not the potentially-lagging catalogStoreId closure.
       const currentSearch = typeof window !== 'undefined' ? window.location.search : '';
       const currentStore = new URLSearchParams(currentSearch).get('store');
       const next = new URLSearchParams();
-      // preserve the store scope across clear — it's a scope, not a filter
       if (currentStore) next.set('store', currentStore);
       router.replace(`${pathname}?${next.toString()}`, { scroll: false });
     },
   }), [setParam, pathname, router]);
 
-  // ── hasActiveFilters — excludes store + sort (those aren't "filters") ──────
-  // Out of Stock counts now too (2026-09-28) — it moved from its own
-  // standalone toggle into the Filters panel itself, so it's a real filter now.
   const hasActiveFilters = !!(
     activeCategorySlug || searchQuery || showOutOfStock
     || subTypeIds.length || karatIds.length || metalColorIds.length

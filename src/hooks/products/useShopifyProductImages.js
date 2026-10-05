@@ -1,17 +1,8 @@
-// Fetches Shopify product media (images + video) for a given
-// external_product_id. Disabled when the id is null/zero (e.g. on UAT,
-// where OrnaVerse never supplies one) — falls back to a placeholder with no
-// API call and no error. Images/videos are sorted by `position` (Shopify's
-// display order) so the hero image and video order stay stable.
-
 import { useQuery }                 from '@tanstack/react-query';
 import { getShopifyProductMedia }   from '@/services/shopifyService';
 import { QUERY_KEYS }               from '@/constants/queryKeys';
 import APP_CONFIG                   from '@/constants/appConfig';
 
-// 24h — product photos rarely change mid-day. Persisted to IndexedDB via
-// lib/queryPersister.js; gcTime must match staleTime or the persister has
-// nothing left in memory to write out once a card unmounts.
 const STALE_TIME = APP_CONFIG.STALE_TIME.MASTER_DATA;
 
 /**
@@ -49,10 +40,6 @@ export function useShopifyProductImages(externalProductId) {
     images,
     videos,
     primaryImage: images[0] ?? null,
-    // ProductStorySection's real, per-product "Story Behind The Product"
-    // text — see product-media/route.js's own header for how this was
-    // confirmed to be genuine per-product copy, not boilerplate. Rides
-    // along on this same request; no separate fetch.
     description:  query.data?.description ?? null,
     isLoading:    query.isLoading,
     isError:      query.isError,

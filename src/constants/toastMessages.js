@@ -1,35 +1,8 @@
-// src/constants/toastMessages.js
-// All user-facing toast notification strings for Lucira POS.
-//
-// RULES:
-//   - Plain strings for simple messages
-//   - Arrow functions for messages that include dynamic values
-//   - Never use toast() directly in service files — only in hooks and components
-//
-// Usage:
-//   import TOAST from '@/constants/toastMessages'
-//   toast.success(TOAST.AUTH.LOGIN_SUCCESS)
-//   toast.success(TOAST.CUSTOMER.CREATED(name))
-
 const TOAST = {
-
-  // SESSION_EXPIRED/REFRESH_FAILED removed 2026-08-27 — dead: never
-  // referenced anywhere. src/lib/axios/interceptors.js owns this wording
-  // itself, deliberately as its own self-contained literal strings (see its
-  // header comment on why 401/403 "keep the fixed copy" over the server's
-  // own reason) — its own generic errorMap's 401 entry, and the distinct,
-  // more detailed forced-logout toast in handleLogout() ("check Orders/
-  // Invoices for anything you were just placing"), which is intentionally
-  // NOT the same message as a generic session-expired toast.
   AUTH: {
     LOGIN_SUCCESS:   'Logged in successfully.',
     LOGIN_FAILED:    'Invalid username or password. Please try again.',
     LOGOUT_SUCCESS:  'Logged out successfully.',
-    // ADDED 2026-09-09 — see useAuth.js login()'s own comment: createReportSession
-    // now gets 3 tries at login time instead of 1, so this should only ever
-    // fire on a genuine, non-transient failure. Named honestly ("open an
-    // invoice to reconnect") rather than implying the operator did something
-    // wrong — the reconnect panel on InvoiceReportButton is the actual fix path.
     PRINT_SESSION_UNAVAILABLE: 'Signed in — but printing needs reconnecting. Open any invoice\'s print button to reconnect.',
   },
 
@@ -49,32 +22,11 @@ const TOAST = {
     ITEM_REMOVED: (itemName) => `${itemName} removed from cart.`,
     ITEM_UPDATED: 'Cart updated.',
     CART_CLEARED: 'Cart has been cleared.',
-    // Named by the PROMOTION'S OWN NAME (e.g. "20% Off Diamond"), not its
-    // code — reported directly (2026-09-30): a customer reading "Promo code
-    // 22K916GC100 applied" has no idea what that means; the name is what
-    // they recognize. Falls back to the code only where a name genuinely
-    // can't exist (PROMO_INVALID — nothing matched, so there's no promotion
-    // to name at all).
     PROMO_APPLIED: (name) => `"${name}" applied successfully.`,
     PROMO_REMOVED: 'Promo code removed.',
     PROMO_INVALID: (code) => `Promo code ${code} is not valid.`,
-    // Distinct from PROMO_INVALID — the code IS real and active, it just
-    // doesn't apply to what's in THIS basket (see checkoutPricingService.js
-    // — most promos here are scoped to a component like the diamond or
-    // making charge). usePromoValidation checks this BEFORE ever applying
-    // the code (2026-08-24), so a promo that fails this never enters
-    // appliedPromos at all — no tag, no toggle, just this one toast.
     PROMO_NOT_APPLICABLE: (name) => `"${name}" doesn't apply to these items — no discount given.`,
-    // Cart still pricing when Apply was pressed — there's nothing to check
-    // eligibility against yet (see usePromoValidation). The input is also
-    // disabled during this window; this only covers a click that landed a
-    // beat before the disabled state did.
     PROMO_NOT_READY: 'Still pricing your cart — try applying this again in a moment.',
-    // Different from PROMO_NOT_APPLICABLE: this promo WAS genuinely eligible
-    // when applied, but the cart changed afterward (an item was added or
-    // removed) and it no longer gives anything for what's in the basket now
-    // — the defensive auto-removal in DiscountSection catches this
-    // case, which the up-front check above cannot.
     PROMO_NO_LONGER_APPLIES: (name) => `"${name}" no longer applies to your cart — removed.`,
     PROMO_FAILED:  'Failed to validate promo code. Please try again.',
     LOADED_FROM_ORDER: (orderNo) => `Loaded ${orderNo} into a new invoice.`,
@@ -100,11 +52,6 @@ const TOAST = {
   ORDERS: {
     CREATED:      (orderNo) => `Order #${orderNo} placed successfully.`,
     CREATE_FAILED:'Failed to place order. Please try again.',
-    // transactionId (2026-08-27) — Create had already succeeded by the time
-    // Post failed, so a real draft exists server-side even though the
-    // operator sees this as "failed". Naming it here is what turns "the
-    // order vanished" into "the order is transaction #271, still needs
-    // finalising" — see useCreateOrder.js's onError for how this is called.
     POST_FAILED:  (transactionId) => transactionId
       ? `Order created (ref #${transactionId}) but couldn't be finalised. Check Orders before retrying — it may already exist as a draft.`
       : 'Failed to finalise order. Please try again.',
@@ -116,8 +63,6 @@ const TOAST = {
   INVOICES: {
     CREATED:      (invoiceNo) => `Invoice #${invoiceNo} created successfully.`,
     CREATE_FAILED:'Failed to create invoice. Please try again.',
-    // See ORDERS.POST_FAILED above — same reasoning, same risk of an
-    // orphaned draft transaction the operator has no other way to find.
     POST_FAILED:  (transactionId) => transactionId
       ? `Invoice created (ref #${transactionId}) but couldn't be finalised. Check Invoices before retrying — it may already exist as a draft.`
       : 'Failed to finalise invoice. Please try again.',
@@ -236,12 +181,6 @@ const TOAST = {
     CANCELLED:      'Quotation cancelled.',
     CANCEL_FAILED:  'Failed to cancel quotation. Please try again.',
     LOAD_FAILED:    'Failed to load quotations. Please try again.',
-  },
-
-  DAILY_CLOSING: {
-    CREATED:      'Daily closing recorded successfully.',
-    CREATE_FAILED:'Failed to record daily closing. Please try again.',
-    LOAD_FAILED:  'Failed to load closing records. Please try again.',
   },
 
   GIFT_VOUCHER: {

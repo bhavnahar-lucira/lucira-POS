@@ -1,21 +1,5 @@
 'use client';
 
-// Mandatory PAN capture once the order total crosses the statutory
-// ₹2,00,000 threshold (Income Tax Rule 114B — see APP_CONFIG.COMPLIANCE).
-//
-// BOTH the PAN number AND an attached document gate Place Order
-// (checkoutSchema.js) — CONFIRMED LIVE 2026-10-03: OrnaVerse's real
-// Invoice/Create rejects an above-threshold sale with "Please upload PAN
-// & its number" even when a valid, saved PAN number is already on file, if
-// no document has ever been attached for that customer. The document
-// itself now saves for real via PanDocumentUpload (fileUploadService's
-// two-step TemporaryUpload → Customer/Update(pan_document) contract) — it
-// is no longer local-only/cosmetic as an earlier pass here assumed before
-// that two-step mechanism was found (see fileUploadService.js's header).
-//
-// Reuses useRetrieveCustomer/useUpdateCustomer (same pair as the customer
-// Edit tab) so the "on file" state refreshes for free after a save.
-
 import { useEffect, useState } from 'react';
 import { CheckCircle2, IdCard, ShieldAlert } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -44,31 +28,13 @@ export default function CheckoutPanCapture({ totalAmount, onPanResolved, onPanDo
   const updateCustomer = useUpdateCustomer();
 
   const [value, setValue] = useState('');
-  // Set the instant a Save succeeds this session — OrnaVerse masks pan_no
-  // on every read (see below), so the refetch can never confirm it.
   const [justSavedPan, setJustSavedPan] = useState(null);
-  // Same reasoning, for the document — PanDocumentUpload tracks its own
-  // local justSavedPath for display, but this component also needs to know
-  // about it to report it upward via onPanDocumentResolved.
   const [justSavedDocument, setJustSavedDocument] = useState(null);
-
-  // OrnaVerse's Party/Retrieve masks any saved PAN as "**********" rather
-  // than returning the real number. A masked value is truthy but fails
-  // PAN_REGEX, so gate on PAN_REGEX rather than truthiness — otherwise a
-  // returning customer's masked PAN reads as "on file" while checkoutSchema
-  // still silently rejects it and blocks Place Order.
   const rawPanOnFile = customer?.customerPan ?? null;
   const fetchedPanOnFile = rawPanOnFile && PAN_REGEX.test(rawPanOnFile) ? rawPanOnFile : null;
-
-  // The mask above applies unconditionally, including immediately after a
-  // successful save — so fall back to the value handleSave already
-  // confirmed valid and the server accepted, rather than waiting on a
-  // refetch that can never pass PAN_REGEX.
   const panOnFile = fetchedPanOnFile ?? justSavedPan;
   const documentOnFile = justSavedDocument ?? customer?.customerPanDocument ?? null;
-
-  // Only ever reports a saved value (fetched or just-saved), never the
-  // still-being-typed one.
+  
   useEffect(() => {
     onPanResolved(panRequired ? panOnFile : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -91,8 +57,6 @@ export default function CheckoutPanCapture({ totalAmount, onPanResolved, onPanDo
       originalRaw: customer.raw,
       formChanges: { pan_no: savedValue, party_name: customer.customerName },
     }, {
-      // Confirms THIS transaction's PAN immediately — see panOnFile's
-      // comment above on why the refetch alone can never do this.
       onSuccess: () => setJustSavedPan(savedValue),
     });
   };

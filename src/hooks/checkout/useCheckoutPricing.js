@@ -1,26 +1,3 @@
-// src/hooks/checkout/useCheckoutPricing.js
-// Prices the ACTUAL STOCK PIECES in the cart, once, at checkout — the
-// catalog's displayed price is not the sale price (it comes from a possibly
-// stale item-master rate, only re-priced live when zero AND the item has a
-// BOM), so checkout re-prices before showing the payment section and every
-// downstream figure (displayed amount, collected amount, submitted line
-// items) is derived from this one result. Pricing once also avoids a second
-// slow SetSalesItems round trip at submit.
-//
-// Promotions are priced here too, by the server: a promotion's percentage
-// applies to a component of the item (diamond/making-charges/whole-value,
-// selected by `discount_calc_on`), not the subtotal, and the server re-taxes
-// after discounting. So Helper/ApplyPromotions runs inside this same query
-// and its output lines ARE the line items — everything downstream (summary,
-// Place Order, Create payload) is a sum of what those lines carry; nothing
-// is recomputed locally.
-//
-// buildPricedLineItems decides ONE document type for the whole cart — an
-// Invoice when every line's full quantity is real stock, an Order otherwise
-// (REVERTED 2026-09-30 from a brief per-line/per-unit split — see that
-// function's own header). invoice/order below are therefore mutually
-// exclusive: exactly one is non-null (or both null for an empty cart).
-
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import {
@@ -37,8 +14,6 @@ function summarizeGroup(lineItems) {
   return {
     lineItems,
     totals,
-    // Rounded the same way the Create payload rounds net_amount, so the
-    // collected amount can settle the document to exactly zero.
     amountDue: Math.round(totals.netAmount),
   };
 }
@@ -58,21 +33,12 @@ function summarizeGroup(lineItems) {
 export function useCheckoutPricing() {
   const { items, appliedPromos } = useCart();
   const activeStoreId = useSelector(selectActiveStoreId);
-
-  // Keyed on the exact cart contents AND the promotions applied, so changing
-  // either re-prices, but simply revisiting checkout does not pay for the
-  // calls again.
   const cartKey  = items.map((i) => `${i.itemId}x${i.quantity}`).join('|');
-  // overrideAmount is included so changing ONLY it (same code) still
-  // invalidates the cached pricing — the server treats it as part of the
-  // promotion request, not something to re-derive locally.
   const promoKey = appliedPromos.map((p) => `${p.promoCode}:${p.overrideAmount ?? ''}`).join('|');
 
   const query = useQuery({
     queryKey: ['checkout-pricing', activeStoreId, cartKey, promoKey],
     enabled:  items.length > 0 && !!activeStoreId,
-    // Rates move intraday, but not within the seconds a checkout takes;
-    // re-fetching mid-payment would change the amount under the operator.
     staleTime: 5 * 60 * 1000,
     retry: false,
     queryFn: async () => {

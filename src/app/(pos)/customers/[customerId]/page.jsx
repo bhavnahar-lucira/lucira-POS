@@ -43,9 +43,6 @@ import { formatDateNumeric } from '@/lib/dateUtils';
 const fmt = formatAmountOrDash;
 const fmtDate = formatDateNumeric;
 const TABS    = ['profile', 'edit', 'schemes', 'points', '360', 'wishlist', 'RecentlyViewed'];
-// Text/form tabs get a readable max-width (see the tab-content wrapper
-// below) — the remaining tabs are product-card grids that should use the
-// full available width instead.
 const TEXT_TABS = ['profile', 'edit', 'schemes', 'points', '360'];
 const TAB_LABELS = {
   profile:  'Profile',
@@ -172,8 +169,7 @@ function EditTab({ customer, onSaved }) {
       pin_code:    raw?.pin_code ? String(raw.pin_code) : '',
     },
   });
-
-  // Re-fill if customer raw changes (e.g. after save + refetch)
+  
   useEffect(() => {
     reset({
       party_name:  raw?.party_name  ?? '',
@@ -197,8 +193,6 @@ function EditTab({ customer, onSaved }) {
 
   const countryId = watch('country_id');
   const stateId   = watch('state_id');
-
-  // Only reset children when parent actually changes from the loaded value
   useEffect(() => {
     if (countryId !== raw?.country_id) {
       setValue('state_id', null);
@@ -227,9 +221,6 @@ function EditTab({ customer, onSaved }) {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
-      {/* Short fields pair up on sm+ screens instead of each stacking its own
-          full-width row — same "use the available space" fix as the rest of
-          this page; still a single column on mobile. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ep_name">Full name <span className="text-destructive">*</span></Label>
@@ -334,8 +325,6 @@ function EditTab({ customer, onSaved }) {
 
         <div className="flex flex-col gap-1.5">
           <Label>Nationality <span className="text-muted-foreground text-xs">(optional)</span></Label>
-          {/* nationality_id is a country_id (confirmed live) — reuses the
-              same Country list loaded above. */}
           <LocationSelect
             control={control}
             name="nationality_id" items={countries} idKey="country_id" labelKey="country_name"
@@ -343,9 +332,6 @@ function EditTab({ customer, onSaved }) {
           />
         </div>
       </div>
-
-      {/* Full-width fields — a two-line address and a document uploader
-          don't pair naturally with anything, so they stay their own row. */}
       <div className="flex flex-col gap-1.5">
         <Label>Address</Label>
         <Input {...register('address')} className="h-11" placeholder="Address line 1" />
@@ -697,11 +683,6 @@ export default function CustomerDetailPage() {
             scrollable
             className="-mx-1 px-1"
           />
-
-          {/* Text/form tabs stay a readable max-width even on a wide screen;
-              the two product-grid tabs (Wishlist/Recently Viewed) use the
-              full card width instead — same "don't waste space" fix as the
-              invoices/orders/customers list pages. */}
           <div className={TEXT_TABS.includes(activeTab) ? 'max-w-full w-full' : 'w-full'}>
             {activeTab === 'profile' && <ProfileTab customer={customer} />}
             {activeTab === 'edit'    && isSuperAdmin && <EditTab customer={customer} onSaved={handleSaved} />}

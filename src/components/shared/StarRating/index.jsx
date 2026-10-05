@@ -1,9 +1,5 @@
 'use client';
 
-// Five-star rating display with partial-fill support (e.g. 4.3 renders as 4
-// full stars + a 30%-filled 5th) — each star is an outline icon with a
-// clipped filled icon layered on top, no half-star asset needed.
-
 import { Star } from 'lucide-react';
 
 const SIZES = {

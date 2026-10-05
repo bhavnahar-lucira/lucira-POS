@@ -1,12 +1,5 @@
 'use client';
 
-// Order/invoice confirmation screen. InvoiceRow/OrderRow field names don't
-// match the obvious guess: document_no (not invoice_no), party_name (not
-// customer_name), net_amount (not total_amount). Checkout can raise either
-// an Invoice (paid in full) or an Order (a partial advance), so nothing
-// here may assume "invoice" — a balance outstanding is a defect on one and
-// the entire point of the other.
-
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CheckCircle2, Loader2 } from 'lucide-react';
@@ -32,13 +25,7 @@ export default function OrderConfirmationScreen({
 }) {
   const router = useRouter();
   const isOrder = documentType === 'order';
-
-  // Mounts only right after a fresh order/invoice (checkout/page.jsx's
-  // isConfirmed gate), so firing once per mount is once per sale.
   const [showConfetti, setShowConfetti] = useState(true);
-
-  // Only the relevant Retrieve fires — the other is disabled by a null id
-  // rather than skipped, so the hook order stays fixed across renders.
   const invoiceQuery = useInvoiceDetail(isOrder ? null : transactionId);
   const orderQuery   = useOrderDetail(isOrder ? transactionId : null);
 
@@ -52,21 +39,9 @@ export default function OrderConfirmationScreen({
   const totalAmount = invoice?.net_amount   ?? null;     // net_amount, NOT total_amount
   const invoiceDate = invoice?.document_date ?? null;
   const receiptAmt  = invoice?.receipt_amount ?? null;
-  // Nector Loyalty (like Exchange/Scheme/Old Gold/Advance before it) is a
-  // real receipt_details[] row on the posted document now — OrnaVerse's own
-  // balance_amount already accounts for it correctly, same as it already
-  // did for those. No client-side reconciliation needed.
   const balanceAmt  = invoice?.balance_amount ?? null;
-  // Read straight off the retrieved document's own `discount` field
-  // (matches what Create submitted) rather than re-derived from client
-  // promo state.
   const discountAmt = invoice?.discount || null;
-  // Real, per-line CGST/SGST straight off this posted document's own line
-  // items — never reconstructed (see lib/gst.js's own header).
   const gst         = sumRealGst(invoice?.line_items);
-  // Same round_off figure submitted at Create (roundedNet - netAmount),
-  // read back rather than recomputed, so Discount + CGST + SGST lines add
-  // up to Total instead of being off by a few paise.
   const roundOffAmt = invoice?.round_off ?? null;
 
   const handleNewSale = () => {
@@ -150,8 +125,6 @@ export default function OrderConfirmationScreen({
                 <span className="text-status-in-stock font-medium">{fmt(receiptAmt)}</span>
               </div>
             )}
-            {/* On an order this is the expected remainder, collected when the
-                piece is handed over — not an error state, so it isn't red. */}
             {balanceAmt != null && balanceAmt > 0 && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">
@@ -167,9 +140,6 @@ export default function OrderConfirmationScreen({
           <p className="text-sm text-muted-foreground text-center py-4">Invoice details unavailable.</p>
         )}
       </div>
-
-      {/* The old "Download Invoice PDF" button is gone — OrnaVerse's
-          GeneratePDF endpoint 500s and never worked. See InvoiceReportButton. */}
       <div className="flex w-full max-w-md flex-col gap-2">
         <InvoiceReportButton
           transactionId={transactionId}

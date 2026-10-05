@@ -1,26 +1,5 @@
 'use client';
 
-// Interstore Return (IRR) — a customer returns an item at a store OTHER
-// than the one that sold it. Replaces the previous static placeholder
-// ("not available yet") now that the full contract has been reverse
-// engineered and live-tested — see interstoreReturnService.js for the full
-// endpoint/field contract and provenance, and memory
-// [[interstore-return-artifact]] / [[ornaverse-uat-live-test-2026-09-11]] /
-// [[ornaverse-switchcompany-2026-09-15]] for how it was confirmed.
-//
-// Two halves:
-//   - List/inbox (mirrors OrnaVerse's own IRR toolbar: Inbox / Submitted /
-//     All, plus a Pending-only toggle) + a detail sheet with status-gated
-//     lifecycle actions (SwitchCompany-aware — see
-//     useInterstoreReturnLifecycleActions).
-//   - Create flow: cross-branch sold-item picker (all items this customer
-//     has EVER bought, any branch) → price via SetReturnItems(document_id
-//     128) → Create → attach mandatory photos → SubmitForApproval.
-//
-// A single IRR document has exactly ONE origin store (per the domain
-// model — origin_company_id is a header field), so the picker enforces
-// "all selected items must share the same origin store" client-side.
-
 import { Suspense, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { useForm } from 'react-hook-form';
@@ -141,9 +120,6 @@ function InterstoreReturnCreateForm({ onDone }) {
 
   const selectedKeys = watch('selected_keys');
   const selectedRows = soldItems.filter((r) => selectedKeys.includes(soldItemKey(r)));
-  // Every selected line must share one origin store — a single IRR document
-  // has exactly one origin_company_id. Locks the picker to that store once
-  // the first item is chosen.
   const lockedOriginCompanyId = selectedRows[0]?.company_id ?? null;
 
   const createDoc = useCreateInterstoreReturn();
@@ -192,12 +168,6 @@ function InterstoreReturnCreateForm({ onDone }) {
       });
       const entity = created?.Entity;
       if (!entity?.interstore_return_id) throw new Error('Creation failed — no record returned.');
-
-      // Attach photos: embed base64 into each line's images[], then a plain
-      // Update. AddItemImage 500s even with OrnaVerse's own documented
-      // request shape (confirmed live 2026-09-17) — this embed-via-Update
-      // path is the only one that's actually worked, both today and in the
-      // original 2026-09-11 test.
       const dataUrls = await Promise.all(selectedRows.map((row) => fileToDataUrl(photosByKey[soldItemKey(row)])));
       const entityWithImages = {
         ...entity,
@@ -336,10 +306,6 @@ function RejectDialog({ isOpen, onOpenChange, onConfirm }) {
           <DialogTitle>Reject Interstore Return</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-3">
-          {/* No working Reason Status lookup on this tenant (useReasonCodes
-              is unconditionally broken server-side) — a plain numeric id
-              is the same thing OrnaVerse's own client asks for via
-              window.prompt(), just in a proper field instead. */}
           <div className="flex flex-col gap-1.5">
             <Label>Rejection Reason ID</Label>
             <Input type="number" value={reasonId} onChange={(e) => setReasonId(e.target.value)} className="h-11" />
@@ -561,11 +527,6 @@ function InterstoreReturnList() {
               type="button"
               onClick={() => {
                 setMode(tab.id);
-                // "All" implies no hidden filter — CONFIRMED a real bug
-                // 2026-10-02: pendingOnly stayed on across a tab switch with
-                // no visual cue, silently hiding an already-approved record
-                // from "All" and making a successful Approve look like it
-                // had failed.
                 if (tab.id === 'all') setPendingOnly(false);
               }}
               className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
@@ -619,8 +580,6 @@ function InterstoreReturnList() {
 function TransfersScreen() {
   const [view, setView] = useState('list'); // 'list' | 'new'
   const storeId = useSelector(selectActiveStoreId);
-  // Not used directly, but confirms the SwitchCompany plumbing this feature
-  // depends on is present in this build — see useActiveStore.js's own header.
   useActiveStore();
 
   return (

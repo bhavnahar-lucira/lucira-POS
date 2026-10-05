@@ -1,18 +1,5 @@
 'use client';
 
-// Walk-ins directory — two tabs, BOTH fetched live from OrnaVerse, no local
-// DB (2026-09-28, explicit direction — the old Mongo-backed walkins_POS log
-// was removed entirely):
-//   Visit Log — Services/CRM/CustomerVisits/List, filtered server-side to
-//     the active store (EqualityFilter:{company_id}, confirmed live: narrows
-//     a 3,009-row tenant-wide table to 199 for one store). Real OrnaVerse
-//     visit history, not just the subset this app happened to catch via a
-//     mobile-search match.
-//   Leads — Services/CRM/Customer/List, filtered to rows with no party_id
-//     yet (a genuinely open lead) — see useCrmLeads.js's own header.
-// Both read-only by design: their ids are CRM-level (customer_id), never a
-// billing party_id — see normalizeCrmVisit/normalizeCrmLead.
-
 import { useState } from 'react';
 import { useSelector } from 'react-redux';
 import { Footprints, UserPlus, X } from 'lucide-react';
@@ -76,11 +63,7 @@ export default function WalkInsPage() {
   const hasFilters = !!fromDate || !!toDate;
 
   const { visits, isLoading, isError, refetch } = useCrmVisits(companyId);
-
-  // Client-side date narrowing over the fetched window — CustomerVisits/List
-  // has no date-range param of its own (only EqualityFilter, used above for
-  // company_id), so this filters what's already loaded rather than
-  // re-querying OrnaVerse per date change.
+  
   const filteredVisits = visits.filter((v) => {
     if (!v.visitedAt) return !hasFilters;
     const day = v.visitedAt.slice(0, 10);

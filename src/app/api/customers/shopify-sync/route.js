@@ -1,30 +1,3 @@
-// Pushes a POS-created/edited customer to Shopify directly.
-//
-// action: 'create' (default) — CONFIRMED LIVE 2026-09-22: OrnaVerse's own
-// Create-time push to Shopify creates the Shopify customer but drops phone
-// entirely — which breaks Nector's lead lookup (our Lucira Coins balance is
-// looked up by mobile, see nectorService.getCustomerLoyalty). This branch
-// is the fix: search for an existing Shopify customer by phone OR email
-// first (since OrnaVerse's own async push may land before or after this
-// one), and patch the phone onto it rather than duplicate/error, or create
-// fresh with phone included from the start if nothing exists yet.
-//
-// action: 'update' (added 2026-09-26) — keeps a customer's Shopify record in
-// step with edits made in the POS (name/mobile/email), so those don't
-// silently drift apart. Looks the Shopify customer up by the ORIGINAL
-// mobile/email (originalMobile/originalEmail — what Shopify already has on
-// file), since the edit itself may be what changed one of those, and applies
-// the NEW party_name/mobile/email onto it. If no Shopify customer is found
-// under the original identity, this is a no-op (nothing to keep in sync) —
-// it does not create one, unlike 'create'. Scoped to name/phone/email only,
-// matching exactly what 'create' already syncs; address/PAN/etc. stay
-// OrnaVerse-only for now (Shopify addresses are a separate mutation, not a
-// CustomerInput field, and weren't part of the original sync this mirrors).
-//
-// Both actions are fire-and-forget from the client (see
-// useCreateCustomer.js / useUpdateCustomer.js) — a Shopify failure here
-// never blocks or reverses the OrnaVerse create/update.
-
 import { NextResponse } from 'next/server';
 import { getSessionFromRequest } from '@/lib/ornaverse/session';
 import { toE164India, shopifyGraphQL, shopifyConfigured, findShopifyCustomer } from '@/lib/shopify/adminCustomer';
@@ -79,14 +52,9 @@ export async function POST(request) {
       return NextResponse.json({ error: 'originalMobile or originalEmail is required to look up the Shopify record' }, { status: 400 });
     }
     try {
-      // Looked up by the ORIGINAL identity — the edit itself may be what
-      // changed the mobile/email, so searching by the NEW values could miss
-      // the very record we're trying to update.
+      
       const existing = await findShopifyCustomer({ mobile: originalMobile, email: originalEmail });
       if (!existing) {
-        // Never synced to Shopify in the first place (e.g. created before
-        // this sync existed) — nothing to keep in step, and 'update' never
-        // creates one fresh the way 'create' does.
         return NextResponse.json({ ok: true, action: 'skipped_not_found' });
       }
 

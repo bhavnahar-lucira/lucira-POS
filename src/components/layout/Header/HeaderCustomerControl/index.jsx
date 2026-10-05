@@ -1,9 +1,5 @@
 'use client';
 
-// Header-level "Customer" control — shows the attached customer or an
-// "Add Customer" prompt, opens CustomerSessionSheet. Available on every POS
-// screen, independent of cart/checkout.
-
 import { useState } from 'react';
 import { useSelector } from 'react-redux';
 import { UserPlus, X } from 'lucide-react';
@@ -25,10 +21,6 @@ function getInitials(name) {
 export default function HeaderCustomerControl() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const { isAttached, customerName, customerMobile, detach } = useCustomerSession();
-  // Guards against detaching/switching customers while a payment confirmation
-  // is in flight (see checkout/page.jsx's handlePaymentConfirmed and
-  // uiSlice.js's setCheckoutInProgress) — that could redirect checkout away
-  // before the operator sees the sale complete, risking a duplicate charge.
   const checkoutInProgress = useSelector(selectCheckoutInProgress);
 
   const guardedSheetOpen = () => {

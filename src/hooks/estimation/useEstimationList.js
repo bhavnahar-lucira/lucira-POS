@@ -1,7 +1,3 @@
-// Same header shape as every other POS transaction (transaction_id,
-// document_no, document_date, party_name, net_amount, line_items[] with
-// real catalog item_id) — mirrors useTransactionLists.js.
-
 import { useQuery }      from '@tanstack/react-query';
 import { useSelector }   from 'react-redux';
 import { getEstimations } from '@/services/estimationService';
@@ -41,8 +37,6 @@ export function useEstimations({ skip = 0, enabled = true } = {}) {
     queryFn:  async () => {
       const data     = await getEstimations({ company_id: storeId, take, skip });
       const entities = data?.Entities ?? [];
-      // Client-side backstop — Estimation/List ignores its own company_id
-      // filter server-side, same gap as Order/List and RepairOut/List.
       const items = entities
         .map(normalizeEstimation)
         .filter(Boolean)

@@ -157,11 +157,7 @@ function EstimationNewForm({ onDone }) {
       <Button type="submit" disabled={create.isPending || !customerId} className="h-12 mt-1">
         {create.isPending ? 'Saving Quote…' : 'Save Quote'}
       </Button>
-
-      {/* Confirmed live 2026-08-14 (see estimationService.js header for the
-          full repro): Create works with no items, but fails the moment a
-          real item is added — with either the exact shape sent here or a
-          fully-priced one. Not something fixable from this form. */}
+      
       <p className="flex items-start gap-1.5 text-xs text-muted-foreground -mt-2">
         <AlertTriangle size={13} className="shrink-0 mt-0.5 text-status-made-order" aria-hidden="true" />
         Saving is currently expected to fail once an item is added — confirmed
@@ -257,9 +253,7 @@ function EstimationScreen() {
 
   useEffect(() => {
     const requestedView = searchParams.get('view');
-    if(requestedView === 'custom') {
-      setView('custom');
-    }
+    if(requestedView === 'custom') { setView('custom'); }
   }, [searchParams]);
 
   return (

@@ -1,9 +1,3 @@
-// Paginated list hooks for the 3-stage repair workflow: RepairIn (intake) ->
-// RepairOut (to craftsman) -> RepairInvoice (billing). All 3 share the same
-// header shape as every other POS transaction (transaction_id, document_no,
-// document_date, party_name, net_amount, line_items[]) — mirrors
-// useTransactionLists.js directly.
-
 import { useQuery }      from '@tanstack/react-query';
 import { useSelector }   from 'react-redux';
 import {
@@ -48,19 +42,12 @@ function makeRepairListHook({ queryKeyFn, fetchFn }) {
       queryFn:  async () => {
         const data     = await fetchFn({ company_id: storeId, take, skip });
         const entities = data?.Entities ?? [];
-        // Client-side backstop: RepairOut/List ignores its own company_id
-        // filter server-side (RepairIn/RepairInvoice do filter correctly).
-        // Applied to all three uniformly — a no-op where already scoped,
-        // fail-closed where not.
         const items = entities
           .map(normalizeRepairRecord)
           .filter(Boolean)
           .filter((r) => r.companyId === storeId);
         return {
           items,
-          // TotalCount is from the unfiltered response, so it can overstate
-          // when the backstop above filtered something out — acceptable
-          // since it's only used as an approximate page-count hint here.
           totalCount: data?.TotalCount ?? entities.length,
         };
       },

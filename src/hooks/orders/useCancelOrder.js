@@ -7,8 +7,6 @@ import TOAST from '@/constants/toastMessages';
 import tracker from '@/lib/analytics/tracker';
 import EVENTS from '@/lib/analytics/events';
 
-// Cancelling an order is keyed only on transactionId, so tracked events use
-// session-derived customer_id/store_id (the only extra context available).
 export function useCancelOrder() {
   const queryClient = useQueryClient();
   const sessionCtx = useSessionTrackingContext();
@@ -19,7 +17,6 @@ export function useCancelOrder() {
     onSuccess: (_data, transactionId) => {
       toast.success(TOAST.ORDERS.CANCELLED);
       tracker.track(EVENTS.ORDER_CANCELLED, { transactionId, ...sessionCtx });
-      // Invalidate orders list — use the base key to bust all parameterised variants
       queryClient.invalidateQueries({ queryKey: ['orders'] });
     },
 

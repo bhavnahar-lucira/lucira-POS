@@ -1,26 +1,5 @@
 'use client';
 
-// Full catalog filter panel — redesigned 2026-09-30 to match OrnaVerse's own
-// real Filters panel field-for-field, after directly cross-checking it live:
-// Category, Sub Category (disabled until a category is picked), Karat,
-// Metal Color, Diamond Shape, Item Size, Collection — each a checkbox list
-// with an inline search box for longer lists — then "Measurements" (Weight
-// (g) / Diamond Weight (ct) as plain From/To number pairs) and its own
-// independent "Price" section (a dual-thumb RangeSlider, not a From/To pair
-// — reported directly: wanted a slider "with the same logic", i.e. same
-// underlying priceMin/priceMax facet, just a different control and out of
-// Measurements). Rendered as BottomSheet's content (right-side drawer on
-// desktop, bottom sheet on mobile), same as before this redesign.
-//
-// Every id-array field here (subTypeIds/karatIds/metalColorIds/shapeIds/
-// itemSizeIds/collectionIds) maps straight to a real ProductCatalog/List
-// server-side filter (sub_type_ids/karat_ids/metal_ids/shape_ids/
-// item_size_ids/collection_ids — see useCatalogProducts.js) — options come
-// from real master-data endpoints (see useCatalogFilterOptions.js), not
-// counted/computed from whatever happens to be loaded, same as OrnaVerse's
-// own dropdowns. Price is the one exception, still client-side — see
-// lib/catalogFacets.js's own header for why.
-
 import { useState } from 'react';
 import { Search } from 'lucide-react';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
@@ -47,9 +26,6 @@ function CheckboxRow({ label, checked, onChange }) {
   );
 }
 
-// Search box only kicks in past this many options — a short list (Karat,
-// Metal Color) never needs one, matching OrnaVerse's own panel closely
-// enough without adding a search box nobody would use.
 const SEARCHABLE_THRESHOLD = 10;
 
 function CheckboxGroup({ options, selected, onToggle, isLoading, emptyLabel }) {
@@ -95,25 +71,8 @@ function CheckboxGroup({ options, selected, onToggle, isLoading, emptyLabel }) {
     </div>
   );
 }
-
-// Local state is the source of truth while the operator is actively
-// typing, committed through ONE onChange({ from, to }) call per keystroke —
-// reading the parent's fromValue/toValue PROPS directly inside each field's
-// own onChange (an earlier version of this) races when both fields are
-// edited in quick succession: the second field's onChange still closes over
-// the first field's PRE-edit prop (React/Next hasn't re-rendered from the
-// first edit's router.replace() yet) and silently overwrites it back to
-// blank — confirmed live (typing From then To dropped From entirely), same
-// underlying race useCatalogFilters.js's setFacets already documents for
-// weightMode+weightBuckets. Local state sidesteps it: it updates
-// synchronously within this component, so the second edit always reads the
-// first edit's real, just-typed value, not a stale prop.
 function RangePair({ label, unit, fromValue, toValue, onChange }) {
   const [local, setLocal] = useState({ from: fromValue, to: toValue });
-
-  // Re-sync when the PARENT's values change for a reason other than this
-  // component's own edits (e.g. "Clear all") — mid-render adjustment, same
-  // idiom as CheckoutPaymentSection's lastPricedTotal.
   const [lastProps, setLastProps] = useState({ from: fromValue, to: toValue });
   if (lastProps.from !== fromValue || lastProps.to !== toValue) {
     const wasInSync = local.from === lastProps.from && local.to === lastProps.to;
@@ -163,27 +122,11 @@ function Section({ title, children }) {
   );
 }
 
-// Mobile-only master/detail layout — reported directly (2026-10-01), modeled
-// on a reference site's own mobile filter sheet: a left rail of section
-// names (with a count badge wherever that section has an active selection)
-// and a right pane showing just the ACTIVE section's own content, instead of
-// every section stacked as an accordion the operator has to scroll past one
-// at a time. Purely a different arrangement of the SAME `sections` nodes the
-// desktop accordion below renders — no facet/filter logic lives here, so
-// there is nothing for the two layouts to disagree on.
 function MobileFilterMasterDetail({ sections }) {
   const [activeKey, setActiveKey] = useState(sections[0]?.key);
   const active = sections.find((s) => s.key === activeKey) ?? sections[0];
 
   return (
-    // Negative margins cancel the sheet's own content padding (BottomSheet's
-    // px-3/sm:px-5) so both rails run edge-to-edge like the reference, same
-    // idiom CustomerDetailSheet's tab row already uses for the same reason.
-    // Fixed height (not h-full) — this sits alongside other content inside
-    // BottomSheet's single scrollable body (the mobile search/store block,
-    // the "Clear all" link above), which isn't itself a flex container, so a
-    // percentage height here would resolve against the WHOLE body rather
-    // than "whatever's left after my siblings" and overflow it.
     <div className="md:hidden -mx-3 flex h-[58vh]">
       <div className="w-[38%] shrink-0 overflow-y-auto border-r border-border bg-muted/40">
         {sections.map((s) => {
@@ -255,13 +198,7 @@ export default function ProductFilterPanel({
   hasActiveFilters,
   onClearFilters,
 }) {
-  // Built ONCE, consumed by BOTH renderers below (desktop accordion, mobile
-  // master/detail) — same node per section either way, so there is exactly
-  // one implementation of each section's content, never two that could
-  // drift apart. `badge` is a plain derived display count (how many of this
-  // section's own facet values are active) — mobile-only (see
-  // MobileFilterMasterDetail), omitted (null) for the two range-style
-  // sections where "a count" isn't a meaningful idea.
+  
   const sections = [
     {
       key: 'Category', title: 'Category',
@@ -275,8 +212,6 @@ export default function ProductFilterPanel({
       ),
     },
     {
-      // Disabled until a category is picked — matches OrnaVerse's own
-      // "Select a category first" placeholder exactly.
       key: 'Sub Category', title: 'Sub Category',
       badge: facets.subTypeIds.length || null,
       node: !activeCategorySlug ? (
@@ -302,14 +237,6 @@ export default function ProductFilterPanel({
       ),
     },
     {
-      // Independent section, not a From/To pair in Measurements — same
-      // priceMin/priceMax facet as before, just a dual-thumb slider.
-      // ALWAYS rendered (reported directly: hiding the whole section
-      // whenever priceBounds was still null — nothing priced yet, or the
-      // currently-visible page happens to be all unpriceable items, e.g.
-      // Silver925 — made the filter appear to have vanished entirely).
-      // Falls back to a message instead of the slider until real bounds
-      // exist, same convention as CheckboxGroup's own loading/empty states.
       key: 'Price', title: 'Price', badge: null,
       node: priceBounds ? (
         <RangeSlider
@@ -405,10 +332,6 @@ export default function ProductFilterPanel({
   return (
     <div className="flex flex-col gap-1">
       {hasActiveFilters && (
-        // Desktop/tablet only now — mobile gets its own "Clear All" in the
-        // sheet's footer (catalog/page.jsx), matching the reference layout
-        // instead of this floating text link stacked above the master/detail
-        // panel too.
         <button
           type="button"
           onClick={onClearFilters}

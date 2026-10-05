@@ -1,10 +1,3 @@
-// Available customer balances at REPAIR billing time — the repair-specific
-// counterpart of useInvoiceHelpers.js. Covers Advances/Scheme/CreditNote/
-// Exchange (no OldGold or DailyCash equivalent exists for this flow).
-// Note: these 4 endpoints are unverified against live UAT data (unlike
-// useInvoiceHelpers' endpoints) — treat a failure here as "diagnose live,"
-// not "code is wrong."
-
 import { useQuery } from '@tanstack/react-query';
 import {
   getRepairInvoiceAdvances,

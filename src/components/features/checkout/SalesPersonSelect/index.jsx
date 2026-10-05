@@ -1,10 +1,5 @@
 'use client';
 
-// Sales person picker for checkout, reusing the store-scoped
-// useSalesPersonOptions hook shared with Scheme Enrollment. Plain
-// controlled component (value/onChange); schemes/enroll/page.jsx wraps it
-// in a react-hook-form Controller to reuse it in an RHF form.
-
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';

@@ -59,10 +59,6 @@ function CheckoutScreen() {
     isLoading: isPricing,
     error: pricingError,
   } = useCheckoutPricing();
-
-  // Exactly one of these is ever present — see buildPricedLineItems's own
-  // header (REVERTED 2026-09-30 from a per-line invoice+order split back to
-  // one document per checkout, explicit direction).
   const doc = invoice ?? order;
   const hasDoc = !!doc;
   const documentType = invoice ? 'invoice' : 'order';
@@ -85,17 +81,7 @@ function CheckoutScreen() {
   const amountCollected = payments.reduce((sum, p) => sum + (p.amount ?? 0), 0);
   const isSubmitting = isPlacingInvoice || isPlacingOrder;
   const payableTotal = doc?.amountDue ?? 0;
-  // Reported directly (2026-09-30): PlaceOrderButton kept showing the full,
-  // undiscounted amount after Loyalty was applied, while CartSummary's own
-  // "Total" right above it already subtracted the same credit — this is
-  // what lets the button match that figure instead of disagreeing with it.
   const creditApplied = payments.find((p) => p.modeType === LOYALTY_MODE_TYPE)?.amount ?? 0;
-
-  // Set directly by handlePaymentConfirmed right before navigating away on a
-  // full success — a two-call sequence (invoice then order) can't be
-  // expressed as "some mutation's result is truthy" the way a single call
-  // could, since invoiceResult can be set while the order call is still
-  // in flight (or never happens at all, on an invoice-only cart).
   const [isConfirmed, setIsConfirmed] = useState(false);
 
   const backGuard = useCallback(() => {
@@ -157,10 +143,6 @@ function CheckoutScreen() {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [items.length, isConfirmed]);
-  
-  // Invoice can never be short-paid — checkoutSchema enforces that exactly
-  // (allowPartialPayment: false). Order keeps the existing "any advance,
-  // including zero" rule.
   const validation = hasDoc ? checkoutSchema.safeParse({
     customerId, salesPersonId,
     paymentModes: payments,
@@ -177,14 +159,6 @@ function CheckoutScreen() {
     if (!isValid || isSubmitting) return;
     setIsPaymentConfirmOpen(true);
   };
-
-  // No post-Create Nector "perform" call anymore (2026-09-28) — that
-  // targeted the Shopify storefront webhook, a completely different,
-  // unrelated Nector balance from the one this document actually redeemed
-  // against (see useNectorCheckoutInfo.js/nectorService.js's headers).
-  // OrnaVerse's own LoyaltyCheckout integration settles transactionally as
-  // part of Create itself once the receipt row (documentFields.js's Nector
-  // branch) is submitted — nothing further to call here.
   const handlePaymentConfirmed = async () => {
     dispatch(setCheckoutInProgress(true));
 
@@ -235,8 +209,6 @@ function CheckoutScreen() {
       <div className='grid grid-cols-1 items-start gap-5 lg:grid-cols-2'>
         <div className="flex flex-col gap-5 w-full">
           <CheckoutCustomerSummary />
-          {/* Statutory PAN threshold (Rule 114B) — judged against this one
-              real document's own amount. */}
           <CheckoutPanCapture
             key={customerId}
             totalAmount={payableTotal}
@@ -256,16 +228,6 @@ function CheckoutScreen() {
           </section>
           <DiscountSection />
         </div>
-        {/* Sticky on lg+ only (same breakpoint the grid goes 2-column) so
-            Order Items/Summary/Payment stay visible while the left column
-            scrolls. max-h + overflow-y-auto is required, not decorative —
-            without it a tall column would pin its top edge while its
-            bottom ran off-screen with no way to reach it. The subtracted
-            value is coupled to Header's min-h-[64px] (src/components/layout/
-            Header), this column's own lg:top-6 offset, and the footer bar
-            below (now fixed at every breakpoint, not just mobile) — if any
-            of those change, re-check this number live, don't just carry it
-            forward. */}
         <div className="flex flex-col gap-5 w-full lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-12.5rem)] lg:overflow-y-auto">
           <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
             <h2 className="text-sm font-bold text-foreground mb-1 flex items-center gap-1.5">
@@ -342,11 +304,6 @@ function CheckoutScreen() {
       </div>
       
       <CheckoutTrustStrip />
-
-      {/* Always fixed now (not just mobile) — reported directly: Place
-          Order should stay reachable without scrolling on desktop too. z-20
-          keeps it above the sticky right column it now permanently
-          overlaps at the bottom of the viewport. */}
       <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-border bg-card p-4 shadow-lg md:px-6">
         <div className="max-w-6xl mx-auto w-full flex flex-col items-center gap-2">
           <PlaceOrderButton

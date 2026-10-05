@@ -28,10 +28,6 @@ import { buildProductAttributes } from '@/lib/analytics/productAttributes';
  *     which live on `product`.
  *   disabled?:        boolean,
  * }} props
- *   stockStatus — passed down from ProductStickyActionBar rather than read
- *   from product.has_stock (which Items/Retrieve doesn't reliably carry).
- *   Carried onto the cart line as hasStock so Cart/Checkout can show an
- *   In Stock/Made to Order badge per line — see CartItemRow.
  */
 export default function AddToCartButton({
   product,
@@ -47,16 +43,6 @@ export default function AddToCartButton({
 }) {
   const dispatch = useDispatch();
   const isDisabled = !product || disabled || unitPrice == null;
-  // Reentrancy guard, not React state — reported directly (2026-09-30): a
-  // qty-2 add landed in the cart as qty-4, cart confirmed empty beforehand.
-  // handleAddToCart has no async gap (dispatch is synchronous), so a rapid
-  // double-click/double-tap (or a mobile browser's own click+touchend double
-  // fire, a known cross-browser quirk) could invoke it twice before a
-  // disabled-state re-render ever painted — cartSlice's addItem reducer then
-  // merges the second dispatch's quantity onto the first (existing,
-  // unrelated-to-this-bug behavior for re-adding the same item), silently
-  // doubling it. A ref closes that same-tick gap that state can't; the
-  // timeout still allows a genuinely separate, later "add this again" click.
   const isAddingRef = useRef(false);
   const resolvedImage =
     primaryImage?.src ??

@@ -1,14 +1,5 @@
 'use client';
 
-// Static store-level marketing content — NOT per-product data.
-// Covers: trust badge strip, "Why Lucira" three promises, certification
-// badges, and a Warranty/Care/Package accordion.
-//
-// Per audit: none of this varies by item (no confirmed API fields back
-// this), so it's intentionally hardcoded rather than wired to product data.
-// If Lucira later wants per-category or per-product variants of this copy,
-// that would need real fields first.
-
 import { useState } from 'react';
 import {
   ShieldCheck, RefreshCw, Truck, Gem,
@@ -38,24 +29,6 @@ const WHY_LUCIRA = [
   },
 ];
 
-// Redesigned 2026-08-24 — two real problems, not just polish:
-//   1. The header (title + subtitle) sat in one unwrapped flex row, which
-//      crowded/could overlap on a narrow phone width — now stacks below
-//      sm: and only sits inline side-by-side from sm: up.
-//   2. The column divider was an absolutely-positioned `after` pseudo-
-//      element pinned to each item's right edge — meant for the 3-column
-//      desktop layout, but nothing hid it on mobile's single-column stack,
-//      where it just left a stray vertical line hanging off the right edge
-//      of each full-width block with no second column to separate from.
-//      Replaced with divide-y (horizontal rules BETWEEN stacked items) on
-//      mobile, swapped for md:border-l (vertical rules between columns)
-//      once the grid actually goes 3-wide — each divider only exists in the
-//      layout it makes sense in.
-// The numeral also moved from plain colored text into a small circular
-// badge, matching the icon-badge treatment the trust-badge strip and Stock
-// Across Stores panel already picked up in this same redesign pass — one
-// consistent visual language across the page instead of three different
-// "how do we mark this row/column" treatments.
 function WhyLuciraSection() {
   return (
     <div className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
@@ -113,8 +86,6 @@ const ACCORDION_ITEMS = [
 ];
 
 function CertifiedQualityBlock() {
-  // Opens the sample certificate in a dialog instead of downloading it
-  // (reported directly, 2026-09-29) — was a bare <a download> link.
   const [isCertOpen, setIsCertOpen] = useState(false);
 
   return (

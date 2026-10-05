@@ -1,5 +1,3 @@
-// Enroll the attached customer into a jewellery savings scheme.
-
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { createSchemeEnrollment } from '@/services/schemeService';
@@ -25,7 +23,6 @@ export function useEnrollCustomer() {
         tenure:        variables?.tenure,
         ...sessionCtx,
       });
-      // Bust all enrollment caches — storeId-scoped and customer-scoped
       queryClient.invalidateQueries({ queryKey: ['schemes'] });
     },
 

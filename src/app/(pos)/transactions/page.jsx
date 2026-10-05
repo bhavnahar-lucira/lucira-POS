@@ -103,16 +103,6 @@ function FormField({ label, required, error, children }) {
     </div>
   );
 }
-// POS/InvoiceItems/List's own `transaction_type` filter — CONFIRMED LIVE
-// 2026-10-02 via direct network capture of OrnaVerse's own Returns screen
-// for all three modes. Deliberately NOT reusing
-// APP_CONFIG.INTERSTORE_RETURN_TRANSACTION_TYPE — that's a DIFFERENT,
-// unrelated enum (Interstore Return's own transaction_type) that just
-// happens to share small integers; conflating the two is exactly what
-// produced the wrong Buyback value (3) in an earlier pass before this was
-// actually captured live. Return=1, Exchange=2, Buyback=2 (yes, the SAME
-// value as Exchange — both pull from one pooled eligible-items list on this
-// tenant, confirmed by an identical captured request body for both modes).
 const SOLD_ITEM_TRANSACTION_TYPE = { RETURN: 1, EXCHANGE: 2, BUYBACK: 2 };
 
 const SOLD_ITEM_FLOWS = {
@@ -204,14 +194,6 @@ function SoldItemFlowForm({ flow, onDone }) {
 
   const selectedKeys = watch('selected_keys');
   const selectedRows = soldItems.filter((r) => selectedKeys.includes(soldItemKey(r)));
-
-  // A sold item originating from a DIFFERENT store than the active one is a
-  // genuine Interstore Return candidate, not something to hide — CONFIRMED
-  // LIVE 2026-10-02 (real capture of OrnaVerse's own Returns screen): such a
-  // line requires a mandatory condition photo and is raised as a fully
-  // SEPARATE InterstoreReturn document (Create → AddItemImage →
-  // SubmitForApproval), created and submitted BEFORE the regular Return/
-  // Exchange/Buyback document, which only ever carries the same-store lines.
   const isCrossStore = (row) => row.company_id != null && row.company_id !== storeId;
   const crossStoreRows = selectedRows.filter(isCrossStore);
   const sameStoreRows  = selectedRows.filter((r) => !isCrossStore(r));
@@ -248,11 +230,6 @@ function SoldItemFlowForm({ flow, onDone }) {
     }
     try {
       setIsPricing(true);
-
-      // Cross-store lines first, grouped by origin store (one IRR document
-      // = one origin_company_id) — each gets its own independent
-      // Create→AddItemImage→SubmitForApproval before the regular document
-      // below ever fires, matching the confirmed-live order exactly.
       if (crossStoreRows.length > 0) {
         const rowsByOrigin = new Map();
         for (const row of crossStoreRows) {
@@ -318,10 +295,6 @@ function SoldItemFlowForm({ flow, onDone }) {
       setIsPricing(false);
       reset();
       setPhotosByKey({});
-      // The regular document's own success hooks call onDone() once posted
-      // (see postReturnDoc/postBuybackDoc/postExchangeDoc above) — only a
-      // PURE cross-store submission (no same-store lines at all) has no
-      // such hook to rely on, so it's called directly here instead.
       if (sameStoreRows.length === 0) onDone();
     } catch (err) {
       setIsPricing(false);
@@ -553,14 +526,6 @@ function MetalLineItemForm({ type, onDone }) {
   const watchedItems = watch('line_items');
   const [showPicker, setShowPicker] = useState(false);
   const [addingItems, setAddingItems] = useState(false);
-
-  // SetURDItems is called ONCE per item, right here at add-time — NOT on
-  // every weight/purity edit. CONFIRMED LIVE 2026-10-02 (captured OrnaVerse's
-  // own client directly): typing a new weight into an already-added line
-  // fires NO further SetURDItems call at all; its on-screen Subtotal/Net
-  // update instantly from pure client arithmetic instead. This call's only
-  // job is to fetch each item's real item_rate (plus ledgers/tax template)
-  // once; weight-dependent fields are computed below on every render.
   const handleAddItems = async (items) => {
     setAddingItems(true);
     try {
@@ -585,13 +550,6 @@ function MetalLineItemForm({ type, onDone }) {
       setAddingItems(false);
     }
   };
-
-  // pure_weight = weight × purity; sub_total = net_amount = pure_weight ×
-  // item_rate (no tax — is_tax_applicable:false) — CONFIRMED LIVE 2026-10-02
-  // against OrnaVerse's own client's exact on-screen numbers (weight=10,
-  // purity=0.92, item_rate=16800 → Subtotal/Net 1,54,560.00, matching this
-  // formula exactly). Recomputed on every render — cheap pure arithmetic, no
-  // network call needed after the one-time add-time fetch above.
   const pricedPreview = watchedItems.map((i) => {
     if (!i.baseRow) return null;
     const weight = Number(i.weight) || 0;
@@ -627,15 +585,6 @@ function MetalLineItemForm({ type, onDone }) {
       return toast.error('Still finishing pricing for one or more items — try again in a moment.');
     }
     try {
-      // Reuse the already-computed preview rather than re-pricing — matches
-      // OrnaVerse's own confirmed-live behavior (they never re-call
-      // SetURDItems before Create either, see pricedPreview's own header
-      // comment above), and guarantees Submit can never disagree with what
-      // was just shown on screen.
-      //
-      // location_id: 1 — same "Finish Goods" default every other stock-in
-      // flow in this app uses; see repairService.js's own getRepairLocationId
-      // for the one place this is actually looked up instead of assumed.
       const salesPersonId = Number(data.sales_person_id);
       const line_items = pricedPreview.map((row) => ({
         ...row,
@@ -653,15 +602,6 @@ function MetalLineItemForm({ type, onDone }) {
       const taxAmount = sum('tax_amount');
       const netRaw    = sum('net_amount');
       const totalWeight = sum('weight');
-
-      // forReturn: true — CONFIRMED LIVE 2026-10-02 (real URDPurchase/Create
-      // capture from OrnaVerse's own client): the header has no mobile/
-      // promotion_details/taxable_amount, but DOES carry payable_ledger_id/
-      // receivable_ledger_id and number_of_backdated_days: 60 — exactly the
-      // "RETURN variant" shape (see buildTransactionHeaderFields' own
-      // header), not the generic branch this used to call. Same family as
-      // Return/Exchange/Buyback in that specific sense, despite being a
-      // purchase rather than a credit-raising document.
       const { receipt_amount: _unusedReceiptAmount, ...headerFields } = buildTransactionHeaderFields({
         subTotal, taxableAmount: subTotal, taxAmount, netAmount: netRaw,
         pieces: line_items.length, weight: totalWeight, netWeight: totalWeight,
@@ -781,7 +721,7 @@ function MetalLineItemForm({ type, onDone }) {
               <FormField label="Purity" required error={errors.line_items?.[index]?.purity}>
                 <Input type="number" inputMode="decimal" step="0.01" placeholder="e.g. 0.75" {...register(`line_items.${index}.purity`)} className="h-9 text-sm" />
               </FormField>
-              {/* Server-computed (once, at add-time) rate + instant client-side amount — see pricedPreview above. */}
+              
               <div className="flex flex-col justify-end gap-1 rounded-lg border border-input bg-muted/30 px-3 py-2 text-sm">
                 <span className="text-xs text-muted-foreground">Rate (₹/g)</span>
                 <span className="font-medium text-foreground">
@@ -900,11 +840,6 @@ const refundSchema = z.object({
   document_date: z.string().min(1, 'Required'),
   mode_id:       z.coerce.number().min(1, 'Select how the money is paid out'),
   credit_keys:   z.array(z.number()).min(1, 'Select at least one credit to refund'),
-  // Required only for a bank-settled mode — enforced in onSubmit, where the
-  // selected mode is actually known. No bank-account field here — unlike
-  // Scheme/Repair/Invoice receipts, Refund's own entity shape
-  // (refundService.js's createRefund) has nowhere to put a bank_pos at all,
-  // only ref_no.
   ref_no: z.string().optional(),
 });
 
@@ -951,9 +886,6 @@ function RefundNewForm({ onDone }) {
     }
     try {
       const mode = paymentModes.find((m) => m.modeId === Number(data.mode_id));
-      // A bank-settled mode (Card/UPI/etc.) needs a reference number, same
-      // real-world requirement as checkout — no bank-account field here,
-      // see refundSchema's own comment for why.
       if (mode && paymentRequiresBank(mode) && !data.ref_no?.trim()) {
         return toast.error('Enter a reference number for this payout.');
       }

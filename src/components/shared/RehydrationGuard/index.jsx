@@ -1,14 +1,4 @@
 'use client';
-// Mounts once at the root of the app (inside <Providers>). Pure side-effect
-// component, renders nothing. Runs one security check:
-//   SEC-006 — after 15 min idle with a customer attached, detaches the
-//             customer and redirects to /dashboard (does not log out the agent).
-//
-// Used to also run a SEC-002 check (clear auth if Redux Persist restored an
-// already-expired token) — that no longer applies since the 2026-09 auth
-// rewire: there's no token to expire client-side any more, just an httpOnly
-// session cookie the server itself rejects when it's gone (interceptors.js's
-// 401 handling covers that).
 
 import { useEffect, useRef, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
@@ -32,7 +22,6 @@ export default function RehydrationGuard() {
   const timerRef = useRef(null);
 
   const handleIdleTimeout = useCallback(() => {
-    // Detach customer only — do NOT log the agent out (shared device model)
     dispatch(detachCustomer());
     router.push('/dashboard');
   }, [dispatch, router]);
@@ -43,7 +32,6 @@ export default function RehydrationGuard() {
   }, [handleIdleTimeout]);
 
   useEffect(() => {
-    // Only run the idle timer when a customer is actively attached.
     if (!isAuthenticated || !cartCustomerId) {
       if (timerRef.current) {
         clearTimeout(timerRef.current);

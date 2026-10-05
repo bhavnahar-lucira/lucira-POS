@@ -1,10 +1,3 @@
-// src/hooks/customer/useCustomerSearch.js
-// Live, API-backed partial search (name OR mobile) — replaces filtering a
-// locally-cached directory snapshot (see useAllCustomers.js), per explicit
-// direction (2026-09-28): every partial search should hit Customer/List's
-// real ContainsText filter directly, for accurate, always-current results
-// rather than whatever happened to be cached up to STALE_TIME.STATIC ago.
-
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { getCustomerList } from '@/services/customerService';

@@ -1,8 +1,5 @@
 'use client';
 
-// Orders directory — paginated browse (50/page) with a full-dataset
-// search/filter that supersedes pagination whenever any filter is active.
-
 import { useMemo, useRef, useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Loader2, Receipt, Search, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -143,20 +140,12 @@ export default function OrdersPage() {
 
   return (
     <div className="flex flex-col gap-3 w-full p-4 md:p-6">
-      {/* Sticky filter bar (pure CSS, no scroll JS): negative margin cancels
-          the page's own padding so the sticky element re-adds it as its own,
-          keeping the background full-width with no gap when pinned. */}
       <div className="sticky top-0 z-10 -mx-4 -mt-4 flex flex-col gap-2 border-b border-border bg-background px-4 pt-4 pb-3 md:-mx-6 md:-mt-6 md:px-6 md:pt-6">
         {isAllFetching && !isAllLoading && (
           <div className="flex justify-end -mb-1">
             <Loader2 size={14} className="animate-spin text-muted-foreground" aria-hidden="true" />
           </div>
         )}
-
-        {/* Search + dates + status share ONE row on md+ (reported directly,
-            2026-10-03: wasted space stacking them on wide screens); mobile
-            keeps the default flex-col stack — search gets its own full-width
-            row first, then dates/status/clear follow below it. */}
         <div className="flex flex-col gap-2 md:flex-row md:items-center">
           <div className="relative md:flex-1 md:min-w-50">
             <Search
@@ -269,11 +258,6 @@ export default function OrdersPage() {
           ))
         )}
       </StaggerList>
-
-      {/* ── Pagination — hidden while any filter is active. Sticky to the
-          viewport bottom (same cancel-the-page's-own-padding technique as
-          the sticky filter bar up top) so it stays reachable without
-          scrolling all the way down a long list. ── */}
       {!isSearchActive && totalCount > take && (
         <div className="sticky bottom-0 z-10 -mx-4 -mb-4 flex items-center justify-between border-t border-border bg-background px-4 pt-3 pb-4 md:-mx-6 md:-mb-6 md:px-6 md:pb-6">
           <Button

@@ -1,18 +1,5 @@
 'use client';
 
-// Shared payment/payout/refund mode picker (react-hook-form Controller +
-// shadcn Select). Field values are numeric modeIds; converted to/from
-// string at the Select boundary since Radix Select only works with strings.
-//
-// bankFieldName/refFieldName (2026-10-01, reported directly: "the reference
-// number box is not added" in Scheme's payment — checkout's own
-// CheckoutPaymentSection shows a bank account + reference number field for
-// any bank-settled mode, Card/UPI/etc., but every OTHER place in the app
-// that collects a payment — Scheme receipts, Repair invoices, Invoice
-// "Collect Payment", Refund payout — reused this bare dropdown and never
-// got that field at all, even though OrnaVerse's own payload schema for
-// several of these already has somewhere to put it). Opt-in: a caller that
-// doesn't pass these props renders exactly as before.
 import { Controller, useWatch } from 'react-hook-form';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -49,9 +36,6 @@ export default function PaymentModeSelect({
   bankFieldName,
   refFieldName,
 }) {
-  // Reactively tracks the mode_id field this component itself owns, so the
-  // bank/reference fields appear the instant a bank-settled mode is picked
-  // — no extra wiring needed from the caller beyond the two field names.
   const selectedModeId = useWatch({ control, name });
   const selectedMode = paymentModes.find((m) => m.modeId === Number(selectedModeId));
   const needsBank = !!selectedMode && paymentRequiresBank(selectedMode);

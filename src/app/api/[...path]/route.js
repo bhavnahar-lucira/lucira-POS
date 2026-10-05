@@ -1,34 +1,8 @@
-// Server-side reverse proxy for every OrnaVerse API call. Forwards each
-// method straight through; a filesystem route always wins over a
-// next.config.mjs rewrite for the same path. UPSTREAM resolves from
-// lib/ornaverse/upstream.js — switch environments there, not here.
-//
-// Authenticates with the operator's own OrnaVerse cookie session (see
-// lib/ornaverse/session.js) rather than an OAuth bearer token — this is
-// the exact mechanism OrnaVerse's own client uses for its users, adopted
-// here after the 2026-09 auth rewire.
-//
-// EXCEPTION — `upload/*`: OrnaVerse serves uploaded product images from
-// this path with NO authentication of its own (confirmed live: a bare,
-// cookie-less request to `${UPSTREAM}/upload/...` returns the image
-// directly). Every <Image src="/api/upload/...">'s resolveImageSrc()
-// output goes through here, and Next's own image optimizer fetches that
-// URL SERVER-SIDE (not from the browser) whenever there's no custom
-// `loader` — a request that can never carry the operator's session
-// cookie, since it isn't the browser making it. Requiring a session for
-// this path the same way Services/* needs one made every such image
-// 401 and fall back to "No image available" — confirmed live, and fixed
-// here by matching OrnaVerse's own public access for exactly this prefix,
-// nothing else.
 import { UPSTREAM } from '@/lib/ornaverse/upstream';
 import { getSessionFromRequest, renewSessionFromUpstream, buildSessionCookieHeaders } from '@/lib/ornaverse/session';
 import { getCachedRead, setCachedRead, isCacheableReadPath } from '@/lib/security/proxyReadCache';
 
 const PUBLIC_PATH_PREFIXES = ['upload/'];
-
-// Customer editing is admin-only (2026-09-28, explicit direction) — hiding
-// the Edit UI for non-admins is a courtesy, this is the actual gate. Only
-// Update is blocked; Create stays open to every operator.
 const ADMIN_ONLY_PATHS = ['Services/POS/Customer/Update'];
 
 async function proxy(request, { params }) {
@@ -60,20 +34,10 @@ async function proxy(request, { params }) {
     headers.set('Cookie', session.cookie);
     if (session.csrf) headers.set('X-CSRF-TOKEN', session.csrf);
   }
-
-  // Read as raw bytes, not .text() — a multipart file upload (e.g. the IRR
-  // photo-attach flow's /File/TemporaryUpload call) is binary, and decoding
-  // it through .text() before re-encoding would corrupt the file. ArrayBuffer
-  // passthrough is lossless for both this and every existing JSON body.
+  
   const hasBody = !['GET', 'HEAD'].includes(request.method);
   const body = hasBody ? await request.arrayBuffer() : undefined;
-
-  // Short-TTL cache for a small allowlist of read-only, tenant-wide
-  // reference endpoints (payment modes, sales persons, document numbering,
-  // today's metal rate) — see lib/security/proxyReadCache.js. Keyed on
-  // path+body, not just path, since these are POST reads that vary by
-  // company_id in the body. These are always small JSON bodies, so decoding
-  // as UTF-8 text purely for the cache key string is safe.
+  
   const cacheKey = isCacheableReadPath(resolvedPath)
     ? `${resolvedPath}::${body ? Buffer.from(body).toString('utf-8') : ''}`
     : null;
@@ -107,11 +71,6 @@ async function proxy(request, { params }) {
   }
 
   const responseContentType = upstreamRes.headers.get('content-type') ?? 'application/json';
-
-  // Renews OUR session cookie whenever OrnaVerse's own auth cookie renews
-  // itself (sliding expiration) — see renewSessionFromUpstream's own header
-  // for the bug this closes. Skipped entirely when upstream sent no cookies,
-  // which is every request except the occasional renewal.
   const renewed = session ? renewSessionFromUpstream(session, upstreamRes) : null;
   const setCookieHeaders = renewed ? buildSessionCookieHeaders(renewed) : [];
 
@@ -122,10 +81,6 @@ async function proxy(request, { params }) {
     for (const header of setCookieHeaders) res.headers.append('Set-Cookie', header);
     return res;
   }
-
-  // Streamed straight through (not buffered) for everything else, so a
-  // large response doesn't hold this invocation's memory/CPU active for
-  // the whole download.
   const res = new Response(upstreamRes.body, {
     status: upstreamRes.status,
     headers: { 'Content-Type': responseContentType },

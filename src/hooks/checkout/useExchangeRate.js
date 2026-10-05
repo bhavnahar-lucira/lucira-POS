@@ -1,9 +1,3 @@
-// src/hooks/checkout/useExchangeRate.js
-// Fetches the currency exchange_rate required on Order/Invoice Create
-// alongside currency_id. Confirmed via direct UAT test 2026-07-16:
-// currency_id 103 (INR) returns exchange_rate: 1 — fetched live rather than
-// hardcoded in case a store ever trades in a different base currency.
-
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { getExchangeRate } from '@/services/settingsService';
@@ -25,8 +19,6 @@ export function useExchangeRate(currencyId = APP_CONFIG.CURRENCY.INR_ID) {
   });
 
   return {
-    // Safe default — matches the confirmed INR rate — so checkout isn't
-    // blocked if this call is slow/fails; server will reject bad data anyway.
     exchangeRate: query.data ?? 1,
     isLoading:    query.isLoading,
   };

@@ -1,9 +1,3 @@
-// Workshop repair orders (document 75) that an intake can be raised against.
-//
-// A Repair In line item is copied from a Repair Order line and back-references
-// it — it can't be typed by hand. See services/repairService.js and
-// [[repair-flow-contract]].
-
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import {
@@ -78,9 +72,6 @@ export function useRepairableSoldItems(partyId) {
   };
 }
 
-/**
- * The stock location a repair lands in ("Repair" on this tenant).
- */
 export function useRepairLocationId() {
   const storeId = useSelector(selectActiveStoreId);
 

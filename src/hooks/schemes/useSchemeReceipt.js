@@ -18,14 +18,6 @@ export function useSchemeReceipt() {
 
     onSuccess: (_, variables) => {
       toast.success(TOAST.SCHEMES.RECEIPT_SUCCESS);
-      // Same payment_method/payment_reference shape as orderTracking.js's
-      // trackDocumentPlaced (Invoice/Order) — reported directly that payment
-      // mode + reference number should be captured for WebEngage "everywhere
-      // the payment is used", not just checkout. Read from
-      // scheme_receipt_details[] (the literal rows actually submitted to
-      // SchemeReceipt/Create — see buildSchemeReceiptPayload), not from any
-      // raw form field, for the same "always what OrnaVerse recorded"
-      // guarantee.
       const receiptRows = variables?.scheme_receipt_details ?? [];
       const paymentMethod = receiptRows.length === 1 ? (receiptRows[0].mode_name || null) : null;
       const paymentReference = receiptRows.length === 1 ? (receiptRows[0].ref_no || null) : null;

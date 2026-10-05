@@ -1,38 +1,17 @@
 'use client';
 
-// Single-select category list inside ProductFilterPanel — reported directly
-// (2026-10-01): the old pill/chip layout (flex-wrap full of rounded chips)
-// grew as tall as the category count and could fill the whole filter sheet
-// on mobile. Rebuilt to match every OTHER section in that panel (Karat,
-// Metal Color, ...) — a checkbox-styled row list, searchable past
-// SEARCHABLE_THRESHOLD, capped at max-h-56 with its own scrollbar — same
-// visual language as those sections. Still SINGLE-select underneath (one
-// requested directly right after the first pass, which used a radio input):
-// picking a category still replaces whatever was active, never adds to it —
-// see CategoryCheckboxRow's own comment. This was already the ONLY surviving
-// consumer of this component (the old "sticky top bar" chip-row variant was
-// moved into this panel on 2026-09-28 and never used standalone since), so
-// there's no second layout to preserve.
-
 import { useState } from 'react';
 import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
 const EXCLUDED_TYPE_IDS = new Set([0]);
 const EXCLUDED_NAME_PATTERN = /^(metal|color diamond|cubic zirconia|lab ?grown? colou?r? ?stone|labgrown diamond|natural diamond|precious|semi[- ]precious|synthetic)$/i;
-// Matches ProductFilterPanel's own CheckboxGroup threshold — same rule,
-// same reason: a short list never needs a search box.
 const SEARCHABLE_THRESHOLD = 10;
 
 function toSlug(name) {
   return name.toLowerCase().replace(/\s+/g, '-');
 }
 
-// Styled as a checkbox (reported directly, 2026-10-01: match the other
-// sections' look) but still SINGLE-select underneath — clicking a row just
-// calls onSelectCategory(slug) same as before, never toggles independently;
-// "All Categories" is the only way back to none selected, same as the radio
-// version this replaced.
 function CategoryCheckboxRow({ label, checked, onChange }) {
   return (
     <label className="flex items-center gap-2.5 py-2 cursor-pointer select-none text-sm text-foreground">

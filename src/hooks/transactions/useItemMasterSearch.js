@@ -1,7 +1,3 @@
-// SKU search across the master item catalogue (NOT stock-scoped) — used by
-// Exchange/Buyback item pickers, where the item being handed in by the
-// customer isn't necessarily in this store's live stock.
-
 import { useQuery } from '@tanstack/react-query';
 import { searchMasterItems } from '@/services/itemService';
 import { QUERY_KEYS } from '@/constants/queryKeys';

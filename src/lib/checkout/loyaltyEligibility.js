@@ -1,14 +1,3 @@
-// src/lib/checkout/loyaltyEligibility.js
-//
-// Pure client-side pre-check mirroring OrnaVerse's own compiled functions
-// `isThirdPartyLoyalty` (N5e) and `evaluateLoyaltyEligibility` (W5e), read
-// directly from their live production bundle (chunk-YMLDVNPO.js) 2026-09-28
-// — same technique already used for documentFields.js's receipt-row shapes.
-// Runs BEFORE calling nectorService.previewLoyaltyCheckout, so a genuinely
-// ineligible cart (below the store's minimum, or with nothing in the
-// eligible item group) never fires the live Nector-backed call at all —
-// exactly mirroring their own client's own gating order.
-
 /**
  * @param {object|null} settings — getLoyaltyCheckoutSettings()'s result
  * @returns {boolean} true when Nector (the third-party provider) is the

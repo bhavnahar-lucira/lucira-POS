@@ -1,18 +1,3 @@
-// src/hooks/checkout/useNectorCheckoutInfo.js
-//
-// What a customer can ACTUALLY redeem right now, via OrnaVerse's OWN native
-// Nector Loyalty integration — REPLACED 2026-09-28 (reported directly: a
-// real redemption showed up on OrnaVerse's own checkout screen for a
-// customer this hook kept reporting as ineligible). Root cause: the
-// previous version called the Shopify storefront's "Custom Checkout
-// Webhook" (getNectorCheckoutInfo, still in nectorService.js, unchanged),
-// which is a COMPLETELY INDEPENDENT integration from what OrnaVerse's real
-// POS screen uses — confirmed live, the two report different balances for
-// the identical phone number (webhook: 500, OrnaVerse's own: coin_value
-// 1100). This hook now calls the same two endpoints their client does:
-// Services/CRM/LoyaltyCheckout/GetSettings then .../Preview — see
-// nectorService.js's header for the full story.
-
 import { useQuery } from '@tanstack/react-query';
 import { getLoyaltyCheckoutSettings, previewLoyaltyCheckout } from '@/services/nectorService';
 import { isThirdPartyLoyalty, evaluateLoyaltyEligibility } from '@/lib/checkout/loyaltyEligibility';
@@ -70,8 +55,6 @@ export function useNectorCheckoutInfo(
       mobile, netAmount, remainingDue, lines,
     }),
     enabled: readyForPreview,
-    // Real-time transactional eligibility, not display-only data — never
-    // serve a stale "yes redeemable" at the moment staff actually applies it.
     staleTime: 0,
   });
 

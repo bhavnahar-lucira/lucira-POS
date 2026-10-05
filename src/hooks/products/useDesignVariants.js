@@ -1,10 +1,3 @@
-// Fetches all style variants for a product via Style/Retrieve (GetDesignDetail),
-// and patches in real per-store stock (style_variants[].pieces is not scoped
-// to the active store — see fetch below). Enabled only when product has a
-// style_id. Returns derived data ready for CustomizeSheet: variants, the
-// Shopify externalProductId, unique metalColors/karats/sizes, variantStock
-// and storesByItemId maps, findVariant, and hasVariants.
-
 import { useQuery } from '@tanstack/react-query';
 import { useMemo }  from 'react';
 import { getDesignVariantsQueued } from '@/services/itemService';
@@ -22,10 +15,6 @@ function unique(arr, keyFn) {
   });
 }
 
-// Style/Retrieve returns Entity (singular), not Entities; guard every level
-// so a malformed response returns safe defaults. Also extracts
-// external_product_id, used by useShopifyProductImages to fetch images from
-// the Shopify Admin API.
 function selectStyleData(response) {
   const entity = response?.data?.Entity;
   if (entity?.style_variants && Array.isArray(entity.style_variants)) {
@@ -66,8 +55,6 @@ export function useDesignVariants(styleId, storeId) {
     select:    selectStyleData,
   });
 
-  // Memoized so a falsy data?.variants doesn't create a new [] identity every
-  // render (which would defeat the useMemo calls further down).
   const rawVariants = useMemo(() => data?.variants ?? [], [data]);
 
   const externalProductId = data?.externalProductId ?? null;
@@ -76,10 +63,7 @@ export function useDesignVariants(styleId, storeId) {
     () => rawVariants.map((v) => v.item_id).filter((id) => id != null),
     [rawVariants],
   );
-
-  // Real per-store stock, enabled once we know which items/store to check.
-  // Keeps the full row set (every store) so storesByItemId below can show
-  // cross-store availability without a second call.
+  
   const { data: stockRows = [], isLoading: stockLoading } = useQuery({
     queryKey: QUERY_KEYS.CATALOG.STOCK_BY_STORES_BATCH(itemIds),
     queryFn: async () => {
@@ -114,9 +98,6 @@ export function useDesignVariants(styleId, storeId) {
     return map;
   }, [stockRows]);
 
-  // Patch each variant's `pieces` with the real per-store count (0 if this
-  // store has no stock row for it) so downstream consumers reflect real
-  // availability instead of the misleading style-level field.
   const variants = useMemo(
     () => rawVariants.map((v) => ({
       ...v,
@@ -162,9 +143,7 @@ export function useDesignVariants(styleId, storeId) {
     }
     return map;
   }, [variants]);
-
-  // Find the exact variant matching the three selections.
-  // null selector means "any" — used when a section has no options.
+  
   const findVariant = (metalColorId, karatId, sizeId) => {
     return variants.find((v) => {
       const matchMetal = metalColorId == null || v.metal_color_id === metalColorId;

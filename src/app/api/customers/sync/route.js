@@ -1,12 +1,3 @@
-// Mirrors a customer record into Mongo. Fire-and-forget from the client;
-// see lib/mongo/customerProfile.js for what does (and does not) get stored.
-//
-// Only party_id is accepted from the client — the profile itself is always
-// re-fetched server-side from OrnaVerse using the caller's own session
-// (Services/POS/Customer/Retrieve), never trusted from the request body.
-// This also doubles as auth: an invalid/expired session is rejected by
-// OrnaVerse itself before Mongo is touched.
-
 import { customerProfileSchema } from '@/validators/customerProfileSchema';
 import { upsertCustomerProfile } from '@/lib/mongo/customerProfile';
 import { UPSTREAM } from '@/lib/ornaverse/upstream';

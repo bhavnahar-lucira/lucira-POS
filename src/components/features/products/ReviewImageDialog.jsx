@@ -1,16 +1,5 @@
 'use client';
 
-// Review lightbox — centered light card (not a fullscreen dark viewer),
-// matching a real reviews-app lightbox reference the user supplied: photo on
-// one side (edge-to-edge, when the review has one), reviewer identity +
-// rating + date + quoted text on the other.
-//
-// Next/Prev page through the WHOLE REVIEW LIST, one review per slide — not
-// through one review's own multiple photos (dropped in favor of this
-// simpler, flatter model per explicit direction: "click next, the other
-// review comment loads"). A review with no photo shows just the content
-// column, narrower, rather than an empty image gap.
-
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ChevronLeft, ChevronRight, BadgeCheck } from 'lucide-react';
@@ -40,9 +29,8 @@ export default function ReviewImageDialog({
   isOpen, onClose, reviews = [], currentIndex, onIndexChange,
 }) {
   useBodyScrollLock(isOpen);
-
-  const goPrev = () => onIndexChange(currentIndex === 0 ? reviews.length - 1 : currentIndex - 1);
-  const goNext = () => onIndexChange(currentIndex === reviews.length - 1 ? 0 : currentIndex + 1);
+  const goPrev = () => onIndexChange((i) => (i === 0 ? reviews.length - 1 : i - 1));
+  const goNext = () => onIndexChange((i) => (i === reviews.length - 1 ? 0 : i + 1));
 
   useEffect(() => {
     if (!isOpen) return;
@@ -96,7 +84,7 @@ export default function ReviewImageDialog({
         onClick={(e) => e.stopPropagation()}
         className={[
           'relative flex max-h-[90vh] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-2xl md:flex-row',
-          photo ? 'max-w-4xl' : 'max-w-lg',
+          photo ? 'max-w-3xl' : 'max-w-lg',
         ].join(' ')}
       >
         <button
@@ -123,7 +111,7 @@ export default function ReviewImageDialog({
             <div className="min-w-0">
               <p className="truncate text-base font-bold text-stone-900">{review.name}</p>
               {review.isVerified && (
-                <span className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-amber-600">
+                <span className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-status-in-stock">
                   <BadgeCheck size={14} aria-hidden="true" />
                   Verified Customer
                 </span>

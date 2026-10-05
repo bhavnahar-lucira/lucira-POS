@@ -1,15 +1,5 @@
 'use client';
 
-// Catalog product card: image, price, and stock/rating badges.
-// `price` is filled in out-of-band by useLiveCatalogPrices (the same
-// calculator checkout bills from) and is null until resolved, or
-// permanently for an item that can't be priced — render no price rather
-// than a wrong one. metal_color_code/metal_color_name: different upstream
-// endpoints spell this differently; see lib/metalColor.js.
-// Star rating only renders for products with a style_id (needed to
-// resolve Nector's external_product_id) — most catalog rows lack one, so
-// most cards simply show no rating badge.
-
 import { useState, memo }  from 'react';
 import Image               from 'next/image';
 import { useRouter }       from 'next/navigation';
@@ -53,8 +43,6 @@ function formatWeight(grams) {
   return `${n.toFixed(3)} g`;
 }
 
-// On-brand placeholder instead of a generic "broken image" glyph — most
-// catalog rows genuinely have no photo asset yet, so this isn't an error state.
 function NoImagePlaceholder() {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 bg-muted">
@@ -70,33 +58,11 @@ function NoImagePlaceholder() {
   );
 }
 
-// Flag/tag shape flush to the card's left edge, not a floating pill.
-// storeCodes lists every store (plural — a card can be in stock at
-// several) the badge should credit; shown only alongside "In Stock",
-// never "Made to Order".
-//
-// Only the FIRST store code is named, with a "+N" for the rest (e.g.
-// "BO1 │ +3" for four in-stock stores) rather than listing every code —
-// this badge sits on a small image corner, and "PN1, BO1, CS1, N18" doesn't
-// fit there the way a single code + count does, and only gets worse as more
-// stores open. Card-local only, by design: CrossStoreStockPanel (the
-// product detail page's own "Stock Across Stores" list) still names every
-// store in full — that's the place an operator actually needs the complete
-// list, this badge is just a glance.
-//
-// The "+N" gets its own small pill rather than sitting as plain text right
-// after the code — run together ("BO1+3") they read as one garbled token;
-// a vertical divider plus a distinct chip makes it unambiguous at a glance
-// that N is a COUNT, not part of the store code itself.
 function StockBadge({ inStock, storeCodes }) {
   const [firstCode, ...restCodes] = storeCodes ?? [];
   return (
     <Badge
       className={[
-        // Smaller/tighter below sm only — at a 2-up mobile card width, the
-        // full-size badge's text stretched far enough right to run under
-        // WishlistButton's top-right heart (reported directly). Desktop/tab
-        // (sm+) is untouched.
         'h-auto rounded-l-none rounded-r-full py-0.5 pl-2 pr-2.5 text-[10px] font-semibold text-white shadow-sm sm:py-1 sm:pl-2.5 sm:pr-3 sm:text-[11px]',
         inStock ? 'bg-status-in-stock/95' : 'bg-status-error/95',
       ].join(' ')}
@@ -129,36 +95,6 @@ function StockBadge({ inStock, storeCodes }) {
  *   similarProductsSurface?: 'sheet' | 'pdp_carousel' | null,
  *   priorityImage?: boolean,
  * }} props
- *   priorityImage (default false) - set by ProductGrid for roughly the
- *   first on-screen row only (see that component's FIRST_ROW_PRIORITY_COUNT).
- *   That row is the likely LCP element on /catalog, so it skips lazy-loading
- *   and gets a high fetch-priority hint instead of competing on equal
- *   footing with the rest of a 100-item page. Every other card explicitly
- *   marks itself low-priority + lazy — deliberate for a card whose image
- *   isn't the page's main content, even before it scrolls into view.
- *   realStock - genuine cross-store stock for this exact item_id, from
- *   useCrossStoreStockCodes. Pass it wherever product.has_stock can't be
- *   trusted as a live, correctly-scoped verdict (Recently Viewed, Wishlist);
- *   overrides both has_stock and storeCode when present. Omitted on the
- *   main catalog grid/OtherStoreSection, where has_stock is already
- *   correctly scoped server-side.
- *   showSimilarIcon (default true) - every card gets the "View Similar"
- *   icon EXCEPT the ones rendered inside SimilarProductsSheet's own grid
- *   (which explicitly passes `false`) — a "view similar of this similar
- *   item" nested sheet-on-a-sheet is confusing on its own, independent of
- *   anything technical. (An earlier version of this prop also disabled the
- *   icon inside Swiper carousels, working around the sheet's
- *   `position: fixed` breaking under Swiper's own `.swiper-wrapper`
- *   transform — BottomSheet now portals to document.body instead, which
- *   fixes that directly, so every carousel keeps the icon like any other
- *   card.)
- *   similarProductsSurface (default null) - set ONLY by SimilarProductsSheet
- *   and SimilarProductsCarousel, identifying which "similar products" UI
- *   this card lives inside. When set, tapping the card to navigate fires
- *   EVENTS.SIMILAR_PRODUCT_CLICKED (see handleTap below) — every other
- *   caller (catalog grid, Recently Viewed, Wishlist) leaves this null, so
- *   an ordinary product view/tap is never mistaken for a similar-products
- *   interaction.
  */
 function ProductCard({
   product,
@@ -175,9 +111,6 @@ function ProductCard({
   const reduceMotion = useReducedMotion();
   const activeStoreCode = useSelector(selectActiveStoreCode);
   const activeStoreId = useSelector(selectActiveStoreId);
-  // storeCodeOverride lets a card (e.g. in OtherStoreSection) show a
-  // different store's code than the operator's active store; ignored once
-  // realStock is passed, since that's already the real answer.
   const storeCode = storeCodeOverride ?? activeStoreCode;
 
   const {
@@ -195,30 +128,13 @@ function ProductCard({
     image_url,
     image_1,
     price,
-    // Set by the catalog page: the live price hasn't come back yet, as
-    // opposed to having come back with no sellable price.
     is_pricing: isPricing = false,
     style_id,
-    // Only populated for a wishlisted item with a confirmed Customize
-    // selection; a plain catalog/recently-viewed row has no size concept.
     item_size_name,
   } = product;
 
   const { externalProductId } = useStyleExternalProductId(style_id ?? null);
   const { average: ratingAverage, count: ratingCount } = useProductReviewSummary(externalProductId);
-
-  // enabled: isSimilarOpen — FIXED 2026-09-18 (reported: "View Similar icon
-  // takes minutes to appear"). This used to run with enabled:false on every
-  // mounted card just to read whether the shared tenant-wide catalog sweep
-  // (useAllCatalog, ~2,699 items) had ALREADY resolved, so it could decide
-  // whether to show the icon at all — meaning the icon genuinely could not
-  // exist until that sweep finished, elsewhere in the app. Now the icon
-  // always shows immediately (SimilarProductsSheet's own empty state
-  // handles a genuine no-match case), and the match computation — which
-  // needs that sweep's data — only runs once the operator actually opens
-  // the sheet, not ahead of time on the chance they might. product is null
-  // when showSimilarIcon is false — no reason to even run the match/sort
-  // when the icon (and the sheet it would open) can never show here at all.
   const { items: similarItems, isLoading: similarLoading } = useSimilarProducts(
     showSimilarIcon ? product : null,
     activeStoreId,
@@ -230,14 +146,8 @@ function ProductCard({
   const badgeStoreCodes = realStock ? realStock.storeCodes : (storeCode ? [storeCode] : []);
   const metalLabel   = getMetalLabel(metal_id);
   const weightLabel  = formatWeight(net_weight ?? weight ?? null);
-  // Purity/karat when the API gives us a real one — "NA" (mostly synthetic
-  // stone rows) is dropped rather than shown as a literal "NA".
   const karatLabel   = karat_code && karat_code !== 'NA' ? karat_code : null;
   const metalColorName = resolveMetalColorName({ metal_color_code, metal_color_name });
-
-  // Gold gets "{karat} Karat {Color} Gold" (falls back to "{karat} Karat
-  // Gold" if color doesn't resolve); other metals keep "{Metal} {code}"
-  // (e.g. "Silver 925") since "Karat" isn't the right unit for those.
   const metalKaratLabel = metalLabel === 'Gold' && karatLabel
     ? `${karatLabel} Karat ${metalColorName ?? 'Gold'}`
     : [metalLabel, karatLabel].filter(Boolean).join(' ') || null;
@@ -248,15 +158,6 @@ function ProductCard({
 
   const rawSrc  = image ?? image_url ?? image_1 ?? null;
   const imageSrc = !imgError ? resolveImageSrc(rawSrc) : null;
-
-  // `price` above is this card's live-calculated figure (useLiveCatalogPrices
-  // — same calculator checkout bills from, see this file's header), but
-  // buildProductAttributes only ever reads price_* off `pricedItem`, never a
-  // bare `product.price` — without this, every catalog card's tracked events
-  // silently sent price_sub_total/price_net_amount: null. sub_total AND
-  // net_amount both get the same figure since this is a single display
-  // price, not the full tax/metal/labour breakup only a real SetSalesItems
-  // row carries — see productAttributes.js's own no-fallback note.
   const cardPricedItem = price != null ? { sub_total: price, net_amount: price } : null;
 
   function handleTap() {
@@ -269,12 +170,7 @@ function ProductCard({
     }
     router.push(`/products/${item_id}`);
   }
-
-  // role="button" on a <div>, not a real <button> — WishlistButton below
-  // renders its own real <button>, and a <button> cannot contain another
-  // <button> (the outer one used to be real; the browser auto-closes it on
-  // the nested button, silently breaking the card's click target).
-  // tabIndex + onKeyDown reproduce Enter/Space behavior a div lacks.
+  
   return (
     <>
     <motion.div
@@ -288,10 +184,6 @@ function ProductCard({
         }
       }}
       className={[
-        // h-full/w-full: a no-op on the catalog grid, but load-bearing
-        // inside RecentlyViewedCarousel's Swiper — an ordinary block child
-        // doesn't inherit a flex slide's stretch on its own, so without
-        // this, cards with wrapping vs. non-wrapping names got uneven heights.
         'group relative flex h-full w-full flex-col overflow-hidden rounded-2xl border bg-card text-left',
         'shadow-sm transition-all duration-standard ease-premium',
         'hover:shadow-md hover:border-accent/40',
@@ -327,27 +219,12 @@ function ProductCard({
         )}
 
         <WishlistButton product={product} reduceMotion={reduceMotion} />
-
-        {/* Rating badge floats bottom-LEFT over the image (moved from
-            bottom-right to make room for "View Similar" on the right —
-            see below). `compact` forces the single-star + value + count
-            form — a small corner badge has no room for 5 full stars. */}
+        
         {ratingCount > 0 && (
           <div className="absolute bottom-2 left-2 z-10 rounded-full bg-card/90 px-2 py-1 shadow-sm backdrop-blur-sm">
             <StarRating rating={ratingAverage} count={ratingCount} compact />
           </div>
         )}
-
-        {/* "View Similar" — bottom-right (top-left is StockBadge, top-right
-            WishlistButton, bottom-left the rating badge). stopPropagation:
-            this button sits inside the card's own role="button" click
-            target (navigate to the product), same reason WishlistButton's
-            own button needs it. Always shown now (see canShowSimilarIcon's
-            own comment above) — the rare item with no real match just opens
-            to SimilarProductsSheet's empty state instead of not having an
-            icon at all; item_count in the tracked event below is whatever
-            similarItems currently holds, which is 0 until the sheet's own
-            fetch resolves. */}
         {canShowSimilarIcon && (
           <button
             type="button"
@@ -370,26 +247,11 @@ function ProductCard({
       </div>
 
       <div className="flex flex-1 flex-col gap-1.5 border-t border-border p-2.5 sm:p-3.5">
-
-        {/* Always rendered (min-h reserves its line even when infoLine is
-            null) — a card whose metal/weight data happens to be missing
-            must not sit shorter, or shift its price/name up, relative to
-            every other card in the same Swiper row/carousel. That was the
-            real cause of cards reading as "uneven size" even though the
-            outer card itself is already h-full/w-full stretched: two equal-
-            height cards can still look mismatched if their PRICE and NAME
-            land at different vertical positions inside them. */}
+        
         <span className="min-h-4 text-xs sm:block hidden text-muted-foreground">
           {infoLine ?? ' '}
         </span>
-
-        {/* Price is live-priced and arrives after the card mounts — show
-            "Pricing…"/"Price unavailable" instead of a blank gap. Staying
-            unpriced is a real, sellable-at-0 state, not a glitch.
-            This card's price is sub_total (pre-tax) — see catalogService.js's
-            own comment. The PDP shows net_amount (tax-inclusive) instead, so
-            "(excl. GST)" is called out here to avoid the two screens reading
-            as disagreeing on the same item's price. */}
+        
         {price != null ? (
           <p className="flex flex-wrap items-baseline gap-x-1 font-sans text-sm font-bold text-foreground sm:text-base md:text-lg">
             {formatINR(price)}
@@ -402,10 +264,6 @@ function ProductCard({
             {isPricing ? 'Pricing…' : 'Price unavailable'}
           </p>
         )}
-
-        {/* min-h-10 ≈ two lines at this text size — reserved even when a
-            row has no real item_name (item_name === item_code, a raw
-            unnamed catalog record), for the same reason as infoLine above. */}
         <p className="line-clamp-3 min-h-10 text-xs sm:text-sm font-semibold leading-snug text-foreground">
           {item_name && item_name !== item_code ? item_name : ''}
         </p>
@@ -428,9 +286,4 @@ function ProductCard({
     </>
   );
 }
-
-// Memoized: the catalog grid can hold 150+ mounted cards while live pricing
-// streams in, and only the few cards with a new price should re-render.
-// Requires catalog/page.jsx to keep `product`'s object reference stable
-// across renders when nothing changed, or this shallow-compare memo re-renders anyway.
 export default memo(ProductCard);

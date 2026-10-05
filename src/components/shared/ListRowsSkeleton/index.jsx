@@ -1,8 +1,5 @@
 'use client';
 
-// Shared loading skeleton: N bordered rows, each with a title/subtitle
-// stack and a trailing amount bar (estimation/repair/transactions lists).
-
 import { Skeleton } from '@/components/ui/skeleton';
 
 export default function ListRowsSkeleton({ rows = 3, lines = 2 }) {

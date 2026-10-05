@@ -1,27 +1,5 @@
 'use client';
 
-// Reusable bottom sheet / side sheet primitive — right-side drawer on
-// tablet (md+), bottom sheet on mobile. Animated in/out via Framer Motion
-// (AnimatePresence), sliding on whichever axis matches the active layout.
-//
-// Props: isOpen, onClose, title, children, footer? (sticky footer node),
-// maxWidth? (Tailwind max-w class for the side sheet, default 'max-w-md'),
-// alwaysBottom? (default false — when true, keeps the bottom-sheet
-// presentation at every width instead of switching to the md+ side drawer;
-// added for ProductCard's "View Similar" sheet, which is explicitly a
-// bottom sheet on desktop/tablet/mobile alike, not a side panel).
-//
-// PORTALED TO document.body (2026-09-16) — `position: fixed` is positioned
-// relative to the nearest ancestor with its OWN CSS `transform`, not the
-// viewport, the instant one exists. A card that triggers this sheet from
-// inside a Swiper carousel (RecentlyViewedCarousel, SimilarProductsCarousel)
-// sits under Swiper's own `.swiper-wrapper`, which always carries
-// `transform: translate3d(...)` — without the portal, the sheet opened
-// clipped/mispositioned inside that narrow slide instead of over the whole
-// screen (reported as "View Similar doesn't work properly" on the product
-// detail page). Rendering into document.body sidesteps every ancestor's
-// transform, no matter where the trigger lives in the tree.
-
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
@@ -67,10 +45,6 @@ export default function BottomSheet({
         exit: { opacity: 0, ...offAxis },
       };
 
-  // document doesn't exist during SSR — isOpen is always false on the
-  // server (a sheet only ever opens from a later user action), so this
-  // never hides an already-open sheet; matches ProductImageZoomModal's
-  // identical guard for the same reason.
   if (typeof document === 'undefined') return null;
 
   return createPortal(

@@ -1,5 +1,3 @@
-// src/components/shared/Logo/index.jsx
-//
 // Single source of truth for all Lucira logo assets.
 //
 // Variants:
@@ -52,7 +50,6 @@ export default function Logo({
         height={resolvedHeight}
         priority={priority}
         className="object-contain"
-        // Every LOGOS entry is an SVG — not worth Vercel's optimizer.
         unoptimized
       />
     </div>

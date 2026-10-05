@@ -1,30 +1,5 @@
 'use client';
 
-// IMAGE SOURCE PRIORITY (future-proof):
-//   1. shopifyImages prop  — passed from product detail page via useShopifyProductImages
-//   2. OrnaVerse fields    — product.image, image_1 … image_8 (currently null on UAT)
-//   3. NoImagePlaceholder  — when both sources are empty
-//
-// To switch image source in future (e.g. OrnaVerse starts serving images):
-//   Stop passing shopifyImages prop from the page — the component automatically
-//   falls back to OrnaVerse fields. No changes needed here.
-//
-// VIDEO (added 2026-07-26): Shopify's GraphQL Admin API can return real
-// product video (confirmed live — some products have a 360° rotation clip)
-// via useShopifyProductImages' `videos` field. Video slides are appended
-// after the photo slides in the same carousel/thumbnail strip rather than
-// getting a separate UI — one gallery, mixed media, matching how Shopify's
-// own storefront orders media. OrnaVerse has no video field at all, so
-// there's no fallback source for video the way there is for images.
-//
-// FIX: this file used to carry its own local copy of the OrnaVerse path
-// resolver (resolveOrnaverseSrc), separate from lib/resolveImageSrc.js.
-// That local copy never got the "upload/" path-prefix fix applied to the
-// shared helper, so it was silently still broken here even after the
-// catalog grid was fixed — it just never showed because OrnaVerse's
-// native image fields are null on UAT. Now imports the shared,
-// corrected resolveImageSrc instead of maintaining a second copy.
-
 import { useState, useRef } from 'react';
 import Image from 'next/image';
 import { ChevronLeft, ChevronRight, ZoomIn, Play } from 'lucide-react';
@@ -36,12 +11,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import StockStatusBadge from '@/components/shared/StockStatusBadge';
 import Logo from '@/components/shared/Logo';
 
-
-
-// Same Logo asset as the sidebar mark / ProductCard's own no-image state
-// (2026-08-23, swapped from a generic lucide Gem icon) — consistent branding
-// wherever a product genuinely has no photo, rather than each surface
-// picking its own throwaway icon.
 function NoImagePlaceholder() {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-muted">
@@ -88,10 +57,6 @@ export default function ProductImageGallery({
   const [imgErrors, setImgErrors]       = useState({});
   const [zoomOpen, setZoomOpen]         = useState(false);
   const touchStartX                     = useRef(null);
-
-    // Priority 1: Shopify images (sorted by position, already done in hook),
-  //             filtered down to the active variant's colour.
-  // Priority 2: OrnaVerse image fields (currently null on UAT)
   const images = (() => {
     if (shopifyImages.length > 0) {
       const filtered = filterShopifyImagesByColor(shopifyImages, activeColorName);
@@ -117,25 +82,17 @@ export default function ProductImageGallery({
       .map((src) => ({ src, alt: product?.item_name ?? 'Product image' }));
   })();
 
-  // Video has no OrnaVerse fallback — Shopify is the only source there is.
   const videos = shopifyVideos.map((v) => ({
     src:    v.src,
     poster: v.poster ?? null,
     alt:    v.alt ?? product?.item_name ?? 'Product video',
   }));
-
-  // Unified carousel: photo slides first (so the hero image stays first),
-  // then video. Each slide keeps a back-reference to its index in the
-  // photo-only `images` array so the zoom modal — which only ever deals in
-  // photos — still gets a valid index.
+  
   const slides = [
     ...images.map((img, i) => ({ type: 'image', ...img, imageIndex: i })),
     ...videos.map((vid) => ({ type: 'video', ...vid })),
   ];
-
-  // Reset to the first slide whenever the filtered set changes shape (e.g.
-  // switching colour) so we don't end up pointed at an index that no longer
-  // exists in the new, shorter filtered list.
+  
   const safeIndex = currentIndex < slides.length ? currentIndex : 0;
 
   const handleTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
@@ -150,8 +107,6 @@ export default function ProductImageGallery({
   const goNext = () => setCurrentIndex((i) => (i === slides.length - 1 ? 0 : i + 1));
   const handleImgError = (index) => setImgErrors((prev) => ({ ...prev, [index]: true }));
 
-  // Genuinely loading (no data of any kind to show yet) — skeleton, not the
-  // hard "no image" state.
   if (isLoading && slides.length === 0) {
     return <GallerySkeleton />;
   }
@@ -160,10 +115,7 @@ export default function ProductImageGallery({
   const isVideo    = current?.type === 'video';
   const showImage  = !isVideo && current?.src && !imgErrors[safeIndex];
   const showVideo  = isVideo && !!current?.src;
-
-  // Shared per-thumbnail markup — rendered twice below (a horizontal strip
-  // below the image on mobile/desktop, a vertical rail beside it on tablet)
-  // so both layouts share identical behavior instead of drifting apart.
+  
   const renderThumb = (slide, i) => (
     <button
       key={slide.src}
@@ -215,12 +167,6 @@ export default function ProductImageGallery({
 
   return (
     <div className="flex flex-col gap-3">
-
-      {/* Row wrapper — column on mobile and desktop (thumbnails go in the
-          strip below instead), row ONLY on tablet (md to just under xl,
-          this codebase's tablet band — see BottomSheet/CustomizeSheet for
-          the same convention) so the thumbnail rail sits to the LEFT of
-          the main image at that width and nowhere else. */}
       <div className="flex flex-col md:flex-row md:items-stretch xl:flex-col gap-3">
 
         {slides.length > 1 && (
@@ -275,21 +221,13 @@ export default function ProductImageGallery({
           ) : (
             <NoImagePlaceholder />
           )}
-
-          {/* Stock status — floating chip, top-right. Solid frosted backing
-              (not the badge's own translucent tint) so it stays legible over
-              an arbitrary product photo, same technique as the nav/zoom
-              buttons below. */}
+          
           {stockStatus && (
             <div className="absolute right-3 top-3 rounded-full bg-white/95">
               <StockStatusBadge status={stockStatus} size="sm" />
             </div>
           )}
-
-          {/* Zoom button — image slides only. bg-white/text-stone chrome here
-              is intentional: it floats over arbitrary product-photo content,
-              not the app's own themed background, so it stays fixed-light
-              regardless of .dark. */}
+          
           {showImage && (
             <button
               type="button"
@@ -315,11 +253,6 @@ export default function ProductImageGallery({
           )}
         </div>
       </div>
-
-      {/* Mobile + desktop thumbnail strip — replaces dot indicators; hidden
-          on tablet, where the rail above (left of the image) is shown
-          instead. Video thumbnails show their poster frame with a
-          play-icon overlay. */}
       {slides.length > 1 && (
         <div
           role="tablist"

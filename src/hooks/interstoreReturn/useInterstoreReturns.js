@@ -1,8 +1,3 @@
-// Interstore Return inbox/list — mirrors OrnaVerse's own IRR page toolbar:
-// Inbox (returns raised against my store, awaiting MY approval), Submitted
-// (returns I raised, awaiting absorption), All, plus a Pending-only toggle.
-// See interstoreReturnService.js for the field/endpoint contract.
-
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { listInterstoreReturns } from '@/services/interstoreReturnService';

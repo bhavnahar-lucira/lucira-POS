@@ -1,11 +1,5 @@
 'use client';
 
-// Card-based product specifications layout, 2 cards per row. Empty sections
-// are hidden entirely. Each card's "i" button opens a BottomSheet with
-// static explainer content — only "Metal" has real content so far; the
-// others fall back to a placeholder until content is supplied (see
-// SPEC_INFO_CONTENT below).
-
 import { useState } from 'react';
 import Image from 'next/image';
 import { Info, Gem, Copy, Check } from 'lucide-react';
@@ -49,21 +43,18 @@ function formatDimension(value) {
   if (isNaN(num) || num === 0) return null;
   return `${num} mm`;
 }
-
-// Gemstone ("Colour Stone" in OrnaVerse's vocabulary, item_group_id 113)
-// details live one level down, on the BOM row for that component, not as a
-// top-level field — filter the master/live-priced item_components list to
-// this group to find it.
 function getColorStoneComponents(list) {
   return (list ?? []).filter(
     (c) => c.item_group_id === 113 || c.item_group_name === 'Color Stone'
   );
 }
 
-// shape_id -> shape_name map, built from the product's own master BOM
-// (never a hardcoded table) — diamond and colour-stone rows share the same
-// shape vocabulary, so this resolves a friendly name for a live-priced
-// colour-stone row that only carries the raw id.
+function getDiamondComponents(list) {
+  return (list ?? []).filter(
+    (c) => c.item_group_id === 112 || c.item_group_name === 'Diamond'
+  );
+}
+
 function buildShapeNameMap(components) {
   const map = new Map();
   (components ?? []).forEach((c) => {
@@ -73,17 +64,10 @@ function buildShapeNameMap(components) {
   return map;
 }
 
-// `attribute` on every BOM row is "{ShapeCode}/{ColorCode}/{MetalCode}/
-// {Size}/{QualityCode}" (e.g. "PR/RED/NA/4.5*4.5/NA") — used as a fallback
-// when a row has no resolved _name field, since the codes are already
-// human-readable without a lookup table.
 function parseAttribute(attribute) {
   const parts = typeof attribute === 'string' ? attribute.split('/') : [];
   return { shapeCode: parts[0], colorCode: parts[1], sizeCode: parts[3] };
 }
-
-// Static/educational content, not per-product. Add new keys here (matching
-// a SpecCard's `title`) as content is supplied.
 
 const SPEC_INFO_CONTENT = {
   Metal: {
@@ -105,7 +89,6 @@ const SPEC_INFO_CONTENT = {
     ],
   },
   Dimension: {
-    // Side-by-side columns (Height / Width), unlike Metal's stacked sections.
     columns: [
       {
         heading: 'HEIGHT',
@@ -253,9 +236,6 @@ function SpecInfoSheetBody({ title }) {
   );
 }
 
-// copyable (Item Code / SKU only, Classification card — reported directly,
-// 2026-09-29) shows its own small copy icon next to the value, independent
-// of any other row on the same card.
 function SpecRow({ label, value, copyable }) {
   const [copied, setCopied] = useState(false);
   if (!value) return null;
@@ -348,11 +328,6 @@ const GemstoneIcon = () => <SpecIcon src={ICON_URLS.gemstone} alt="Gemstone" />;
 
 /**
  * @param {{ product: object, pricedItem?: object|null }} props
- *   product — the master record, source for every card except the gemstone
- *   one, which prefers `pricedItem` (the live-priced SetSalesItems entity)
- *   when resolved: the master's colour-stone BOM row is only a per-design
- *   default, and the physical piece actually being sold can carry a
- *   different colour stone.
  */
 export default function ProductSpecifications({ product, pricedItem = null }) {
   const [infoTitle, setInfoTitle] = useState(null);
@@ -380,7 +355,7 @@ export default function ProductSpecifications({ product, pricedItem = null }) {
   const otherPieces      = product.other_pieces        > 0 ? String(product.other_pieces)       : null;
   const otherWeight      = formatWeight(product.other_weight);
 
-  // Gemstone card — see the JSDoc above for why pricedItem is preferred.
+  // Gemstone/Diamond cards — see the JSDoc above for why pricedItem is preferred.
   const masterComponents = product.item_components ?? product.components ?? [];
   const shapeNameById     = buildShapeNameMap(masterComponents);
   const liveColorStones   = getColorStoneComponents(pricedItem?.item_components);
@@ -391,6 +366,16 @@ export default function ProductSpecifications({ product, pricedItem = null }) {
     const list = [...new Set(values.filter(Boolean))];
     return list.length ? list.join(', ') : null;
   };
+
+  const liveDiamonds   = getDiamondComponents(pricedItem?.item_components);
+  const masterDiamonds = getDiamondComponents(masterComponents);
+  const diamondRows    = liveDiamonds.length ? liveDiamonds : masterDiamonds;
+
+  const diamondShape = uniqueJoined(diamondRows.map((c) => {
+    const { shapeCode } = parseAttribute(c.attribute);
+    return (c.shape_id && shapeNameById.get(c.shape_id)) || val(c.shape_name) || val(shapeCode);
+  }));
+  const diamondQuality = uniqueJoined(diamondRows.map((c) => val(c.quality_name) || val(c.quality_code)));
 
   const gemstonePieces = (pricedItem?.color_stone_pieces ?? product.color_stone_pieces) > 0
     ? String(pricedItem?.color_stone_pieces ?? product.color_stone_pieces)
@@ -419,9 +404,6 @@ export default function ProductSpecifications({ product, pricedItem = null }) {
   const brand       = val(product.brand_name);
   const hsn         = val(product.hsn);
   const itemCode    = val(product.item_code)
-  // product.sku (the master/catalog record) is always empty — a catalog item
-  // has no serialized piece attached. Only pricedItem carries a real
-  // per-piece sku, once pricing has resolved an actual piece.
   const sku         = val(pricedItem?.sku) ?? val(product.sku);
 
   return (
@@ -463,6 +445,8 @@ export default function ProductSpecifications({ product, pricedItem = null }) {
           rows={[
             { label: 'Quantity',     value: diamondPieces },
             { label: 'Carat',        value: diamondCarats },
+            { label: 'Shape',        value: diamondShape },
+            { label: 'Quality',      value: diamondQuality },
             { label: 'Stone Pieces', value: stonePieces },
             { label: 'Other Pieces', value: otherPieces },
             { label: 'Other Weight', value: otherWeight },

@@ -1,7 +1,3 @@
-// Reason codes (returns/cancellations/exchanges) — read-only reference.
-// isError is currently true unconditionally on this tenant; that's a
-// server-side issue, not this hook — see getReasonCodes() in settingsService.js.
-
 import { useQuery } from '@tanstack/react-query';
 import { getReasonCodes } from '@/services/settingsService';
 import { QUERY_KEYS } from '@/constants/queryKeys';

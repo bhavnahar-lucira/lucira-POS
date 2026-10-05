@@ -39,8 +39,6 @@ function OrderContent({ raw, status }) {
 
   const lineItems = raw.line_items     ?? [];
   const payments  = raw.receipt_details ?? [];
-  // Real, per-line CGST/SGST straight off this posted document's own line
-  // items — never reconstructed (see lib/gst.js's own header).
   const gst       = sumRealGst(lineItems);
 
   return (

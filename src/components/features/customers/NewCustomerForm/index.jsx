@@ -1,8 +1,5 @@
 'use client';
 
-// New customer creation with mobile existence check.
-// Uses cascading Country → State → City dropdowns from location master.
-
 import { useEffect } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -20,8 +17,6 @@ import { useCreateCustomer } from '@/hooks/customer/useCreateCustomer';
 import { useCountries, useStates, useCities } from '@/hooks/settings/useLocation';
 import { todayDateString } from '@/lib/dateUtils';
 
-// OrnaVerse enums (see customerSchema.js) — no master-data endpoint for
-// these, they're fixed values.
 const GENDER_OPTIONS = [
   { value: 1, label: 'Male' },
   { value: 2, label: 'Female' },
@@ -45,8 +40,6 @@ export default function NewCustomerForm({ defaultMobile = '', defaultName = '', 
     resolver: zodResolver(customerSchema),
     defaultValues: {
       party_name:     defaultName,
-      // defaultMobile arrives as a bare 10-digit string (the raw search
-      // box input) — PhoneNumberField needs the E.164 shape.
       mobile:         storedValueToPhone(defaultMobile),
       phone:          '',
       email:          '',

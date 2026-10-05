@@ -1,13 +1,3 @@
-// Mutation hooks for the 3-stage repair workflow.
-// Mirrors useTransactionMutations.js — same Create -> Post pattern, except
-// RepairInvoice also gets a receipt step (like Invoice/InvoiceReceipt).
-//
-// Every mutation fires tracker.track() with customer_id/store_id
-// (useSessionTrackingContext, session-derived since Post/Cancel only ever
-// receive a bare transactionId), and every CREATE additionally carries
-// party_id/net_amount/pieces/weight/line_item_count off the same payload
-// posted to OrnaVerse (creationDetails()) — see events.js.
-
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -30,8 +20,6 @@ function getErrorMessage(error, fallback = 'Something went wrong.') {
   );
 }
 
-// `payload` here is the raw entity object each createX() call posts
-// straight through to OrnaVerse, unmodified.
 function creationDetails(payload) {
   return {
     party_id:        payload?.party_id,
@@ -44,10 +32,6 @@ function creationDetails(payload) {
 }
 
 // ─── REPAIR ORDER (what the counter actually raises) ──────────────────────────
-// OrnaVerse's own POS Repair tab creates a Repair Order (document 75) — its
-// button reads "Save Repair Order". Repair In/Out are workshop-side documents
-// raised later. See [[repair-flow-contract]].
-
 export function useCreateRepairOrder({ onSuccess } = {}) {
   const queryClient = useQueryClient();
   const sessionCtx = useSessionTrackingContext();

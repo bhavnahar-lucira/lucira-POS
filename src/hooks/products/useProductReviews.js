@@ -1,6 +1,3 @@
-// Infinite-scroll review list for the product detail page — same
-// useInfiniteQuery + page-number pattern as useCatalogProducts.
-
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { getReviews } from '@/services/nectorService';
 import { normalizeReview } from '@/lib/normalizers/review';

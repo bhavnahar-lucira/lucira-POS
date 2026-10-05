@@ -1,10 +1,5 @@
 'use client';
 
-// SKU search picker for Exchange/Buyback line items — the item being handed
-// in by the customer isn't necessarily in this store's live stock, so this
-// searches the master item catalogue (useItemMasterSearch), not
-// stock-scoped catalog search.
-
 import { useState } from 'react';
 import { Search, X, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -20,15 +15,6 @@ import { formatAmountOrDash as formatINR } from '@/lib/priceUtils';
  *   multiple?: boolean, onAdd?: (items: object[]) => void,
  *   useSearch?: Function, categories?: { value: string, label: string }[],
  * }} props
- *   categories — when given, renders a radio toggle above the search box
- *   (e.g. URD's Jewellery/Metal split) and calls useSearch(query, category)
- *   instead of useSearch(query); the list then also loads with an empty
- *   query, matching OrnaVerse's own category dialog (Metal's 2 rows show up
- *   before any text is typed).
- *   multiple — CONFIRMED LIVE 2026-10-02: OrnaVerse's own "Add Items" dialog
- *   is checkbox multi-select, not click-one-and-close. When true, renders
- *   checkboxes + an "Add N Items" button (onAdd) instead of instant
- *   single-select (onSelect/selectedItem/onClear, ignored in this mode).
  */
 export default function ItemSearchPicker({
   selectedItem, onSelect, onClear,
@@ -38,8 +24,6 @@ export default function ItemSearchPicker({
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState(categories?.[0]?.value);
   const [selected, setSelected] = useState({}); // multiple mode only: item_id -> item
-  // Always call with both args — useSearch impls that don't take a category
-  // (e.g. useItemMasterSearch) simply ignore the extra one.
   const { results, isLoading } = useSearch(query, category);
   const showResults = categories ? true : query.trim().length >= 2;
 

@@ -64,10 +64,6 @@ function SidebarNavItem({ item, collapsed, onNavigate }) {
 export default function Sidebar() {
   const { sidebarOpen, toggle, close } = useSidebar();
   const { user, logout } = useAuth();
-
-  // sidebarOpen is dual-purpose: below `md` it means "mobile drawer visible"
-  // (off-canvas vs full open with labels); at `md`+ it means expanded (w-56)
-  // vs collapsed-to-icons (w-16), always visible either way.
   const collapsed = !sidebarOpen;
 
   return (
@@ -122,12 +118,6 @@ export default function Sidebar() {
         </nav>
 
         <Separator className="bg-sidebar-border" />
-
-        {/* Signed-in operator + logout — mobile drawer only. Header's own
-            UserMenu dropdown covers this at md+ (the always-visible rail);
-            reported as cluttering the mobile header, moved here instead of
-            just deleting it — the collapsed rail has no room for a
-            dropdown trigger anyway, so md+ keeps using Header's own. */}
         <div className="flex items-center gap-3 border-t border-sidebar-border px-4 py-3 md:hidden">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-sm font-semibold text-sidebar-foreground">
             {getInitial(user?.username)}

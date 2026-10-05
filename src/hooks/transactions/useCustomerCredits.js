@@ -1,8 +1,3 @@
-// Outstanding credit a customer is owed — raised by Returns / Exchanges /
-// Buy Backs, and settled by a Refund. Feeds the Refund form's picker.
-// Scoped by store: POSReceiptsSelect/List genuinely filters by company_id,
-// so both the request and the query key must include activeStoreId.
-
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { getCustomerCredits } from '@/services/refundService';

@@ -1,24 +1,5 @@
 'use client';
 
-// Customer directory — search, list, view details, and attach a customer
-// to the current cart session.
-//
-// Maps to: POST Services/POS/Customer/List (paginated, ~1400 customers)
-//          POST Services/POS/Customer/GetCustomer (exact mobile lookup)
-//
-// Search behavior:
-//   - A 10-digit mobile number triggers an exact lookup via GetCustomer
-//     (same as the header Customer control).
-//   - Any other text (2+ chars) hits Customer/List's own ContainsText
-//     filter live (useCustomerSearch) — matches partial name OR mobile,
-//     server-side, per search term (2026-09-28: replaced filtering a
-//     locally-cached directory snapshot, which could miss/lag real data).
-//   - Empty search shows the paginated browse list (50/page).
-//
-// "Edit customer" was requested but no update endpoint exists in
-// API_MAPPING.md (Customer/Generate is create-only) — flagged as a
-// blocker. The detail sheet is read-only with an Attach action.
-
 import { useEffect, useRef, useState } from 'react';
 import { Search, X, UserPlus, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -57,12 +38,6 @@ export default function CustomersPage() {
     { enabled: isMobileSearch }
   );
 
-  // API-backed search (2026-09-28) — hits Customer/List's own ContainsText
-  // filter directly for every partial query, rather than filtering a
-  // locally-cached directory snapshot (see useCustomerSearch.js). Query-key'd
-  // per search term, so TanStack Query still avoids re-hitting the network
-  // for a term already fetched within STALE_TIME.CUSTOMER — same caching
-  // behavior any API call gets, not a local pre-load-everything shortcut.
   const { results: nameResults, isLoading: isNameSearching } = useCustomerSearch(trimmed, {
     enabled: isNameSearch,
   });
@@ -95,27 +70,12 @@ export default function CustomersPage() {
 
   const totalPages = Math.max(1, Math.ceil(totalCount / take));
   const currentPage = Math.floor(skip / take) + 1;
-
-  // A guest cart (no customerId yet) has no owner to misattribute — see
-  // CustomerSessionSheet's identical helper for the full story on why this
-  // must return false here, not true: forcing a detach first wiped a guest's
-  // own just-added items the moment any customer was picked, since
-  // detachCustomer's reducer clears unconditionally with nothing to save
-  // them under.
+  
   const wouldSwitchCustomer = (incomingId) => {
     if (cart.isEmpty) return false;
-    if (!cart.customerId) return false; // guest cart with items — attach() alone merges, nothing to detach
+    if (!cart.customerId) return false;
     return cart.customerId !== incomingId;
   };
-
-  // Detaches the outgoing customer first (saving their cart under their own
-  // id — see abandonedCartMiddleware's 'cart/detachCustomer' case) only when
-  // switching from one real, already-attached customer to a different one.
-  // No prompt, no choice — removed 2026-09-03. "Keep cart & attach" used to
-  // misattribute the outgoing customer's items to whoever was attaching
-  // next; now that every customer's cart is persisted server-side and
-  // restored automatically next time THEY are attached (same middleware),
-  // there's no reason to ever carry items across.
   const handleAttach = (customer) => {
     if (wouldSwitchCustomer(customer.customerId)) {
       cart.detachCustomer();
@@ -189,11 +149,6 @@ export default function CustomersPage() {
           ))
         )}
       </StaggerList>
-
-      {/* Pagination — hidden while searching. Sticky to the viewport bottom
-          (same cancel-the-page's-own-padding technique as the sticky search
-          bar up top) so it stays reachable without scrolling all the way
-          down a long list. */}
       {!isSearchActive && totalCount > take && (
         <div className="sticky bottom-0 z-10 -mx-4 -mb-4 flex items-center justify-between border-t border-border bg-background px-4 pt-3 pb-4 md:-mx-6 md:-mb-6 md:px-6 md:pb-6">
           <Button

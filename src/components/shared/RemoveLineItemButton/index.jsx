@@ -1,7 +1,5 @@
 'use client';
 
-// Shared trash-icon button for removing a row from a react-hook-form field array.
-
 import { Trash2 } from 'lucide-react';
 
 export default function RemoveLineItemButton({ onClick, label = 'Remove item' }) {

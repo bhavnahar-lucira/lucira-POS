@@ -1,10 +1,5 @@
 'use client';
 
-// Payment section at checkout — shows available customer balances
-// (Scheme, Exchange, Credit Note, Old Gold, Advances, Other) first, then
-// standard payment mode selection (PaymentReceiptMode/List) with split
-// payment support.
-
 import { useEffect, useState } from 'react';
 import { Loader2, CheckCircle2 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
@@ -31,12 +26,6 @@ function HelperBalanceRow({ label, amount, modeCode, rows, isApplied, onToggle, 
   if (!amount || amount <= 0) return null;
 
   const handleToggle = () => onToggle({ modeCode, label, amount, rows });
-
-  // role="switch" on a <div>, not a <button> — the <Switch> rendered
-  // inside is itself a real <button> (Radix), so wrapping it in another
-  // button nests two interactive buttons and breaks the row's click
-  // target. tabIndex + onKeyDown reproduce button/switch keyboard
-  // behaviour; the inner <Switch> stays purely decorative.
   return (
     <div
       role="switch"
@@ -67,27 +56,12 @@ function HelperBalanceRow({ label, amount, modeCode, rows, isApplied, onToggle, 
 }
 
 /**
- * Payment section for checkout's one real document (Invoice or Order — see
- * checkoutPricingService.buildPricedLineItems's own header; the two are
- * mutually exclusive, never both raised from one checkout).
  *
  * @param {{
  *   onChange: (payments: object[]) => void,
  *   amountDue?: number, allowPartial?: boolean,
  *   lineItems?: object[], bare?: boolean,
  * }} props
- *   amountDue — the live-priced total for the document being raised.
- *   allowPartial — true for an Order (any advance, including zero); an
- *     Invoice must always balance to the rupee (checkoutSchema enforces
- *     this separately, this only affects the "Remaining"/"Balance on
- *     collection" label below).
- *   lineItems — the document's own priced lines (item_group_id/
- *     taxable_amount per row) — needed to evaluate Nector Loyalty
- *     eligibility, which on this tenant is restricted to a specific item
- *     group (see useNectorCheckoutInfo).
- *   bare — true to render as a plain flex column instead of its own
- *   bordered/shadowed card, so this fits inside checkout/page.jsx's own
- *   "Payment" card without doubling up on chrome.
  */
 export default function CheckoutPaymentSection({
   onChange, amountDue = 0, allowPartial = false, lineItems = [], bare = false,
@@ -102,16 +76,6 @@ export default function CheckoutPaymentSection({
     partyId:   customerId,
     companyId: activeStoreId,
   });
-
-  // Nector Loyalty — a real fetched payment mode (see usePaymentModes), but
-  // whether it's actually USABLE right now goes through OrnaVerse's OWN
-  // native LoyaltyCheckout integration (2026-09-28 — reported directly: a
-  // real redemption showed on OrnaVerse's own checkout screen for a customer
-  // this used to report as ineligible). The OLD gate here (useNectorLoyaltyPoints,
-  // the Shopify storefront webhook's balance) is DELIBERATELY not used to
-  // gate this anymore — confirmed live that it reports a different, unrelated
-  // balance for the same phone number. Disabled (not hidden) whenever
-  // there's nothing to redeem — see loyaltyDisabledReason.
   const loyaltyMode = paymentModes.find((m) => m.modeType === LOYALTY_MODE_TYPE) ?? null;
   const {
     promotion: loyaltyPromotion, isEligible: loyaltyEligible,
@@ -134,38 +98,8 @@ export default function CheckoutPaymentSection({
     : !loyaltyEligible
     ? (ineligibleReason ?? 'Not redeemable on this order yet')
     : null;
-
-  // payments: { key, modeId?, modeCode, modeName, amount (string), isHelper?,
-  //   helperCategory?, creditRef? }[]
-  // `key` is the stable per-row identity used everywhere below instead of
-  // modeId/modeCode — needed because one helper category (e.g. "Credit
-  // Note") can now be backed by several distinct source receipts, each its
-  // own payments[] entry, and they'd otherwise collide on a shared modeCode
-  // (e.g. two Return receipts both carry mode_code "Return").
   const [payments, setPayments] = useState([]);
-  // Tracks the last `total` the single-mode pre-fill below has already run
-  // against — lets a render-time comparison detect "total changed" without
-  // an effect. See ProductSearchBar's identical pattern/comment for why:
-  // calling setPayments conditionally here, mid-render, re-renders with the
-  // corrected amount before anything paints, instead of painting the
-  // stale amount first and correcting it a frame later the way the
-  // previous useEffect(..., [total]) version did.
   const [lastPricedTotal, setLastPricedTotal] = useState(total);
-
-  // OrnaVerse rejects the sale with "Cannot accept Cash above 199999.00" once
-  // a party's cash receipts for the day reach the limit (s.269ST). Two things
-  // make that error unusable at the counter, both confirmed live 2026-08-05:
-  //
-  //   • It is an AGGREGATE-PER-PARTY-PER-DAY check, not a check on this
-  //     payment. GetPartyDailyCash read 3,60,950.66 for a customer whose
-  //     invoice was being paid entirely by UPI, and the sale was still
-  //     refused — cash on THIS invoice was zero.
-  //   • The message names "Cash" either way, so an operator paying by card
-  //     or UPI is told to fix something that isn't there.
-  //
-  // Surfacing the party's own running total turns an unexplainable rejection
-  // into a fact the operator can act on (take a different tender, or split
-  // the sale across days).
   const dailyCashTaken = helpers.dailyCash?.amount ?? 0;
   const cashHeadroom   = Math.max(0, APP_CONFIG.COMPLIANCE.CASH_DAILY_LIMIT - dailyCashTaken);
   const isCashBlocked  = !helpers.dailyCash?.isLoading && cashHeadroom <= 0;
@@ -174,11 +108,6 @@ export default function CheckoutPaymentSection({
   const appliedHelperCategories = [...new Set(
     payments.filter((p) => p.isHelper).map((p) => p.helperCategory)
   )];
-
-  // Shared with checkoutSchema's own copy of this exact rule (see
-  // paymentModeRules.js's header) — the two drifting apart once already
-  // disabled Place Order the moment Loyalty was selected, since only this
-  // UI copy had been taught to exempt it.
   const requiresBank = paymentRequiresBank;
 
   const handleModeToggle = (modeId) => {
@@ -188,9 +117,6 @@ export default function CheckoutPaymentSection({
 
       const mode    = paymentModes.find((m) => m.modeId === modeId);
       const isLoyalty = mode?.modeType === LOYALTY_MODE_TYPE;
-      // Defensive — the tile is already disabled via PaymentModeSelector's
-      // disabledModeIds whenever this is true, so this should never
-      // actually be reached, but never apply a phantom credit if it is.
       if (isLoyalty && loyaltyClaimable <= 0) return prev;
 
       const nonHelperPaid = prev.filter((p) => !p.isHelper)
@@ -198,16 +124,6 @@ export default function CheckoutPaymentSection({
       const helperPaid = prev.filter((p) => p.isHelper)
         .reduce((s, p) => s + (Number(p.amount) || 0), 0);
       const remaining = Math.max(0, total - helperPaid - nonHelperPaid);
-      // FIXED (reported directly: "add Loyalty then Cash, payment doesn't go
-      // through") — this used to count Loyalty (isCredit, added first) as
-      // occupying the "first" slot, so Cash added right after it fell into
-      // the isFirst===false branch and got amount: '' instead of the real
-      // remaining balance. The operator never noticed the field was empty,
-      // Place Order's own total-must-balance check then failed silently.
-      // Must exclude isCredit here the same way the total-changed recompute
-      // effect below already correctly does — a Loyalty row is never a
-      // typed/pre-fillable tender itself, but it must not block the NEXT
-      // real tender from being recognized as "the first one to prefill".
       const isFirst = prev.filter((p) => !p.isHelper && !p.isCredit).length === 0;
 
       tracker.track(EVENTS.PAYMENT_SELECTED, {
@@ -224,17 +140,9 @@ export default function CheckoutPaymentSection({
           modeCode: mode?.modeCode ?? '',
           modeName: mode?.modeName ?? 'Unknown',
           modeType: mode?.modeType ?? null,
-          // Loyalty's amount is never a free typed figure — Nector's own
-          // `list` check already decided the one redemption available on
-          // this exact total (see useNectorCheckoutInfo), same "not
-          // editable, not partial" rule the old LucraCoinsSection enforced.
           amount:   isLoyalty ? String(Math.min(remaining, loyaltyClaimable)) : (isFirst ? String(remaining) : ''),
           isHelper: false,
           isCredit: isLoyalty,
-          // Carried through to buildReceiptDetails, which needs Nector's own
-          // credit_value/coin_value split (not just the clamped display
-          // amount above) to build the exact row shape OrnaVerse's own
-          // client sends — see documentFields.js's header.
           nectorPromotion: isLoyalty ? loyaltyPromotion : null,
           bankPosId: null,
           refNo:    '',
@@ -242,22 +150,6 @@ export default function CheckoutPaymentSection({
       ];
     });
   };
-
-  // The amounts these toggles show are real (useInvoiceHelpers.js reads them
-  // from POSReceiptsSelect/List, confirmed 2026-08-18 — see its header
-  // comment). Applying one now references the actual source receipt(s) it
-  // draws from — CONFIRMED 2026-08-19 by reading OrnaVerse's own compiled
-  // POS client's `buildReceiptFromCredit` (see documentFields.js's header
-  // comment for the full field-by-field contract) while their UAT was down
-  // for a live capture. A category can be backed by several distinct
-  // receipts (e.g. four separate Return documents making up one "Credit
-  // Note" total), so toggling one on allocates the applied amount across
-  // its underlying `rows` — oldest/first row first, up to each row's own
-  // balance — producing one payments[] entry PER receipt actually drawn
-  // from, not one flat entry for the whole category. CONFIRMED SETTLING
-  // 2026-08-19 — see documentFields.js's header comment for the live
-  // transaction (HO-LJ-0826-018) that proved the applied receipt's balance
-  // actually decrements server-side, not just cosmetically shows as applied.
   function allocateCreditRows(rows, amountToApply) {
     const entries = [];
     let remaining = amountToApply;
@@ -276,17 +168,6 @@ export default function CheckoutPaymentSection({
     setPayments((prev) => {
       const exists = prev.some((p) => p.isHelper && p.helperCategory === modeCode);
       if (exists) return prev.filter((p) => !(p.isHelper && p.helperCategory === modeCode));
-
-      // FIXED: this used to cap against the grand `total` alone, ignoring
-      // money already collected from other payment modes or other already-
-      // applied helper balances — same `remaining` handleModeToggle already
-      // computes above, just not reused here. Real failure this caused: due
-      // ₹10,000, operator enters ₹5,000 Cash, then applies an ₹8,000
-      // Exchange Credit balance — the old capping let the full ₹8,000
-      // through, pushing paid total to ₹13,000 ("Over total"), which then
-      // silently failed checkoutSchema's "Advance cannot be more than the
-      // order total" check and blocked Place Order until the operator
-      // manually edited the helper row's amount down.
       const nonHelperPaid = prev.filter((p) => !p.isHelper)
         .reduce((s, p) => s + (Number(p.amount) || 0), 0);
       const helperPaid = prev.filter((p) => p.isHelper)
@@ -298,8 +179,6 @@ export default function CheckoutPaymentSection({
         key:            row.receipt_id ?? `${modeCode}-${row.transaction_id}`,
         modeId:         null,
         modeCode:       row.mode_code,
-        // Mirrors OrnaVerse's own payment screen, which labels an applied
-        // credit as "<Type> (<document_no>)" — e.g. "Exchange (HO-EXC-07-26-00001)".
         modeName:       `${label} (${row.document_no})`,
         amount:         String(rowAmount),
         isHelper:       true,
@@ -321,12 +200,6 @@ export default function CheckoutPaymentSection({
   const handleRefNoChange = (key, refNo) => {
     setPayments((prev) => prev.map((p) => (p.key === key ? { ...p, refNo } : p)));
   };
-
-  // Recompute single-mode pre-fill when total changes — during render, not
-  // in an effect (see lastPricedTotal's comment above). Excludes credit rows
-  // (isCredit) same as isHelper — a Loyalty amount is Nector's own fixed
-  // answer, never re-filled to "whatever's now remaining" the way a lone
-  // Cash/Card row is.
   if (total !== lastPricedTotal) {
     setLastPricedTotal(total);
     setPayments((prev) => {
@@ -338,27 +211,6 @@ export default function CheckoutPaymentSection({
       return prev.map((p) => (!p.isHelper && !p.isCredit ? { ...p, amount: String(remaining) } : p));
     });
   }
-
-  // ledgerId + raw travel with each row because receipt_details[] needs them:
-  // their payload carries the mode's ledger_id (the account the receipt posts
-  // against), mode_type, mode_sub_type and allow_partial, all of which live on
-  // the PaymentReceiptMode row. Flattening to four fields here is what used to
-  // strip them. See lib/checkout/documentFields.buildReceiptDetails.
-  //
-  // bankPosId/bankLedgerId/refNo (confirmed 2026-08-14 via a real network
-  // capture of OrnaVerse's own client completing a Credit Card + bank sale
-  // on their UAT panel — see documentFields.js's header comment for the
-  // full contract this is built against):
-  //   - bank_pos is the bank account's NUMERIC id (not its code string —
-  //     that's what caused the earlier 500).
-  //   - ledger_id on the receipt row becomes the BANK ACCOUNT's ledger_id
-  //     once one is selected, not the payment mode's own ledger_id.
-  //   - ref_no is a real, required field for bank-settled modes in their
-  //     own UI ("Reference *") — not an always-empty placeholder.
-  //
-  // Computed in the render body (not inside the effect below) so the same
-  // split result backs BOTH the live preview shown to the operator and the
-  // onChange emission — one source of truth, no risk of the two drifting.
   const emittedPayments = payments.map((p) => {
     const mode = paymentModes.find((m) => m.modeId === p.modeId);
     const bankAccount = p.bankPosId != null
@@ -366,29 +218,16 @@ export default function CheckoutPaymentSection({
       : null;
     return {
       key:          p.key,
-      // null, not undefined — checkoutSchema's modeId is nullable() (a
-      // real value for a payment mode, null for an applied credit), and
-      // Zod's nullable() does not also accept undefined.
       modeId:       p.modeId   ?? null,
       modeCode:     p.modeCode ?? '',
       modeName:     p.modeName,
-      // Stable identifier for "is this the Nector Loyalty row" downstream
-      // (checkout/page.jsx's CartSummary "Credit Applied" line) — mode_code
-      // differs by environment, mode_type doesn't.
       modeType:     p.modeType ?? mode?.modeType ?? null,
       amount:       Number(p.amount) || 0,
       ledgerId:     bankAccount?.ledgerId ?? mode?.ledgerId ?? null,
       raw:          mode?.raw ?? null,
       bankPosId:    bankAccount?.id ?? null,
       refNo:        p.refNo ?? '',
-      // Carried through so buildReceiptDetails can build the credit
-      // linkage (ref_no/ref_document_id/ref_transaction_id/mode_sub_type)
-      // instead of a normal tender row — see its header comment.
       creditRef:    p.creditRef ?? null,
-      // Nector's own redemption promotion (credit_value/coin_value) —
-      // buildReceiptDetails needs this, not just the clamped display
-      // amount, to build the exact row shape OrnaVerse's own client
-      // sends. See documentFields.js's header.
       nectorPromotion: p.nectorPromotion ?? null,
     };
   });
@@ -406,23 +245,11 @@ export default function CheckoutPaymentSection({
   const isBalanced = payments.length > 0 && remaining === 0;
 
   const helperItems = [
-    // 'Scheme Balance' removed 2026-09-18, then RE-ADDED the same day —
-    // see useInvoiceHelpers.js's own header for the full story. It only
-    // ever populates once a scheme is Cancelled/Matured/Redeemed, never
-    // while still active/mid-payment, which is what the removal was
-    // actually based on testing.
     { label: 'Scheme Balance',  code: 'Scheme',      data: helpers.scheme,     loading: helpers.scheme?.isLoading },
     { label: 'Exchange Credit', code: 'Exchange',    data: helpers.exchange,   loading: helpers.exchange?.isLoading },
     { label: 'Credit Note',     code: 'CreditNote',  data: helpers.creditNote, loading: helpers.creditNote?.isLoading },
     { label: 'Old Gold Value',  code: 'OldGold',     data: helpers.oldGold,    loading: helpers.oldGold?.isLoading },
     { label: 'Advance Paid',    code: 'Advances',    data: helpers.advances,   loading: helpers.advances?.isLoading },
-    // ADDED 2026-09-09 — catch-all for any credit-bearing receipt whose
-    // document type isn't one of the 5 named buckets above (see
-    // useInvoiceHelpers.js's bucketReceipts comment — this is what fixed a
-    // real customer's ₹63,200 "POS Receipt" credit silently showing as
-    // nothing). Rendered last, and only ever appears at all when it's
-    // actually carrying something — same `amount > 0` gate every other row
-    // already has via HelperBalanceRow.
     { label: 'Other Credit',    code: 'Other',       data: helpers.other,      loading: helpers.other?.isLoading },
   ]; // each `data.rows` is the underlying POSReceiptsSelect rows for that bucket — see useInvoiceHelpers.js
 
@@ -470,13 +297,6 @@ export default function CheckoutPaymentSection({
           <div className="h-px flex-1 bg-border" />
         </div>
       )}
-
-      {/* <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Payment Method</p> */}
-
-      {/* Cash ceiling — see the note beside cashHeadroom above. Stated before
-          the operator picks a tender, because OrnaVerse's own rejection
-          arrives after Place Order and blames "Cash" even when none was
-          taken. */}
       {isCashBlocked ? (
         <p className="rounded-lg border border-status-error/30 bg-status-error/10 px-3 py-2 text-xs text-status-error">
           This customer has already taken{' '}
@@ -510,9 +330,6 @@ export default function CheckoutPaymentSection({
         <div className="flex flex-col gap-2 pt-2 border-t border-border">
           {payments.map((p) => (
             <div key={p.key} className="flex flex-col gap-1.5">
-              {/* Loyalty's amount is Nector's own fixed answer, never a
-                  typed figure — read-only here, same as its own doc
-                  comment on handleModeToggle. */}
               <PaymentAmountInput
                 modeName={p.isCredit ? `${p.modeName} (Credit Applied)` : p.modeName}
                 amount={p.amount}
@@ -525,10 +342,6 @@ export default function CheckoutPaymentSection({
                     value={p.bankPosId}
                     onChange={(bankPosId) => handleBankChange(p.key, bankPosId)}
                   />
-                  {/* Reference — required in OrnaVerse's own UI for
-                      bank-settled modes ("Reference *"), confirmed
-                      2026-08-14. Plain text, no format validated server-side
-                      beyond "present". */}
                   <Input
                     value={p.refNo ?? ''}
                     onChange={(e) => handleRefNoChange(p.key, e.target.value)}

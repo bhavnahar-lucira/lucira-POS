@@ -1,27 +1,5 @@
 'use client';
 
-// Dedicated route for a sale that did NOT complete — new 2026-09-07,
-// alongside /order-success (see that page's own header). Reached from
-// checkout/page.jsx's payment-confirmation dialog two distinct ways, both
-// carried via the URL rather than component state (same reasoning as
-// order-success — a real URL, not an inline swap):
-//
-//   ?reason=declined — the agent answered "No" to "was payment received on
-//     the terminal?" (see checkout/page.jsx's handlePaymentDeclined). NO API
-//     call was ever made — nothing was created, nothing to roll back. The
-//     cart is untouched, so "Try Again" just returns to checkout with the
-//     same basket and lets the agent pick a different payment mode.
-//
-//   ?reason=error&message=... — the agent answered "Yes" (payment WAS taken
-//     on the terminal), but the actual Order/Invoice create-or-post call
-//     itself then failed (network/server error — see
-//     checkout/page.jsx's handlePaymentConfirmed). This is a materially
-//     different, more urgent situation: money may already have changed
-//     hands with no document to show for it, so this case gets its own
-//     warning telling the agent to verify with their manager before
-//     re-charging the customer, rather than reusing the same wording as a
-//     simple decline.
-
 import { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { XCircle, AlertTriangle } from 'lucide-react';
@@ -51,9 +29,6 @@ function OrderFailedScreen() {
             : (errorMessage ?? 'Something went wrong while saving this sale after payment was confirmed.')}
         </p>
       </div>
-
-      {/* Only for the post-payment save failure — a decline never reaches
-          the create call at all, so there is nothing to warn about there. */}
       {!isDeclined && (
         <p className="flex items-start gap-1.5 rounded-lg border border-status-error/30 bg-status-error/5 px-3 py-2 text-left text-xs text-status-error">
           <AlertTriangle size={14} className="shrink-0 mt-0.5" aria-hidden="true" />

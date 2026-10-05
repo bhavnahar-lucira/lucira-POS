@@ -1,8 +1,3 @@
-// src/components/shared/Providers/index.jsx
-// Single wrapper for all application providers.
-// Mounted once in src/app/layout.jsx — never duplicated.
-// Order matters: Redux → Persist → QueryClient → Toast
-
 'use client';
 
 import { useRef } from 'react';
@@ -25,9 +20,6 @@ export default function Providers({ children }) {
         loading={<LoadingSpinner fullScreen />}
         persistor={persistor}
       >
-        {/* Restores only an allow-listed slice of the query cache (catalog
-            list + Shopify product images, see lib/queryPersister.js) from
-            IndexedDB; all other queries behave as plain in-memory react-query. */}
         <PersistQueryClientProvider
           client={queryClient}
           persistOptions={{
@@ -43,18 +35,6 @@ export default function Providers({ children }) {
           {children}
 
           <Toaster duration={3000} />
-
-          {/* TanStack Query DevTools — dev only, removed in production build.
-              Wrapped in its own `fixed inset-0` div (pointer-events-none so
-              it doesn't block clicks; the devtools' own toggle/panel set
-              their own pointer-events back on) so its panel container is
-              taken out of body's normal flex-col flow — body has no
-              `overflow-hidden` of its own (see globals.css comment history:
-              adding it there broke /login's own min-h-screen + body-scroll
-              layout on short viewports), so without this, the devtools
-              panel container stacked as a real flex sibling below the app
-              shell and stretched the whole document, producing a page-level
-              scrollbar even while visually collapsed. */}
           <div className="fixed inset-0 z-50 pointer-events-none [&>*]:pointer-events-auto">
             <ReactQueryDevtools
               initialIsOpen={false}

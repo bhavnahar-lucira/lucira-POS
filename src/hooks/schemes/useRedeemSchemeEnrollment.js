@@ -1,7 +1,3 @@
-// Redeems a Matured enrollment — see redeemSchemeEnrollment in
-// schemeService.js for exactly what it writes and why this is a separate
-// action from useCloseSchemeEnrollment (Mature), not a variant of it.
-
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { redeemSchemeEnrollment } from '@/services/schemeService';

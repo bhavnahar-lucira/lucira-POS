@@ -1,24 +1,3 @@
-// Mutation hooks for all 6 POS transaction types.
-//
-// Standard flow (Returns, Credit Notes, Exchange, Buyback, URD):
-//   useCreate[Type] -> useMutation calling service.create[Type], returns { EntityId }
-//   usePost[Type]   -> commits the draft via service.post[Type](EntityId)
-//   useCancel[Type] -> voids the draft via service.cancel[Type](EntityId)
-//
-// Refund flow is different (no Post step): useCreateRefund is one call that
-// settles credit raised by a Return/Exchange/Buyback (detail + receipt rows
-// nest into it — see refundService); useDeleteRefund voids it.
-//
-// Every onSuccess invalidates the matching LIST query key (prefix only, to
-// bust all pages). Every onError toasts via getErrorMessage(), which prefers
-// the server's own reason and falls back to a per-type TOAST.*_FAILED
-// message; the raw error is also returned for field-level handling.
-//
-// Every mutation also fires tracker.track() (see events.js) with
-// customer_id/store_id from the live session on every event, and — on
-// CREATE only — party_id, net_amount, pieces, weight, net_weight and line
-// item count read from the create payload itself.
-
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast }                       from 'sonner';
 import {
@@ -29,8 +8,6 @@ import {
   createBuyback,   postBuyback,   cancelBuyback,
   createURDPurchase, postURDPurchase, cancelURDPurchase,
 }                                      from '@/services/transactionService';
-// createRefund lives in its own service — a refund settles credit raised by
-// a Return/Exchange/Buy Back and has no line items of its own.
 import { createRefund }                from '@/services/refundService';
 import { useSessionTrackingContext }   from '@/hooks/analytics/useSessionTrackingContext';
 import TOAST                           from '@/constants/toastMessages';
@@ -46,9 +23,6 @@ function getErrorMessage(error, fallback = 'Something went wrong.') {
   );
 }
 
-// `payload` is the exact object passed to createX.mutate()/mutateAsync() —
-// the same Entity fields buildTransactionHeaderFields() produced, spread
-// with line_items — so nothing here is re-derived, only read back.
 function creationDetails(payload) {
   return {
     party_id:        payload?.party_id,
@@ -134,17 +108,12 @@ export function useCreateRefund({ onSuccess } = {}) {
     onSuccess: (data, payload) => {
       queryClient.invalidateQueries({ queryKey: ['refunds'] });
       toast.success(TOAST.REFUNDS.CREATED);
-      // Refund has no line_items of its own — party_id/amount/credits
-      // settled stand in for it, read off the createRefund() payload.
       tracker.track(EVENTS.REFUND_CREATED, {
         transactionId:   data?.EntityId,
         ...sessionCtx,
         party_id:        payload?.partyId,
         payout_amount:   payload?.payout?.amount,
         payout_mode_code: payload?.payout?.modeCode,
-        // Same field name as orderTracking.js's trackDocumentPlaced —
-        // reported directly that reference number should be captured
-        // everywhere a payment is recorded, not just checkout.
         payment_reference: payload?.payout?.refNo || null,
         credits_settled_count: Array.isArray(payload?.credits) ? payload.credits.length : undefined,
         credits_settled_total: Array.isArray(payload?.credits)
@@ -176,7 +145,6 @@ export function useDeleteRefund({ onSuccess } = {}) {
       onSuccess?.(data);
     },
     onError: (error) => {
-      // No REFUNDS.DELETE_FAILED constant exists — falls back to the generic default.
       const message = getErrorMessage(error);
       toast.error(message);
       tracker.track(EVENTS.REFUND_FAILED, { stage: 'delete', error: message, ...sessionCtx });

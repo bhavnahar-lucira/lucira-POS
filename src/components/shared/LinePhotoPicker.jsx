@@ -1,11 +1,5 @@
 'use client';
 
-// A single mandatory-photo file input for one Interstore Return line — used
-// wherever a cross-store item needs a condition photo before it can be
-// submitted (transactions/page.jsx's cross-store Return/Exchange/Buyback
-// lines, and transfers/page.jsx's own IRR create flow). Extracted 2026-10-02
-// so both call sites share one implementation.
-
 import { Camera } from 'lucide-react';
 
 export default function LinePhotoPicker({ file, onChange }) {

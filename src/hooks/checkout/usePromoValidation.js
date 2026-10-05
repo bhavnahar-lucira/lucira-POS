@@ -49,8 +49,6 @@ export function usePromoValidation({ invoice, order }) {
       return { status: 'eligible', promotion, overrideAmount };
     },
 
-    // Every outcome tracks an analytics event, with a `reason` distinguishing
-    // which one so PROMO_FAILED isn't an undifferentiated bucket.
     onSuccess: (result, variables) => {
       const promoCode = typeof variables === 'string' ? variables : variables.promoCode;
       switch (result.status) {

@@ -1,6 +1,3 @@
-// Cross-branch sold-item picker for Interstore Return create flow.
-// Deliberately NOT store-scoped — see getSoldItemsAcrossBranches's header.
-
 import { useQuery } from '@tanstack/react-query';
 import { getSoldItemsAcrossBranches } from '@/services/interstoreReturnService';
 import { QUERY_KEYS } from '@/constants/queryKeys';

@@ -1,24 +1,5 @@
 'use client';
 
-// Print/preview an invoice via OrnaVerse's own report pipeline, mirroring
-// their POS: DocumentReports/List gets the formats configured for this
-// document type, then POST /Print/Render returns an HTML document shown
-// here in an iframe. Proxied through our own /api/report/render, which
-// resolves the operator's OrnaVerse cookie session server-side — the same
-// session every other call in this app authenticates with (see
-// lib/ornaverse/session.js).
-//
-// Replaces two buttons that never worked: "Download Invoice PDF" (called
-// GeneratePDF, which 500s on UAT) and "Print Invoice" (window.print(),
-// which printed the confirmation screen, not the invoice).
-//
-// The session can expire (401) mid-shift. Rather than forcing a full
-// sign-out (which would also drop the attached customer/cart), reconnect
-// below re-enters just the password to re-establish it — since this is now
-// the SAME session everything else in the app uses (see session.js), this
-// also transparently fixes any other call that would otherwise be failing,
-// not just printing — then retries the report that failed.
-
 import { useState, useRef } from 'react';
 import { useSelector } from 'react-redux';
 import { useQuery } from '@tanstack/react-query';
@@ -32,9 +13,6 @@ import APP_CONFIG from '@/constants/appConfig';
 
 /**
  * @param {{ transactionId: number, documentId?: number, documentLabel?: string }} props
- *   documentLabel — what this document is called in the UI ("Invoice",
- *   "Order"). Formats come from DocumentReports for documentId; the
- *   control hides itself when none are configured.
  */
 export default function InvoiceReportButton({
   transactionId,
@@ -80,8 +58,6 @@ export default function InvoiceReportButton({
       });
 
       if (!response.ok) {
-        // 401 means the print session is gone (recoverable via reconnect,
-        // below) — distinct from a genuine render failure (5xx).
         if (response.status === 401) {
           setNeedsReconnect(true);
           setIsRendering(false);
@@ -107,8 +83,6 @@ export default function InvoiceReportButton({
       await loginToOrnaverse(authUser?.username, reconnectPassword);
       setReconnectPassword('');
       setNeedsReconnect(false);
-      // Retry the report that just failed, rather than making the
-      // operator pick a format again after proving their password.
       if (lastReportRef.current) await openReport(lastReportRef.current);
     } catch (err) {
       setReconnectError(err?.message ?? 'Incorrect password, or OrnaVerse could not be reached. Please try again.');
@@ -124,9 +98,7 @@ export default function InvoiceReportButton({
       frame.contentWindow.print();
     }
   };
-
-  // Nothing configured for this document type — show no control at all
-  // rather than a button that cannot do anything.
+  
   if (!isLoading && reports.length === 0) return null;
 
   return (
@@ -169,8 +141,6 @@ export default function InvoiceReportButton({
         </p>
       )}
 
-      {/* Only the print session needs re-establishing here — the operator
-          stays signed in and the attached customer/cart are untouched. */}
       {needsReconnect && (
         <div className="flex flex-col gap-2 rounded-xl border border-status-error/30 bg-status-error/5 p-3">
           <div className="flex items-center gap-2 text-xs font-medium text-status-error">
@@ -207,8 +177,6 @@ export default function InvoiceReportButton({
         </div>
       )}
 
-      {/* Preview — mirrors their ReportViewerDialog: the response is a whole
-          HTML document, so it goes in an iframe rather than into our DOM. */}
       {html && (
         <div className="fixed inset-0 z-50 flex flex-col bg-black/60 p-4">
           <div className="mx-auto flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-card shadow-lg">
@@ -234,17 +202,6 @@ export default function InvoiceReportButton({
               srcDoc={html}
               title={`${documentLabel} preview`}
               className="h-full w-full flex-1 bg-white"
-              // allow-scripts is required for the FastReport viewer's own
-              // inline <script> rendering logic. allow-same-origin is
-              // required too — without it the frame's origin is null and
-              // its XHR back to our /_fr/* proxy gets CORS-blocked — but
-              // the combination lets an in-frame script read this origin's
-              // localStorage (including live auth tokens). Mitigated via a
-              // response-level CSP (api/report/render/route.js) that still
-              // allows /_fr/* but blocks any third-party domain, closing
-              // off exfiltration even though in-frame reading remains
-              // possible in principle. Do not add either flag elsewhere
-              // without the same CSP mitigation in place.
               sandbox="allow-same-origin allow-modals allow-scripts"
             />
           </div>

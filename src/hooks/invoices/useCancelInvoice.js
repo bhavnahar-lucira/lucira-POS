@@ -1,6 +1,3 @@
-// Cancels a posted POS invoice via POS/Invoice/Cancel.
-// Mirrors useCancelOrder.js — same document family, same contract.
-
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { cancelInvoice } from '@/services/orderService';

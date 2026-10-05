@@ -1,6 +1,3 @@
-// Average rating + review count for one product (catalog card stars, and
-// the product detail page's reviews header).
-
 import { useQuery } from '@tanstack/react-query';
 import { getReviewSummaryQueued } from '@/services/nectorService';
 import { normalizeReviewSummary } from '@/lib/normalizers/review';

@@ -1,10 +1,3 @@
-// Option lists for the catalog Filters panel's Sub Category / Karat / Metal
-// Color / Diamond Shape / Item Size / Collection dropdowns — every one of
-// these, and the ProductCatalog/List request fields they drive
-// (sub_type_ids/karat_ids/metal_ids/shape_ids/item_size_ids/collection_ids),
-// was confirmed live 2026-09-30 by directly cross-checking OrnaVerse's own
-// real POS client's Filters panel and its resulting network requests.
-
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
@@ -55,13 +48,6 @@ export function useAttributeOptions(attributeTypeId) {
   return { options: query.data ?? [], isLoading: query.isLoading };
 }
 
-/**
- * Item Size options — one flat, unfiltered list shared across every
- * category (no type_id-scoped variant exists — see getItemSizes' own
- * header). Deduped by item_size_id: the same size code (e.g. "14") appears
- * once per category it belongs to on the raw endpoint, but item_size_ids is
- * a single global filter field, so only one row per id should ever render.
- */
 export function useItemSizeOptions() {
   const query = useQuery({
     queryKey:  QUERY_KEYS.ITEMS.SIZES(),

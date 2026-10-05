@@ -37,43 +37,22 @@ import { Input }   from '@/components/ui/input';
 import { Label }   from '@/components/ui/label';
 import { formatCurrency, formatDate, MONTH_NAMES } from '@/lib/schemeFormat';
 
-// Enrollment lifecycle status (not a payment-settlement concept, so this
-// doesn't route through PaymentStatusBadge). completed/matured keep a raw
-// blue — no existing semantic token maps to an "info" state.
 const STATUS_STYLES = {
   active:    'bg-status-in-stock/10 text-status-in-stock',
   completed: 'bg-blue-50    text-blue-700',
   inactive:  'bg-muted  text-muted-foreground',
   matured:   'bg-blue-50    text-blue-700',
-  // ADDED 2026-09-18 — scheme_status:3 confirmed live to mean Redeemed, the
-  // terminal state after Matured — same blue tone as matured/completed
-  // (not negative like cancelled, just a different "done" state).
   redeemed:  'bg-blue-50    text-blue-700',
-  // ADDED 2026-09-18 — scheme_status:0 confirmed live to mean Cancelled
-  // (see useSchemeEnrollments.js's normalizeEnrollment); same
-  // status-error token PaymentStatusBadge uses for its own negative states.
   cancelled: 'bg-status-error/10 text-status-error',
   default:   'bg-muted  text-muted-foreground',
 };
-
-// MONTH_NAMES moved to lib/schemeFormat.js (2026-09-08) so
-// EnrollmentDetailSheet's Schedule/Payments tabs can share the exact same
-// month-name mapping instead of a second hand-copied array drifting from
-// this one.
 
 const receiptSchema = z.object({
   amount:        z.coerce.number().min(1, 'Enter amount'),
   mode_id:       z.coerce.number().min(1, 'Select payment mode'),
   mode_name:     z.string().optional(),
   document_date: z.string().min(1, 'Required'),
-  // Which instalment(s) this payment covers. OrnaVerse's own dialog refuses
-  // to save without it ("Select Month before Receipt") — see
-  // buildSchemeReceiptPayload() for the captured payload this mirrors.
   month_ids:     z.array(z.number()).min(1, 'Select at least one month'),
-  // Required only for a bank-settled mode (Card/UPI/etc.) — enforced in
-  // prepareSubmit below, where the selected mode is actually known (see
-  // that function's own comment for why this isn't a zod .superRefine()
-  // here, matching this file's existing plain-imperative-check convention).
   bank_pos_id:   z.coerce.number().optional().or(z.literal('')),
   ref_no:        z.string().optional(),
 });
@@ -83,8 +62,6 @@ function ReceiptSheet({ enrollment, isOpen, onClose }) {
   const { paymentModes, isLoading: modesLoading } = usePaymentModes();
   const createReceipt = useSchemeReceipt();
   const headerConfig = useOrderHeaderConfig(APP_CONFIG.DOCUMENT_TYPES.SCHEME_RECEIPT);
-  // Unpaid instalments — the month picker's options. Their dialog offers
-  // exactly the same set (the remaining months of the tenure).
   const { data: months = [] } = useSchemeMonthlyDetails(enrollment?.enrollmentId);
   const unpaidMonths = months.filter((m) => !m.isPaid);
 
@@ -107,12 +84,6 @@ function ReceiptSheet({ enrollment, isOpen, onClose }) {
   });
 
   const selectedMonths = watch('month_ids');
-
-  // This sheet stays mounted across different enrollments (only `isOpen`/
-  // `enrollment` change) — RHF's defaultValues only applies at the initial
-  // mount, so without this the amount field was silently staying blank
-  // every time a *different* enrollment's "Record Payment" was opened,
-  // forcing staff to retype the monthly amount each time.
   useEffect(() => {
     if (isOpen && enrollment) {
       reset({
@@ -126,32 +97,15 @@ function ReceiptSheet({ enrollment, isOpen, onClose }) {
       });
     }
   }, [isOpen, enrollment, reset]);
-
-  // Payment-confirmation gate (2026-09-07, same pattern as checkout/page.jsx
-  // and repair/page.jsx's RepairInvoiceNewForm — see checkout's header
-  // comment for the full rationale). Every scheme receipt is a real
-  // terminal payment (mode_id is mandatory on this form, unlike repair's
-  // invoice which can be fully covered by existing balances alone), so the
-  // gate always shows here — no "already covered" exception to check.
   const [pendingReceiptData, setPendingReceiptData] = useState(null);
   const [isPaymentConfirmOpen, setIsPaymentConfirmOpen] = useState(false);
 
   const prepareSubmit = (data) => {
-    // A bank-settled mode (Card/UPI/etc.) needs a bank account + reference
-    // number — same real-world requirement as checkout, just enforced here
-    // imperatively (matching this file's existing plain-check convention)
-    // rather than via zod, since the schema alone can't know which mode was
-    // picked without a cross-field lookup against paymentModes.
     const selectedMode = paymentModes.find((m) => m.modeId === Number(data.mode_id));
     if (selectedMode && paymentRequiresBank(selectedMode)) {
       if (!data.bank_pos_id) return toast.error('Select the bank account this payment settles to.');
       if (!data.ref_no?.trim()) return toast.error('Enter a reference number for this payment.');
     }
-
-    // Was a silent no-op before this — a genuinely failed config lookup
-    // (see useOrderHeaderConfig's isError) left the Pay button doing
-    // nothing at all, with no toast and no way to tell "still loading"
-    // from "stuck" apart from staring at network tab.
     if (!headerConfig.isReady) {
       if (headerConfig.isError) headerConfig.refetch();
       toast.error(
@@ -171,10 +125,7 @@ function ReceiptSheet({ enrollment, isOpen, onClose }) {
     if (pendingReceiptData) submitReceipt(pendingReceiptData);
     setPendingReceiptData(null);
   };
-
-  // Nothing was submitted — the sheet stays open with the same amount/
-  // months/mode filled in so the operator can pick a different mode and
-  // try again, instead of having to re-enter everything from scratch.
+  
   const handlePaymentDeclined = () => {
     setPendingReceiptData(null);
     toast.info('Payment declined — nothing was saved.');
@@ -182,17 +133,8 @@ function ReceiptSheet({ enrollment, isOpen, onClose }) {
 
   const submitReceipt = async (data) => {
     const amount = Number(data.amount);
-    // ledger_id (per-detail-row) — confirmed 2026-07-16 via real
-    // SchemeReceipt/List data, sourced from the selected mode's own
-    // ledger_id (see usePaymentModes.js) — distinct from the HEADER
-    // ledger_id below (the document type's own control ledger).
     const selectedMode = paymentModes.find((m) => m.modeId === Number(data.mode_id));
-
-    // NOT buildTransactionHeaderFields — that builds a SALES document header
-    // (sub_total / taxable_amount / net_amount / receipt_amount / balance_amount
-    // / promotion_details). OrnaVerse's captured SchemeReceipt payload carries
-    // none of those; sending them is what produced the long-standing opaque
-    // 500. See buildSchemeReceiptPayload() in services/schemeService.js.
+    
     await createReceipt.mutateAsync(buildSchemeReceiptPayload({
       enrollmentId:     enrollment.enrollmentId,
       schemeType:       enrollment.schemeType,
@@ -216,12 +158,6 @@ function ReceiptSheet({ enrollment, isOpen, onClose }) {
         ledgerId:   selectedMode?.ledgerId,
         ledgerName: selectedMode?.ledgerName,
         modeName:   selectedMode?.modeName,
-        // Numeric bank account id, same convention confirmed live for
-        // checkout's own receipt_details (documentFields.js) — NOT
-        // separately confirmed live against SchemeReceipt/Create itself,
-        // so treat a failure here as "verify this field live," not "the
-        // whole payload shape is wrong" (see buildSchemeReceiptPayload's
-        // own header in schemeService.js).
         bankPos: data.bank_pos_id || undefined,
         refNo:   data.ref_no?.trim() || undefined,
       }],

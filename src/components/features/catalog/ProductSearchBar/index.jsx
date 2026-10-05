@@ -1,22 +1,11 @@
 'use client';
 
-// Unified search + barcode scan input.
-//
-// Text search: debounced, fires onSearch(q) after DEBOUNCE_MS.
-// Barcode scan: scanners fire a full item_code + Enter in <80ms.
-//   Detection: if Enter fires within SCAN_THRESHOLD_MS of the last keystroke
-//   AND input matches a likely code pattern → fires onBarcodeDetected(code).
-//   The page handles the redirect to /products/[item_id].
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Search, X, ScanBarcode } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import APP_CONFIG from '@/constants/appConfig';
 
-// Dynamically imported (~500KB, @zxing/browser) so the chunk only loads
-// once the operator actually opens the scanner, not on every catalog
-// visit. `ssr: false` is required — the modal is 100% camera/getUserMedia.
 const BarcodeScannerModal = dynamic(
   () => import('@/components/features/catalog/BarcodeScannerModal'),
   { ssr: false },
@@ -40,22 +29,13 @@ export default function ProductSearchBar({
 }) {
   const normalizedValue = value ?? '';
   const [inputVal,      setInputVal]      = useState(normalizedValue);
-  // Tracks the last `value` prop synced FROM, so a render-time comparison
-  // (below) can detect an external change (e.g. clearFilters) and correct
-  // state before paint — React's documented pattern for this, safer than
-  // a useEffect which paints the stale value first.
   const [lastSyncedValue, setLastSyncedValue] = useState(normalizedValue);
   const [cameraOpen,    setCameraOpen]    = useState(false);
   const debounceRef    = useRef(null);
   const lastKeyTimeRef = useRef(null);
   const inputRef      = useRef(null);
-  // Debounces the physical/USB scanner path (handleKeyDown below) against a
-  // scanner that sends a double terminator or is left in repeat-scan mode.
-  // Mirrors BarcodeScannerModal's own lastScannedRef.
   const lastScanRef    = useRef(null);
-
-  // Sync when URL is cleared externally (e.g. clearFilters) — during
-  // render, not in an effect; see the comment on lastSyncedValue above.
+  
   if (normalizedValue !== lastSyncedValue) {
     setLastSyncedValue(normalizedValue);
     setInputVal(normalizedValue);
@@ -74,9 +54,6 @@ export default function ProductSearchBar({
   };
 
   const handleClear = () => {
-    // Must cancel any pending debounce timer directly (not via fireSearch/
-    // onSearch alone) — otherwise a stale timer from the last keystroke
-    // fires after Clear and silently re-applies the old query.
     clearTimeout(debounceRef.current);
     setInputVal('');
     onSearch('');
@@ -142,10 +119,6 @@ export default function ProductSearchBar({
 
           <Input
             ref={inputRef}
-            // type="text", not "search" — a type="search" input shows its
-            // own native clear button, doubling up with our custom one
-            // below. inputMode="search" still gives mobile a search-style
-            // Enter key regardless of `type`.
             type="text"
             inputMode="search"
             autoComplete="off"
@@ -183,8 +156,6 @@ export default function ProductSearchBar({
           </div>
         </div>
       </div>
-      {/* Absent from the tree until opened, so the dynamic import above
-          isn't triggered until the operator taps "scan" at least once. */}
       {cameraOpen && (
         <BarcodeScannerModal
           isOpen={cameraOpen}

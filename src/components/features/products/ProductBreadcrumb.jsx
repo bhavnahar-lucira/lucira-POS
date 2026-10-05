@@ -1,9 +1,5 @@
 'use client';
 
-// Breadcrumb navigation: Item Group → Category → Sub-Category → Product Name
-// Tapping Category or Sub-Category navigates back to /catalog with that filter active.
-// Back arrow navigates to previous page (preserves catalog URL filters).
-
 import { useRouter } from 'next/navigation';
 import { ChevronRight, ArrowLeft } from 'lucide-react';
 

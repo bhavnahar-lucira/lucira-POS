@@ -1,10 +1,3 @@
-// What a given customer has actually purchased — i.e. what they can return.
-// Feeds the Returns form's item picker; the selected rows go straight into
-// calculateReturnItems() (see returnItemsService.js for why the raw row
-// must be passed through unmodified). NOT scoped to the active store — a
-// cross-store row is a legitimate Interstore Return candidate, not
-// something to hide (see getSoldItems's own header for why).
-
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { getSoldItems } from '@/services/returnItemsService';

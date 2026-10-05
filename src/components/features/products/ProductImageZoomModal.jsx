@@ -1,13 +1,5 @@
 'use client';
 
-// Fullscreen image zoom modal — pinch/pan gestures via react-zoom-pan-pinch.
-// Opened by tapping the main product image or the dedicated zoom button.
-//
-// REQUIRES: npm install react-zoom-pan-pinch
-//
-// Receives the SAME resolved image list + current index from
-// ProductImageGallery — single source of truth, no re-derivation here.
-
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
@@ -30,9 +22,6 @@ export default function ProductImageZoomModal({
   currentIndex,
   onIndexChange,
 }) {
-  // FIXED 2026-09-08 — see useBodyScrollLock's own header: the old version
-  // here had no scrollbar-width compensation, causing the same layout
-  // shift on open/close as BottomSheet's identical bug.
   useBodyScrollLock(isOpen);
 
   useEffect(() => {

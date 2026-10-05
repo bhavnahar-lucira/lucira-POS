@@ -1,6 +1,3 @@
-// src/hooks/cart/useCart.js
-// Full cart state + actions. Single hook for CartDrawer and its children.
-
 import { useDispatch, useSelector } from 'react-redux';
 import { toast } from 'sonner';
 import {
@@ -36,11 +33,6 @@ export function useCart() {
   const isEmpty             = useSelector(selectIsCartEmpty);
   const fulfillmentOrderId  = useSelector(selectFulfillmentOrderId);
   const fulfillmentOrderNo  = useSelector(selectFulfillmentOrderNo);
-
-  // removeQuantity (optional) — pass a cart-display-row's own displayQuantity
-  // to remove only that split portion of the line (see cartSlice.removeItem's
-  // own header for why this can't just always delete the whole line).
-  // Omitted, this removes the whole line, same as always.
   const handleRemoveItem = (item, removeQuantity) => {
     dispatch(removeItem({
       itemId:   item.itemId,
@@ -89,31 +81,12 @@ export function useCart() {
     toast.success(TOAST.CART.CART_CLEARED);
   };
 
-  // Used only by checkout/page.jsx right after a successful order/invoice.
-  // Completing a sale must not silently detach the customer — only a
-  // manual "Remove" (detachCustomer) or the agent's own logout should end
-  // that session. No toast here (unlike handleClearCart) — this is an
-  // internal cleanup step before the redirect to /order-success.
   const handleClearCartKeepCustomer = () => {
     dispatch(clearCartKeepCustomer());
   };
 
-  // "Fulfill from order" — replaces the whole cart with an order's own
-  // customer + selected ready-to-invoice line(s). See cartSlice's
-  // hydrateFromOrder and orderFulfillmentService.js for the full contract;
-  // this closes the source order out server-side via
-  // checkoutPricingService.claimStockPieces claiming the exact reserved
-  // stock piece (fulfillmentItemLineNo), not a header field.
-  //
   // @param {{ order: { partyId, partyName, mobile, transactionId, documentNo },
-  //   lines: object[] }} params — lines are raw rows from
-  //   getReadyToInvoiceLines/getAllOpenOrderLines
   const handleLoadFromOrder = ({ order, lines }) => {
-    // Detach the outgoing customer first, mirroring every other
-    // customer-switch path (CustomerSessionSheet.performAttach,
-    // customers/page.jsx) — otherwise hydrateFromOrder's wholesale cart
-    // replace skips abandonedCartMiddleware's 'cart/detachCustomer' case,
-    // the only thing that snapshots an outgoing customer's cart to Mongo.
     if (customerId && customerId !== order.partyId && items.length > 0) {
       dispatch(detachCustomer());
     }

@@ -1,7 +1,3 @@
-// Full-dataset invoice fetch for client-side search and filter.
-// Fetched once with Take:0, cached for STALE_TIME.ORDERS.
-// Used by /invoices page when any filter is active.
-
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { getInvoiceList } from '@/services/orderService';
@@ -11,9 +7,6 @@ import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 import APP_CONFIG from '@/constants/appConfig';
 
-// `enabled` lets /invoices gate this Take:0 full-dataset fetch on the
-// operator actually having touched a filter, rather than paying for it on
-// every visit.
 export function useAllInvoices({ enabled = true } = {}) {
   const isAuthenticated = useSelector(selectIsAuthenticated);
   const activeStoreId   = useSelector(selectActiveStoreId);

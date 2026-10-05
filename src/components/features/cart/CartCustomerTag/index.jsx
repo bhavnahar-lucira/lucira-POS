@@ -1,8 +1,5 @@
 'use client';
 
-// Displays the customer attached to the cart (if any) with a remove option.
-// Renders state only; attach/detach flows live elsewhere.
-
 import { User, X } from 'lucide-react';
 
 /**

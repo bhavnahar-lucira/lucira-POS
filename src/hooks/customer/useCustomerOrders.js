@@ -1,14 +1,3 @@
-// src/hooks/customer/useCustomerOrders.js
-// Shared status-derivation and normalization for customer order/invoice
-// history. OrderRow and InvoiceRow share field names (see orderService.js),
-// so both normalize identically here.
-//
-// document_status (0 Draft / 1 Posted / 2 Cancelled) takes precedence over
-// balance/receipt — only a POSTED document's status reflects payment progress:
-//   Cancelled(2) → "cancelled"; Draft(0) → "draft";
-//   Posted, balance<=0 → "paid"; Posted, balance>0 & receipt>0 → "partial";
-//   Posted, balance>0 & receipt==0 → "due".
-
 import APP_CONFIG from '@/constants/appConfig';
 
 function isEmptyValue(v) {

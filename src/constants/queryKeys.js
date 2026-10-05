@@ -81,6 +81,9 @@ export const QUERY_KEYS = {
     CATEGORY_SEARCH:       (typeIds, storeId) => ['catalog', 'category-search', typeIds, storeId],
     STOCK_BY_STORES:       (itemId)  => ['catalog', 'stock-by-stores', itemId],
     STOCK_BY_STORES_BATCH: (itemIds) => ['catalog', 'stock-by-stores-batch', itemIds],
+    // Per-item key for useCrossStoreStockCodes — see that hook's own header
+    // for why this replaced a single joined-array key.
+    STOCK_BY_STORES_ITEM:  (itemId)  => ['catalog', 'stock-by-stores-item', itemId],
     // Real, allocation-aware count for the ACTIVE store only — distinct from
     // STOCK_BY_STORES' raw piece count (see useClaimableStock.js's header).
     CLAIMABLE_STOCK:       (itemId, companyId) => ['catalog', 'claimable-stock', itemId, companyId],
@@ -191,12 +194,6 @@ export const QUERY_KEYS = {
   ESTIMATION: {
     LIST:   (params)          => ['estimation', 'list', params],
     DETAIL: (transactionId)   => ['estimation', 'detail', transactionId],
-  },
-
-  DAILY_CLOSING: {
-    LIST:   (companyId)  => ['daily-closing', 'list', companyId],
-    DETAIL: (closingId)  => ['daily-closing', 'detail', closingId],
-    RECONCILIATION: (companyId, dateString) => ['daily-closing', 'reconciliation', companyId, dateString],
   },
 
   CRM: {

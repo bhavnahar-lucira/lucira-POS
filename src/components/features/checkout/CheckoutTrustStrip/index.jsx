@@ -1,9 +1,5 @@
 'use client';
 
-// Reassurance strip at the bottom of checkout — a compact, staff-screen
-// version of ProductTrustBadge's trust treatment (same unified
-// accent-tinted icon style for consistency across the app).
-
 import { RotateCcw, ShieldCheck, RefreshCw, Award } from 'lucide-react';
 
 const TRUST_ITEMS = [

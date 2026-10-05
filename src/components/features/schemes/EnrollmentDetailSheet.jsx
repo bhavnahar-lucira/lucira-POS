@@ -1,8 +1,5 @@
 'use client';
 
-// Per-enrollment detail: month-by-month payment schedule + payment
-// (receipt) history, via useSchemeMonthlyDetails.js / useSchemeReceiptHistory.js.
-
 import { useState } from 'react';
 import { AlertCircle, CalendarClock, Receipt, Calculator } from 'lucide-react';
 import BottomSheet from '@/components/shared/BottomSheet';
@@ -39,9 +36,6 @@ const CLOSURE_ACTIONS = [
   },
 ];
 
-// Unknown keys still render (de-snake-cased) rather than being dropped, in
-// case foreclosure/cancellation return extra fields (see report for the
-// confirmed response shape).
 const BENEFIT_FIELDS = {
   principal_paid: { label: 'Principal Paid', format: 'money' },
   total_benefit:  { label: 'Benefit Earned', format: 'money' },
@@ -129,8 +123,6 @@ function ScheduleTab({ enrollmentId }) {
             className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2.5"
           >
             <div className="min-w-0">
-              {/* month_id is the calendar month (1-12), not a sequential
-                  instalment count — always display via formatMonthName. */}
               <p className="text-sm font-medium text-foreground">{formatMonthName(month.monthId)}</p>
               <p className="text-xs text-muted-foreground">
                 Due {formatDate(month.dueDate)}
@@ -153,10 +145,6 @@ function ScheduleTab({ enrollmentId }) {
   );
 }
 
-// Compares by calendar day only, ignoring time-of-day — a receipt's
-// document_date carries a real timestamp while a schedule row's
-// paid_on_date is stamped at midnight, so the two never match to the
-// millisecond, only to the day.
 function isSameCalendarDay(a, b) {
   if (!a || !b) return false;
   const da = new Date(a), db = new Date(b);
@@ -165,11 +153,6 @@ function isSameCalendarDay(a, b) {
     && da.getDate() === db.getDate();
 }
 
-// Which schedule month(s) this receipt actually paid for. SchemeReceipt/List
-// carries no month reference (see report), so this is inferred by matching
-// each receipt to schedule row(s) that share its paid-on calendar day. A
-// receipt can cover more than one month, so this returns every match, or
-// nothing when no schedule row shares that exact day.
 function matchedMonthNames(receipt, months) {
   return months
     .filter((m) => m.isPaid && isSameCalendarDay(m.paidOnDate, receipt.documentDate))
@@ -183,12 +166,7 @@ function PaymentsTab({ enrollmentId }) {
 
   if (receiptsLoading || monthsLoading) return <LoadingRow />;
   if (receiptsError)   return <ErrorRow label="Failed to load payment history." />;
-
-  // A month can be marked paid with no matching SchemeReceipt — confirmed
-  // live (2026-09-26): the first instalment is routinely collected as part
-  // of the enrollment's own invoice rather than a separate scheme receipt,
-  // so there's nothing in SchemeReceipt/List to show for it. Surface it
-  // from the schedule row itself instead of hiding it.
+  
   const unmatchedPaidMonths = months.filter(
     (m) => m.isPaid && !receipts.some((r) => isSameCalendarDay(m.paidOnDate, r.documentDate))
   );
@@ -244,11 +222,6 @@ function PaymentsTab({ enrollmentId }) {
   );
 }
 
-// Calculate a figure, then optionally record it on the enrollment.
-// scheme_status is now written for the two CONFIRMED kinds (cancellation,
-// maturity — see closeSchemeEnrollment's own CONFIRMED_STATUS_BY_KIND);
-// foreclose still leaves it untouched since that value was never
-// separately captured.
 function ClosureTab({ enrollmentId, enrollmentStatus }) {
   const { calculate, kind, result, error, isLoading } = useSchemeBenefits(enrollmentId);
   const closeMutation = useCloseSchemeEnrollment();
@@ -263,16 +236,6 @@ function ClosureTab({ enrollmentId, enrollmentStatus }) {
   const installments = Array.isArray(payload?.Installments) ? payload.Installments : [];
   const delayedCount = installments.filter((i) => i.is_delayed).length;
   const payoutAmount = payload?.total_payout ?? payload?.total_benefit ?? null;
-  // CONFIRMED LIVE 2026-09-18, two separate real captures: cancellation
-  // writes benifit_amount:0 (real refund was ₹1,000 — "no benefit, refund
-  // only" is the literal field OrnaVerse writes, not just this app's
-  // paraphrase); maturity writes benifit_amount:999.99, matching that
-  // calculation's own total_benefit EXACTLY — not total_payout (9999.99,
-  // principal+benefit combined), which is what payoutAmount above resolves
-  // to first. So benifit_amount is always total_benefit specifically
-  // (0 for cancellation, since GetSchemeCancellation's own total_benefit is
-  // 0 by definition — no separate special-case needed); payoutAmount stays
-  // the right figure to SHOW staff (what the customer actually gets back).
   const benefitAmountToRecord = payload?.total_benefit ?? 0;
 
   const handleRecord = () => {

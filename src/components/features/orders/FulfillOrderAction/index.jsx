@@ -1,12 +1,5 @@
 'use client';
 
-// "Fulfill from order" entry point on OrderDetailSheet — checks whether any
-// of this order's lines have cleared OrnaVerse's stock-allocation check,
-// and if so, loads them into a fresh Invoice cart. See
-// orderFulfillmentService.js for the full contract. "Not ready yet" is the
-// normal case: moving a line to Ready happens in OrnaVerse's ERP admin, not
-// at the sales counter — this component can only check and load.
-
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, PackageCheck } from 'lucide-react';
@@ -16,9 +9,7 @@ import { useOrderFulfillment } from '@/hooks/checkout/useOrderFulfillment';
 import { useCart } from '@/hooks/cart/useCart';
 
 /**
- * @param {{ raw: object }} props — the order's raw OrderRow (order.raw from
- *   OrderDetailSheet — party_id, party_name, mobile, document_no,
- *   transaction_id all confirmed present).
+ * @param {{ raw: object }} props
  */
 export default function FulfillOrderAction({ raw }) {
   const router = useRouter();
@@ -32,8 +23,7 @@ export default function FulfillOrderAction({ raw }) {
   });
 
   if (!raw?.transaction_id || !raw?.party_id) return null;
-
-  // Scope the party-wide ready/all-open lists down to this order.
+  
   const thisOrderReady = readyLines.filter((l) => l.document_no === raw.document_no);
   const thisOrderStatus = allOpenLines.find((l) => l.document_no === raw.document_no);
 
@@ -54,9 +44,6 @@ export default function FulfillOrderAction({ raw }) {
   };
 
   const handleLoadClick = () => {
-    // Loading wholesale-replaces the cart (cartSlice.hydrateFromOrder) —
-    // warn before discarding an in-progress cart for someone else, same
-    // guard pattern CustomerSessionSheet uses for a customer switch.
     if (!cart.isEmpty && cart.customerId && cart.customerId !== raw.party_id) {
       setShowSwitchConfirm(true);
       return;

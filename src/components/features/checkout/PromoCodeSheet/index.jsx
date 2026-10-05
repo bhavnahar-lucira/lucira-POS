@@ -18,12 +18,6 @@ import {
   hasConditionalRules,
 } from '@/lib/normalizers/promotion';
 
-// A %/amount badge only makes sense for a Discount-mechanism promo — a Free
-// Product/Gift Coupon/Buy-X-Get-Y promo genuinely has pct:0, amt:0 (the
-// "discount" is a free item, not a rupee figure), so this used to fall
-// through to showing the raw promo CODE as the badge, which read as broken.
-// Falls back to the real promotion_type label instead — "Spend X Get Y
-// Free", not "22K916GC100" style codes.
 function getBadge(promo) {
   const pct = Number(promo?.discount_percentage) || 0;
   const amt = Number(promo?.discount_amount) || 0;
@@ -164,9 +158,6 @@ function OfferTicket({ promo, isApplied, isSelected, isExpanded, onToggleSelect,
  *   appliedPromos?: { promoCode: string }[],
  *   triggerClassName?: string,
  * }} props
- *   triggerClassName - overrides the trigger button's width class; used by
- *   DiscountSection to sit it in a row next to another button (the mini
- *   cart's "View Details"), instead of always spanning full width.
  */
 export default function PromoCodeSheet({ onApply, isApplying, appliedPromos = [], triggerClassName = 'w-full' }) {
   const [open, setOpen] = useState(false);
@@ -214,10 +205,6 @@ export default function PromoCodeSheet({ onApply, isApplying, appliedPromos = []
         variant="outline"
         onClick={() => setOpen(true)}
         className={cn(
-          // whitespace-normal + h-auto override the Button base class's
-          // nowrap/fixed-height — sitting next to a sibling button in a
-          // flex-1 row (see DiscountSection) leaves too little width on
-          // small screens for this label to stay on one line otherwise.
           'h-auto min-h-9 justify-center gap-2 whitespace-normal text-center text-xs font-semibold leading-tight py-2 sm:text-sm',
           'border-accent/40 bg-accent/5 hover:border-accent hover:bg-accent/10',
           triggerClassName,

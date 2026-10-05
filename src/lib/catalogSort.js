@@ -46,51 +46,33 @@ export function sortProducts(products, sortBy) {
 }
 
 /**
- * Keeps already-rendered cards frozen in place across pagination/price
- * updates, instead of re-sorting the full accumulated list (which would
- * interleave each newly-fetched page's rows in among cards already on
- * screen, snapping everything below the insertion point to a new position).
- * name/weight are static from the first fetch, so an already-rendered
- * card's position should never change under those sorts — only under
- * price_asc/price_desc is a card allowed to move, when its price settles
- * from unresolved to real after it's already on screen.
+ * FIXED (2026-10-05, reported: "low to high sort isn't aligned properly").
+ * Used to freeze already-rendered cards in their first-seen position and
+ * only sort/append whatever a pagination fetch or a price settling added —
+ * meant to avoid a full-list reshuffle jumping cards the operator was
+ * already scrolling past. In practice this made every sort mode WRONG
+ * across more than one page: a frozen prefix is never re-merged against
+ * later-arriving rows, so page 2's items (or, for price sort, a batch of
+ * prices that settles later) only ever get sorted among themselves and
+ * tacked on at the end — never correctly interleaved into the accumulated
+ * list. Confirmed live: Rings + Price Low→High kept permanently-unpriced
+ * Silver 925 rows (price never resolves on this tenant) frozen at the very
+ * front forever, with real priced rows appended after in disconnected
+ * batches instead of one true ascending order.
  *
- * @param {object[]} prevOrder — this function's own return value from the
- *   last call (or [] on first render / whenever the caller decides to reset
- *   — e.g. sortBy, filters, or store changed and a fresh sort is actually
- *   wanted).
- * @param {object[]} nextItems — the latest full, unsorted, possibly-larger
- *   list (this is pricedDisplayProducts in catalog/page.jsx — SAME items as
- *   before plus whatever the newest page/price update added).
+ * A plain full re-sort of every currently-known row (relying on
+ * Array.prototype.sort's stability for ties) is simply correct here: name/
+ * weight are synchronous and never need to "settle", and compareProducts'
+ * null-sorts-after-priced rule already keeps a still-pricing card from
+ * jumping to the top. The occasional card moving mid-scroll once its real
+ * price arrives is the CORRECT behavior for a live price sort, not jank to
+ * engineer around.
+ *
+ * @param {object[]} _prevOrder — unused, kept so existing call sites don't
+ *   need to change.
+ * @param {object[]} nextItems — the latest full, unsorted list.
  * @param {string} sortBy
- * @returns {object[]} the next stable order — pass this back in as
- *   `prevOrder` on the following call.
  */
-export function stableSortProducts(prevOrder, nextItems, sortBy) {
-  const isPriceSort = sortBy === 'price_asc' || sortBy === 'price_desc';
-  const nextById = new Map(nextItems.map((p) => [p.item_id, p]));
-
-  // Carry over everything still present, in EXACTLY its previous relative
-  // order — unless (price sort only) this item's price just settled from
-  // null to a real number, in which case it's held back to be re-inserted
-  // in sorted position below, same as a brand-new row would be.
-  const frozen = [];
-  const resettling = [];
-  const carriedIds = new Set();
-
-  for (const prevItem of prevOrder) {
-    const fresh = nextById.get(prevItem.item_id);
-    if (!fresh) continue; // no longer in the list at all (e.g. OOS toggle) — drop it
-    carriedIds.add(fresh.item_id);
-    const justSettled = isPriceSort && getPrice(prevItem) == null && getPrice(fresh) != null;
-    (justSettled ? resettling : frozen).push(fresh);
-  }
-
-  // A newly-fetched page's rows — sorted among themselves (and any
-  // just-settled rows) and appended AFTER the frozen prefix, never spliced
-  // into the middle of it.
-  const brandNew = nextItems.filter((p) => !carriedIds.has(p.item_id));
-  const appended = [...resettling, ...brandNew].sort((a, b) => compareProducts(a, b, sortBy));
-
-  return [...frozen, ...appended];
+export function stableSortProducts(_prevOrder, nextItems, sortBy) {
+  return sortProducts(nextItems, sortBy);
 }

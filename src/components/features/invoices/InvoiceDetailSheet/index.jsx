@@ -1,13 +1,5 @@
 'use client';
 
-// Invoice/List (what feeds `invoice.raw` here) only ever returns header
-// summary fields — no line_items, confirmed live (2026-09-29). Re-fetches
-// the full record via Invoice/Retrieve as soon as the sheet opens for a
-// given invoice (see useInvoiceDetail below), same fix as OrderDetailSheet.
-// Printing goes through InvoiceReportButton (OrnaVerse's own report-render
-// pipeline, not window.print()). Collect Payment and Cancel Invoice mirror
-// OrderDetailSheet's equivalents — see report for background.
-
 import { useState } from 'react';
 import { useSelector } from 'react-redux';
 import { useForm } from 'react-hook-form';
@@ -46,8 +38,6 @@ function Row({ label, value, bold, border }) {
 function InvoiceContent({ raw }) {
   const lineItems = raw?.line_items ?? [];
   const payments  = raw?.receipt_details ?? [];
-  // Real, per-line CGST/SGST straight off this posted document's own line
-  // items — never reconstructed (see lib/gst.js's own header).
   const gst       = sumRealGst(lineItems);
 
   return (
@@ -148,8 +138,7 @@ function CollectPaymentPanel({ raw, onDone, onDismiss }) {
     const amount = Number(data.amount);
     if (!amount || amount <= 0) return;
     const mode = paymentModes.find((m) => m.modeId === Number(data.mode_id));
-    // A bank-settled mode (Card/UPI/etc.) needs a bank account + reference
-    // number, same real-world requirement as checkout.
+    
     if (mode && paymentRequiresBank(mode)) {
       if (!data.bank_pos_id) return toast.error('Select the bank account this payment settles to.');
       if (!data.ref_no?.trim()) return toast.error('Enter a reference number for this payment.');
@@ -247,9 +236,6 @@ function CancelConfirmBanner({ onConfirm, onDismiss, isPending }) {
  * }} props
  */
 export default function InvoiceDetailSheet({ invoice, isOpen, onClose }) {
-  // invoice.raw is Invoice/List's header-only summary row (no line_items) —
-  // upgraded in place once the full Retrieve resolves; react-query caches by
-  // transaction_id so re-opening the same invoice is instant afterwards.
   const { invoice: invoiceDetail } = useInvoiceDetail(invoice?.raw?.transaction_id ?? null);
   const raw = invoiceDetail ?? invoice?.raw;
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);

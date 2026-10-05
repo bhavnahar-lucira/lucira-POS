@@ -1,13 +1,5 @@
 'use client';
 
-// Live, debounced customer search input: a 10-digit number triggers an
-// exact mobile lookup, any other text (2+ chars) triggers a live API search
-// across the customer directory (see useCustomerSearch.js) — no submit step,
-// matching OrnaVerse's own search box (2026-09-28: replaced the old
-// submit-on-Enter form, which also meant clearing the box by hand left the
-// last submitted results on screen since nothing ever told the parent the
-// query was gone).
-
 import { useEffect, useRef, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';

@@ -1,63 +1,5 @@
 'use client';
 
-// Repair workflow — 3 linked stages, one tab each:
-//   Repair In  — customer drops off an item for repair (intake)
-//   Repair Out — item sent to the craftsman/workshop
-//   Repair Invoice — item back, customer billed and paid
-//
-// Each stage references the one before it: Repair In is raised against a
-// workshop Repair Order (document 75) and copies its line, RepairOut
-// references the RepairIn it came from (ref_transaction_id), and
-// RepairInvoice references the RepairOut it's billing. Every stage picks an
-// existing record rather than searching the catalogue — staff pick the
-// specific job, not an item. (The intake used to use ItemSearchPicker and
-// hand-build a line; that shape isn't what the server stores. Corrected
-// 2026-08-01, see [[repair-flow-contract]].)
-//
-// HEADER FIELDS (2026-07-28) — the "AccessDenied" framing above is STALE.
-// Confirmed live 2026-07-28 that this whole family of Create endpoints
-// (Return/Refund/CreditNote/Exchange/Buyback/URDPurchase, same schema as
-// RepairIn/Out/Invoice) actually 500s with a missing-header-fields error,
-// not AccessDenied — see [[pos-cash-checkout-status]] memory. Applied the
-// same fix here (financial_year_id/ledger_id/document_id/document_no/party
-// identity/aggregate weight/receipt+balance — see
-// transactionHeaderService.buildTransactionHeaderFields, useOrderHeaderConfig),
-// UNVERIFIED LIVE per the user's explicit direction to code this without a
-// live round-trip per flow.
-//
-// RECORD-TYPE FIX (2026-08-14) — "Repair In" used to stop at creating the
-// workshop Repair Order (document 75) and call that done. It never created
-// an actual POS RepairIn record, despite useCreateRepairIn/usePostRepairIn
-// already existing fully implemented and imported into this very file —
-// just never called. That's why anything raised here never showed up in
-// this tab's own list (which reads real RepairIn/List), and Repair Out had
-// nothing genuine to pick from. Now wired as the two real stages it always
-// should have been. Also fixed in the same pass: the order's own
-// financial_year_id/ledger_id were being resolved off REPAIR_IN's
-// DocumentNumbering config instead of the order's own (document 75) — two
-// different document types, two different control ledgers.
-//
-// UPDATED 2026-09-17 — the note above (both stages "blocked server-side,
-// needs OrnaVerse") was wrong for stage two and has been fixed, not left
-// as a platform dead-end:
-//   - Stage two, POS/RepairIn/Create: NOT an OrnaVerse-side bug. Tested
-//     live on UAT against a real existing repair order — the previous
-//     mapOrderLineToRepairInLine() passed the order line through nearly
-//     whole (~182 fields), which crashes Create every time; a minimal,
-//     hand-picked line (identity + weight/pieces + the ref_* linkage back
-//     to the order) succeeds reliably — verified end-to-end
-//     (Create → Post → Cancel) 3 times. See repairService.js's own header
-//     on that function for the full isolation. So this stage now works
-//     once it's reached.
-//   - Stage one, Inventory/Repair/Create (the workshop order): still
-//     genuinely blocked, but narrowed rather than a blanket "any payload
-//     500s" — isolated live to specifically `document_date` + `party_id`
-//     present TOGETHER (reproduced with different real dates/parties);
-//     each is individually fine. This is what stops this form from ever
-//     reaching the now-fixed stage two, since both stages are submitted
-//     together below. See buildRepairOrderPayload's own header for the
-//     full repro to hand to OrnaVerse support.
-
 import { Suspense, useState } from 'react';
 import { useSelector }        from 'react-redux';
 import { useForm } from 'react-hook-form';
@@ -111,8 +53,7 @@ import ListRowsSkeleton from '@/components/shared/ListRowsSkeleton';
 import CustomerAttachedBanner from '@/components/shared/CustomerAttachedBanner';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-// De-duplicated 2026-09-08 — identical copies existed in estimation/page.jsx
-// and transactions/page.jsx; see lib/priceUtils.js's formatAmountOrDash and
+// see lib/priceUtils.js's formatAmountOrDash and
 // lib/dateUtils.js's formatDatePadded for the shared versions.
 const formatINR = formatAmountOrDash;
 const formatDate = formatDatePadded;
@@ -136,9 +77,6 @@ function FormField({ label, required, error, children }) {
   );
 }
 
-// Picks one record from a recent-records list (Repair In, for Repair Out;
-// Repair Out, for Repair Invoice) — staff pick the specific job by document
-// number, not a fresh catalog search.
 function RecordPicker({ records, isLoading, selected, onSelect, emptyMessage }) {
   if (isLoading) return <p className="text-xs text-muted-foreground py-2">Loading…</p>;
   if (records.length === 0) return <p className="text-xs text-muted-foreground py-2">{emptyMessage}</p>;
@@ -178,16 +116,6 @@ function RecordPicker({ records, isLoading, selected, onSelect, emptyMessage }) 
 }
 
 // ─── Accept for Repair — raises a REPAIR ORDER ─────────────────────────────────
-// The counter raises a Repair Order (document 75), not a Repair In. Confirmed
-// 2026-08-01 against OrnaVerse's own POS Repair (F5) tab, whose button reads
-// "Save Repair Order". Repair In (117) / Repair Out (118) are workshop-side
-// documents raised as the job moves through the workshop.
-//
-// Staff pick the customer's own sold items (transaction_type 3 — the repair
-// filter; Return/Buyback/Exchange use 1, Credit Note uses 4), those get priced
-// by Helpers/SetReturnItems, and the result becomes the order's line_items.
-// See [[repair-flow-contract]].
-
 const repairOrderSchema = z.object({
   document_date:  z.string().min(1, 'Required'),
   item_keys:      z.array(z.string()).min(1, 'Pick at least one item'),
@@ -201,10 +129,6 @@ function RepairInNewForm({ onDone }) {
   const storeId       = useSelector(selectActiveStoreId);
   const customerId    = useSelector(selectCartCustomerId);
   const customerName  = useSelector(selectCartCustomerName);
-  // Two DIFFERENT document types, two DIFFERENT configs — this used to
-  // resolve everything (including the Repair ORDER's own ledger_id) off
-  // REPAIR_IN's config, which has no ledger_id row at all on this tenant.
-  // The order itself (document 75) needs its own.
   const headerConfig       = useOrderHeaderConfig(REPAIR_ORDER_DOCUMENT_ID);
   const repairInHeaderConfig = useOrderHeaderConfig(APP_CONFIG.DOCUMENT_TYPES.REPAIR_IN);
 
@@ -240,11 +164,6 @@ function RepairInNewForm({ onDone }) {
     );
   };
 
-  // Mode/location locks once the cart has an item — CONFIRMED LIVE
-  // 2026-10-02 (real capture of OrnaVerse's own Repair > Accept for Repair
-  // screen): the toggle collapses to a static "Mode: Accepting Repair ·
-  // Workshop" line once an item is added, and attempting to change it shows
-  // "Clear the repair cart before switching mode."
   const handleLocationChange = (ho) => {
     if (selectedKeys.length > 0) {
       return toast.error('Clear the repair cart before switching mode.');
@@ -266,7 +185,6 @@ function RepairInNewForm({ onDone }) {
     }
     if (!selectedRows.length) return toast.error('Pick at least one item to send for repair.');
     try {
-      // Line items are server-computed — priced by the same helper Return uses.
       setIsPricing(true);
       const lineItems = await priceRepairItems({
         selectedProducts: selectedRows,
@@ -297,18 +215,7 @@ function RepairInNewForm({ onDone }) {
       );
       const transactionId = createRes?.EntityId;
       if (!transactionId) throw new Error('Repair order failed — no EntityId returned.');
-      // Document 75 is auto_posting TRUE, so Create already posted it.
       if (!headerConfig.autoPosting) await post.mutateAsync(transactionId);
-
-      // Second stage — the actual POS Repair In intake, previously never
-      // created at all (this page used to stop at the workshop order and
-      // call that "done"). A Repair In line is COPIED from the order's own
-      // line, never hand-built — see mapOrderLineToRepairInLine's header
-      // comment for why. See createRepairIn's header for this step's own
-      // live-test status: confirmed still not fully working on this tenant
-      // as of 2026-08-14, kept here because it's the correct shape to send
-      // regardless, and because Repair Order creation itself is currently
-      // the blocker stopping this from ever being reached in practice.
       if (!repairInHeaderConfig.isConfigMissing) {
         const { order, lines } = await getRepairOrderAsIntakeLines(transactionId);
         if (order && lines.length) {
@@ -422,11 +329,6 @@ function RepairInNewForm({ onDone }) {
       >
         {isPricing ? 'Pricing items…' : isSubmitting ? 'Saving…' : 'Save Repair Order'}
       </Button>
-
-      {/* Confirmed live 2026-08-14 (see repairService.js's
-          buildRepairOrderPayload/createRepairIn headers for the full repro):
-          both stages this creates currently fail server-side regardless of
-          what's sent. */}
       <p className="flex items-start gap-1.5 text-xs text-muted-foreground -mt-2">
         <AlertTriangle size={13} className="shrink-0 mt-0.5 text-status-made-order" aria-hidden="true" />
         Saving is currently expected to fail — confirmed a server-side issue on
@@ -437,9 +339,6 @@ function RepairInNewForm({ onDone }) {
 }
 
 // ─── Repair Out — New form ──────────────────────────────────────────────────────
-// Send an intake item to the craftsman. Picks the RepairIn job it belongs
-// to (ref_transaction_id) rather than searching the catalog again — the
-// item is already identified.
 
 const repairOutSchema = z.object({
   document_date: z.string().min(1, 'Required'),
@@ -481,8 +380,6 @@ function RepairOutNewForm({ onDone }) {
       const laborCost = Number(data.item_rate);
       const createRes = await create.mutateAsync({
         ...buildTransactionHeaderFields({
-          // Estimated labour cost isn't billed until Repair Invoice — track
-          // as the header amount here since there's no separate tax split.
           subTotal: laborCost, taxableAmount: laborCost, taxAmount: 0, netAmount: laborCost,
           pieces, weight, netWeight: weight,
           customerId: selectedIn.customerId, customerName: selectedIn.customerName,
@@ -526,9 +423,6 @@ function RepairOutNewForm({ onDone }) {
           emptyMessage="No repair intakes found."
         />
       </FormField>
-
-      {/* No confirmed location/workshop master list exists in this app yet —
-          plain numeric input until one is built. */}
       <FormField label="Workshop/Location ID" required error={errors.location_id}>
         <Input type="number" inputMode="numeric" {...register('location_id')} className="h-11" />
       </FormField>
@@ -545,19 +439,11 @@ function RepairOutNewForm({ onDone }) {
 }
 
 // ─── Repair Invoice — New form ───────────────────────────────────────────────────
-// Item is back from the craftsman — bill the customer. Picks the RepairOut
-// job it's completing, sets the final charge, and takes payment.
 
 const repairInvoiceSchema = z.object({
   document_date: z.string().min(1, 'Required'),
   item_rate: z.coerce.number().min(0, 'Required'),
-  // Optional at the schema level — required only when applied balances
-  // don't already cover the full amount, enforced in onSubmit where the
-  // applied total is known.
   mode_id: z.coerce.number().optional().or(z.literal('')),
-  // Required only for a bank-settled mode — enforced in prepareSubmit,
-  // where the selected mode is actually known (same reasoning as mode_id
-  // above).
   bank_pos_id: z.coerce.number().optional().or(z.literal('')),
   ref_no: z.string().optional(),
 });
@@ -567,14 +453,8 @@ function RepairInvoiceNewForm({ onDone }) {
   const { items: repairOuts, isLoading: repairOutsLoading } = useRepairOuts({});
   const { paymentModes, isLoading: modesLoading } = usePaymentModes();
   const [selectedOut, setSelectedOut] = useState(null);
-  const [appliedBalances, setAppliedBalances] = useState([]); // { code, label, amount }[]
+  const [appliedBalances, setAppliedBalances] = useState([]);
   const headerConfig = useOrderHeaderConfig(APP_CONFIG.DOCUMENT_TYPES.REPAIR_INVOICE);
-
-  // Advance/Scheme/Credit Note/Exchange balances this customer already has
-  // on file — previously never surfaced here at all, so repair billing
-  // could only take a brand-new flat payment even when the customer was
-  // already carrying credit. See useRepairInvoiceHelpers header for the
-  // "unverified live" caveat shared with the rest of this pass.
   const { balances, isLoading: balancesLoading } = useRepairInvoiceHelpers({
     partyId: selectedOut?.customerId ?? null,
     companyId: storeId,
@@ -607,16 +487,6 @@ function RepairInvoiceNewForm({ onDone }) {
       }];
     });
   };
-
-  // Payment-confirmation gate (2026-09-07, same pattern as checkout/page.jsx
-  // — see its header comment for the full rationale). The remaining balance
-  // here is collected on a physical terminal too, so "Create Repair
-  // Invoice" no longer submits directly: prepareSubmit runs every check
-  // that DOESN'T touch the API (same checks this used to open with) and,
-  // only if a real terminal payment is actually needed (remainingDue > 0),
-  // opens a Yes/No gate before submitInvoice ever runs. A fully-covered
-  // invoice (existing balances alone meet the full amount) has no terminal
-  // step to confirm, so it still submits immediately, same as before.
   const [pendingInvoiceData, setPendingInvoiceData] = useState(null);
   const [isPaymentConfirmOpen, setIsPaymentConfirmOpen] = useState(false);
 
@@ -624,14 +494,9 @@ function RepairInvoiceNewForm({ onDone }) {
     if (!selectedOut) return toast.error('Select the repair job this invoice is for.');
     const item = selectedOut.lineItems?.[0];
     if (!item) return toast.error('Selected job has no item on record.');
-
-    // A mode is only required for whatever isn't covered by applied
-    // balances — a fully-covered invoice needs no new payment at all.
     if (remainingDue > 0 && !data.mode_id) {
       return toast.error('Select how the remaining balance is paid.');
     }
-    // A bank-settled mode (Card/UPI/etc.) needs a bank account + reference
-    // number, same real-world requirement as checkout.
     if (remainingDue > 0) {
       const selectedMode = paymentModes.find((m) => m.modeId === Number(data.mode_id));
       if (selectedMode && paymentRequiresBank(selectedMode)) {
@@ -662,10 +527,7 @@ function RepairInvoiceNewForm({ onDone }) {
     if (pendingInvoiceData) submitInvoice(pendingInvoiceData);
     setPendingInvoiceData(null);
   };
-
-  // Nothing was submitted — no draft invoice exists to roll back. The form
-  // (job, labour charge, applied balances) stays exactly as filled in so
-  // the operator can just pick a different payment mode and try again.
+  
   const handlePaymentDeclined = () => {
     setPendingInvoiceData(null);
     toast.info('Payment declined — nothing was saved.');
@@ -705,14 +567,7 @@ function RepairInvoiceNewForm({ onDone }) {
       });
       const transactionId = createRes?.EntityId;
       if (!transactionId) throw new Error('Repair invoice failed — no EntityId returned.');
-      // RepairInvoice (119) is auto_posting FALSE, so this normally runs.
       if (!headerConfig.autoPosting) await post.mutateAsync(transactionId);
-
-      // One receipt row per applied balance, same idea as the main
-      // checkout's helper payments (CheckoutPaymentSection) — mode_id/
-      // ledger_id omitted for these, mode_code alone identifies which
-      // balance is being drawn down. UNVERIFIED LIVE — see
-      // useRepairInvoiceHelpers header.
       for (const balance of appliedBalances) {
         await addReceipt.mutateAsync({
           transaction_id: transactionId,
@@ -722,10 +577,6 @@ function RepairInvoiceNewForm({ onDone }) {
           mode_code:      balance.code,
         });
       }
-
-      // Whatever's left after applied balances, paid via the selected mode.
-      // ledger_id sourced from the selected mode — same pattern as Refund
-      // and Scheme Receipt (see usePaymentModes.js normalizeMode).
       if (remainingDue > 0) {
         await addReceipt.mutateAsync({
           transaction_id: transactionId,
@@ -734,10 +585,6 @@ function RepairInvoiceNewForm({ onDone }) {
           amount:         remainingDue,
           mode_id:        Number(data.mode_id),
           ledger_id:      selectedMode?.ledgerId ?? undefined,
-          // Same fields as Scheme Receipt/checkout's receipt_details — NOT
-          // separately confirmed live against this specific endpoint (see
-          // this form's own "UNVERIFIED LIVE" note above), only sent when
-          // the mode actually needed them (prepareSubmit's own gate).
           bank_pos: data.bank_pos_id || undefined,
           ref_no:   data.ref_no?.trim() || undefined,
         });
@@ -769,10 +616,7 @@ function RepairInvoiceNewForm({ onDone }) {
       <FormField label="Labour Charge (₹)" required error={errors.item_rate}>
         <Input type="number" inputMode="decimal" {...register('item_rate')} className="h-11" />
       </FormField>
-
-      {/* Existing balances — Advance/Scheme/Credit Note/Exchange. Previously
-          not shown anywhere on this form at all (see useRepairInvoiceHelpers
-          header). Only shown once a job (and so a customer) is selected. */}
+      
       {selectedOut && !balancesLoading && balances.some((b) => b.amount > 0) && (
         <FormField label="Apply Existing Balance">
           <div className="flex flex-col gap-2">
@@ -833,16 +677,6 @@ function RepairInvoiceNewForm({ onDone }) {
 // ─── List views ───────────────────────────────────────────────────────────────
 
 function RepairList({ hook: useHook, emptyMessage }) {
-  // ADDED 2026-09-09 — same "Show only my transactions" toggle just added to
-  // the Transactions tab (see TransactionList in transactions/page.jsx for
-  // the full rationale) — this list shares the identical normalized shape
-  // (normalizeRepairRecord in useRepairLists.js maps party_id/party_name to
-  // customerId/customerName, mirroring normalizeTransaction exactly), so the
-  // same client-side filter applies unchanged. Same caveat too: RepairIn/
-  // Out/Invoice/List are store-scoped and paginated only, no party_id
-  // param — this narrows whatever page is already loaded to the attached
-  // customer's own rows in it, not a guaranteed search of their entire
-  // repair history.
   const customerId   = useSelector(selectCartCustomerId);
   const customerName = useSelector(selectCartCustomerName);
   const isAttached   = !!customerId;

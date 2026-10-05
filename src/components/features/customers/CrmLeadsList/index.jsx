@@ -1,10 +1,5 @@
 'use client';
 
-// Live walk-in leads — Services/CRM/Customer/List, fetched fresh every visit
-// (no local DB, see useCrmLeads.js's own header). Read-only: leadId is a
-// customer_id, a CRM-level identity distinct from a billing party_id — same
-// rule normalizeWalkInCustomer already documents for the visit-log page.
-
 import { Users } from 'lucide-react';
 import EmptyState from '@/components/shared/EmptyState';
 import ErrorState from '@/components/shared/ErrorState';

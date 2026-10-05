@@ -1,8 +1,5 @@
 'use client';
 
-// Loading skeleton for the product detail page.
-// Matches the exact layout of the assembled page so there's no layout shift.
-
 import { Skeleton } from '@/components/ui/skeleton';
 
 function Bone({ className = '' }) {

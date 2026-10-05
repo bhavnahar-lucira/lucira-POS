@@ -1,23 +1,3 @@
-// src/hooks/checkout/useCreateOrder.js
-// POS Order creation — native POS/Order/Create → POS/Order/Post flow.
-//
-// TWO DOCUMENTS, chosen for the operator rather than by them — the checkout
-// screen has no mode selector; what the customer pays decides which is
-// raised (see checkout/page.jsx):
-//   • Invoice (54) — everything in stock AND settled in full (OrnaVerse
-//     rejects a short-paid invoice, or one with insufficient stock).
-//   • Order (53) — anything else: an advance, nothing collected, or a
-//     made-to-order piece; the remainder rides as balance_amount. Order does
-//     not check stock, unlike Invoice.
-// The two documents are not interchangeable — raising both for one sale
-// would double-count it, so checkout raises exactly one. See useCreateInvoice.js
-// for the Invoice flow.
-//
-// Note: keep this hook wired to a real caller — if checkout ever raises only
-// invoices, POS/Order/Create stops being called at all and the Orders screen
-// silently goes stale (it looks like orders stopped saving, when really
-// they're just being filed as invoices instead).
-
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
@@ -39,11 +19,6 @@ import APP_CONFIG from '@/constants/appConfig';
 import TOAST from '@/constants/toastMessages';
 import { trackDocumentPlaced, trackDocumentFailed } from '@/lib/analytics/orderTracking';
 
-/**
- * Builds the OrderRow Entity payload from cart state. Same schema and
- * header-field rationale as useCreateInvoice.js's buildInvoiceEntity — see
- * its header comment for the full story.
- */
 function buildOrderEntity({
   lineItems, promotionDetails,
   customerId, customerName, customerMobile,
@@ -56,9 +31,6 @@ function buildOrderEntity({
     subTotal, discount, taxableAmount, taxAmount, netAmount,
     pieces, weight, netWeight,
   } = summarizeLineItems(lineItems);
-
-  // Summed straight from the lines, which ApplyPromotions already discounted
-  // and re-taxed.
   const roundedNet = Math.round(netAmount);
   const round_off  = +(roundedNet - netAmount).toFixed(2);
 
@@ -66,9 +38,6 @@ function buildOrderEntity({
     paymentModes, customerId, activeStoreId, exchangeRate, headerConfig,
   });
   const receiptAmount = +receipt_details.reduce((s, r) => s + (r.amount ?? 0), 0).toFixed(2);
-
-  // "Fulfill from order" — same narration-only audit trail as the Invoice
-  // path; see useCreateInvoice.js.
   const fulfillmentNote = fulfillmentOrderNo ? `Fulfilled from Order ${fulfillmentOrderNo}` : null;
   const combinedNarration = [fulfillmentNote, narration].filter(Boolean).join(' — ') || undefined;
 
@@ -94,8 +63,6 @@ function buildOrderEntity({
     base_tax_amount: taxAmount,
     round_off,
     receipt_amount: receiptAmount,
-    // Positive on an order taken with an advance — that is the balance the
-    // customer settles on collection, not an error.
     balance_amount: +(roundedNet - receiptAmount).toFixed(2),
     narration:     combinedNarration,
     document_id:                 APP_CONFIG.DOCUMENT_TYPES.POS_ORDER,
@@ -109,8 +76,6 @@ function buildOrderEntity({
     is_einvoice:                 false,
     line_items: lineItems,
     receipt_details,
-    // The invoice_promotions[] rows from Helper/ApplyPromotions, passed
-    // through untouched.
     promotion_details: promotionDetails ?? [],
   };
 }
@@ -154,9 +119,6 @@ export function useCreateOrder() {
       }
 
       const documentId = APP_CONFIG.DOCUMENT_TYPES.POS_ORDER;
-
-      // Reuse the lines checkout already priced and quoted from, exactly as
-      // the invoice flow does — see useCreateInvoice.js.
       let lineItems;
       let promotionDetails;
 
@@ -164,10 +126,6 @@ export function useCreateOrder() {
         lineItems = pricedLineItems.map((row) => ({ ...row, sales_person_id: salesPersonId }));
         promotionDetails = promotionDetailsArg ?? [];
       } else {
-        // buildPricedLineItems decides ONE document type for the whole cart
-        // (see its own header); this fallback path (no pre-priced lines
-        // supplied) is Order-only, so it fails outright if the cart came
-        // back as an Invoice instead (every item was fully in stock).
         const split = await buildPricedLineItems({ items, activeStoreId, salesPersonId });
         if (!split.order) {
           throw new Error('Every item in this cart is in stock — this should be raised as an invoice, not an order.');

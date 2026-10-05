@@ -104,15 +104,6 @@ const APP_CONFIG = {
   // Take: 0 = fetch all (use only for small/static datasets)
   PAGINATION: {
     DEFAULT_TAKE:       50,
-    // Confirmed live 2026-09-30: ProductCatalog/List's real per-request cap
-    // is 24 (Take above that silently clamps to 24 — see catalogService.js's
-    // RAW_PAGE_SIZE), NOT a forced 24 regardless of Take as earlier testing
-    // found (Take:16 correctly returned 16). Requesting exactly the real cap
-    // per catalog page means getProducts' backfill loop can usually satisfy
-    // a whole page in its first round instead of needing extra rounds to
-    // reach a artificially larger count — this is the "load faster, like
-    // OrnaVerse's own client" fix; infinite scroll (ProductGrid's
-    // endReached) still fetches more pages exactly as before.
     CATALOG_TAKE:       24,
     ORDERS_TAKE:        50,
     INVOICES_TAKE:      100,

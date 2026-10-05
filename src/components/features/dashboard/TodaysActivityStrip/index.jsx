@@ -1,8 +1,5 @@
 'use client';
 
-// Photo banner for today's activity stats. No "Schemes" chip yet — there's
-// no data source wired up for it (see report); don't fabricate a count.
-
 import Image from 'next/image';
 import { RotateCcw, ArrowLeftRight, Gem, Coins } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -49,13 +46,9 @@ export default function TodaysActivityStrip({
         fill
         sizes="(max-width: 768px) 100vw, 1024px"
         className="object-cover"
-        // The largest above-the-fold element on /dashboard (likely its LCP
-        // candidate) — was rendering with no priority hint at all before.
         priority
         fetchPriority="high"
       />
-      {/* Dual wash — bottom-up for text legibility, corner-tinted with the
-          brand primary so the photo reads as "ours" rather than a stock cutout */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/40 to-black/10" aria-hidden="true" />
       <div className="absolute inset-0 bg-gradient-to-br from-primary/30 via-transparent to-transparent" aria-hidden="true" />
 

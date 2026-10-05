@@ -1,15 +1,5 @@
 'use client';
 
-// Shared tappable list-item card shell (outer button, optional header +
-// dashed divider, meta-row container, optional footer) used by
-// OrderListItem, InvoiceListItem, and CustomerListItem — each caller still
-// owns its own row content.
-//
-// `itemVariants` uses the same "hidden"/"show" keys as StaggerList's
-// container variants, so a card wrapped in <StaggerList> cascades in
-// automatically via Motion's variant propagation; used standalone, the
-// variants are simply never triggered (hover/tap still work).
-
 import { motion, useReducedMotion } from 'motion/react';
 import { EASE_PREMIUM, DURATION } from '@/lib/motion';
 

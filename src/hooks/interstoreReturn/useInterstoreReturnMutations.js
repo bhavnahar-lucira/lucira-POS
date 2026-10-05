@@ -1,11 +1,3 @@
-// Interstore Return mutations: create + the 6 lifecycle actions. (Photo
-// attach is a plain service call — addInterstoreReturnItemImage — not a
-// mutation hook, since transfers/page.jsx fires one per line in parallel.)
-// Store-role-gated actions (Approve/SubmitForApproval/Resubmit/
-// ReturnToOrigin/LocalAbsorption) temporarily switch the OrnaVerse session
-// to whichever company the action requires and always switch back — see
-// interstoreReturnService.withCompany's own header for why.
-
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
@@ -48,13 +40,6 @@ export function useCreateInterstoreReturn({ onSuccess } = {}) {
   });
 }
 
-/**
- * One hook exposing all 6 status-transition actions, each aware of which
- * side of the transfer (origin vs receiving) it requires and switching the
- * OrnaVerse session there and back around the call. `myStoreId` is read
- * from Redux once here rather than per-action, since it's the same
- * "restore to" target for all of them.
- */
 export function useInterstoreReturnLifecycleActions({ onSuccess } = {}) {
   const queryClient = useQueryClient();
   const myStoreId = useSelector(selectActiveStoreId);

@@ -1,9 +1,5 @@
 'use client';
 
-// Shared Country/State/City picker (shadcn Select-based). Generic over any
-// { [idKey]: number, [labelKey]: string } list, so one component serves
-// country/state/city cascades.
-
 import { Controller } from 'react-hook-form';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,

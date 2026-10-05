@@ -1,40 +1,5 @@
 'use client';
 
-// Full cost breakdown for the live-priced figure — mirrors OrnaVerse's own
-// Invoice cart line breakdown (METAL / DIAMOND / LABOUR / SUBTOTAL /
-// TAXABLE / TAX), captured live from their UAT POS 2026-08-26.
-//
-// REDESIGNED 2026-08-27, twice:
-//   1st pass — flat wrap of stat chips → a vertical "receipt" (stacked rows,
-//     header, highlighted total footer), moved beside the spec cards.
-//   2nd pass (this one) — back to a HORIZONTAL layout per explicit request
-//     (fits a per-product row on Cart/Checkout far better than a tall
-//     vertical stack does), but keeping the receipt pass's polish: a header,
-//     each figure in its own small card ("segment") rather than bare
-//     label/value pairs, and Total still visually set apart as its own full-
-//     width bar rather than just one more segment in the row. Segments are
-//     flex-wrap + flex-1, NOT a fixed-column grid — that's what makes this
-//     genuinely responsive: on a wide product-page placement they sit in one
-//     tidy row, and on a narrow cart-line/mobile width they reflow into
-//     however many rows are needed, each segment still evenly sized, rather
-//     than overflowing or forcing horizontal scroll.
-//
-// NO field was dropped in either redesign — every figure the original flat
-// version showed (Metal/Diamond/Stone/Colour Stone/Other, Making Charges,
-// Subtotal, Taxable, Tax, Total) is still exactly here; only the layout and
-// styling changed.
-//
-// Every figure here is a field already ON the SetSalesItems row
-// useVariantPricing fetches for the headline price (see pricingService.js)
-// — nothing new to price, just more of what already came back, shown.
-//
-// NO Discount segment here, unlike their cart line — that row is priced
-// PRE-promotion (Helper/ApplyPromotions only ever runs once items are
-// actually in the cart, at checkout's own pricing pass — see
-// DiscountSection/useCheckoutPricing), so item_labour/metal_amount/etc.
-// here can never disagree with a promo the way a stale discount figure
-// could. The nearby DiscountSection is what actually handles a promo.
-
 import { Receipt } from 'lucide-react';
 import { formatAmount as money } from '@/lib/priceUtils';
 
@@ -63,25 +28,9 @@ function Segment({ label, value, muted = false, subtitle }) {
 
 /**
  * @param {{ priced: object|null }} props
- *   priced — the row useVariantPricing returns (SetSalesItems' Entity
- *   shape) on the product page, or the equivalent `breakdown` object
- *   mapPricedLinesToCart builds per cart line on the cart/checkout pages.
- *   Renders nothing until it resolves — see the PDP's own "Calculating live
- *   price…" state for that in-between moment.
  */
 export default function PriceBreakdown({ priced, showComponents = false }) {
   if (!priced) return null;
-
-  // Every material component that actually applies to this piece — most
-  // items carry only two or three of these nonzero (this bracelet: Metal +
-  // Diamond + Labour), and a component this design has none of (e.g. no
-  // colour stone) is left out rather than shown as a bare "₹0" that reads
-  // like a rendering gap.
-  //
-  // `showComponents` (cart-page only — see CartItemRow's showComponentDetails)
-  // adds the piece-count/weight subtitle behind each amount, e.g. "76 pcs ·
-  // 1.93 ct" under Diamond — the exact figures used to explain a real vs.
-  // master-priced difference between an in-stock and a made-to-order line.
   const materialSegments = [
     { label: 'Metal',        value: priced.metal_amount,       subtitle: priced.net_weight > 0 ? `${priced.net_weight} g` : null },
     { label: 'Diamond',      value: priced.diamond_amount,      subtitle: priced.diamond_pieces > 0 ? `${priced.diamond_pieces} pcs · ${priced.diamond_weight} ct` : null },

@@ -35,11 +35,6 @@ export default function CartDrawer({ isOpen, onClose }) {
     updateQuantity,
     detachCustomer,
   } = useCart();
-
-  // Shared query (keyed on cart contents + applied promo codes) with
-  // DiscountSection/cart page/checkout, so applying a code anywhere shows
-  // up everywhere with zero extra requests. See cart/page.jsx — a split
-  // line still shows as two rows here, summary stays one combined total.
   const { invoice, order, isLoading: isPricing } = useCheckoutPricing();
   const displayRows = useMemo(
     () => buildCartDisplayRows(items, { invoice, order }),

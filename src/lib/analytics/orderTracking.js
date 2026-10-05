@@ -1,23 +1,7 @@
-// src/lib/analytics/orderTracking.js
-//
-// Shared purchase-funnel tracking for BOTH checkout documents —
-// useCreateOrder.js (deposit/reserve, POS/Order) and useCreateInvoice.js
-// (immediate sale, POS/Invoice) — so both flows carry the same depth of
-// detail instead of two independently hand-written (and drifting) events.
-//
-// GA4 vs WebEngage split follows tracker.js's rule (see its jsdoc): only
-// real customer identity (name/mobile/address) and free-text narration go
-// into webengageExtra. Everything else — full per-item product detail,
-// the order-level price breakup, store context, sales_person_id — is not
-// PII and goes to both destinations via the shared params/items[].
-
 import tracker from './tracker';
 import EVENTS, { GA_ECOMMERCE_EVENTS } from './events';
 import APP_CONFIG from '@/constants/appConfig';
 
-// One row per physical piece, so `quantity` is always 1 per row here — that
-// mirrors how many rows exist, it's not a bug. `price` is sub_total
-// (pre-tax headline price), not net_amount (post-tax total).
 function toOrderItems(lineItems = []) {
   return lineItems.map((row) => ({
     item_id:           row.item_id != null ? String(row.item_id) : undefined,
@@ -68,26 +52,7 @@ export function trackDocumentPlaced({
   const paymentSummary = modes
     .map((p) => `${p.modeCode ?? p.modeName ?? 'mode'}:${p.amount}`)
     .join(', ') || undefined;
-  // Single clean value for the common single-payment-mode case, so a report
-  // doesn't have to parse payment_modes' joined string. Null for a genuine
-  // split payment (two or more modes) — there's no one "the" method then.
   const paymentMethod = modes.length === 1 ? (modes[0].modeCode ?? modes[0].modeName ?? null) : null;
-
-  // Same single-vs-split pattern as payment_method/payment_modes above, for
-  // the reference/UTR number — reported directly as missing from WebEngage.
-  //
-  // Read from entity.receipt_details (the literal receipt_details[] rows
-  // Create actually submitted to OrnaVerse — see orderService.js), NOT from
-  // paymentModes[].refNo directly: buildReceiptDetails (documentFields.js)
-  // overrides ref_no away from the operator-typed refNo for two row kinds —
-  // a credit/helper draw (Exchange Credit/Credit Note/Old Gold Value) gets
-  // ref_no: credit.document_no (the source receipt's own document number),
-  // and a Nector Loyalty row gets a fixed constant (NECTOR-CREDITS/
-  // NECTOR-COINS) — never whatever (if anything) was in the UI. Only a
-  // plain tender row (Cash/Card/UPI) passes operator-typed refNo straight
-  // through unchanged. Reading the built receipt rows instead of the raw
-  // input means this is always "whatever OrnaVerse actually recorded" by
-  // construction, not a second guess at it.
   const receiptRows = entity?.receipt_details ?? [];
   const paymentReferenceSummary = receiptRows
     .filter((r) => r.ref_no)
@@ -122,10 +87,6 @@ export function trackDocumentPlaced({
     store_name:      activeStoreName,
     items:           toOrderItems(lineItems),
   }, {
-    // WebEngage-only — real customer identity + free text; GA4 never
-    // receives these (see tracker.js's jsdoc). customer_id defaults to
-    // 'guest' (same convention as tracker.js's GUEST_ID) for a walk-in cash
-    // sale with no registered customer.
     customer_id:      customerId ?? 'guest',
     customer_name:    customerName,
     customer_mobile:  customerMobile,

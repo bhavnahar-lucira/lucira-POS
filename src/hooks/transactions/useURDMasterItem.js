@@ -1,7 +1,3 @@
-// Fetches the generic "URD GOLD" master item's live data (current
-// item_rate) via Items/Retrieve — see appConfig.js URD_MASTER_ITEMS for why
-// this can't be found through search/list.
-
 import { useQuery } from '@tanstack/react-query';
 import { getItemDetail } from '@/services/itemService';
 import { QUERY_KEYS } from '@/constants/queryKeys';

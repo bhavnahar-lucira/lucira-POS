@@ -1,21 +1,3 @@
-// Records/reads a customer's recently-viewed products in Mongo. Same
-// signed-in-session requirement as api/customers/sync/route.js and for the
-// same reason: middleware.js excludes all /api paths from its auth matcher,
-// so without an explicit check here this would be an unauthenticated
-// read/write surface. Requiring the caller's own OrnaVerse session keeps
-// the trust boundary identical to the rest of the app — only a signed-in
-// operator can call this, same as everything else in the POS.
-//
-// Deliberately simpler than customers/sync: that route re-fetches the
-// customer PROFILE from OrnaVerse itself because trusting a client-
-// submitted profile was the actual vulnerability there (arbitrary overwrite
-// of another party's data). Here, the payload is our own app-generated
-// browsing snapshot (see recentlyViewedSchema.js) — there's no OrnaVerse
-// record to defer to, and the worst a caller could do with a bad payload is
-// pollute their OWN currently-attached customer's recently-viewed list with
-// junk, which is low-severity and self-correcting (it just ages out via the
-// $slice cap in lib/mongo/recentlyViewed.js).
-
 import { recordViewSchema } from '@/validators/recentlyViewedSchema';
 import { upsertRecentlyViewedItem, getRecentlyViewedItems } from '@/lib/mongo/recentlyViewed';
 import { getSessionFromRequest } from '@/lib/ornaverse/session';
@@ -51,12 +33,7 @@ export async function GET(request) {
   if (!(await getSessionFromRequest(request))) {
     return Response.json({ error: 'Not authenticated' }, { status: 401 });
   }
-
-  // FIXED 2026-09-09 — customer_mobile added alongside party_id, same fix
-  // and same reason as api/customers/abandoned-cart/route.js's own comment:
-  // party_id is tenant-specific (UAT vs LIVE), mobile isn't — see
-  // lib/mongo/recentlyViewed.js's buildFilter. party_id alone still works
-  // as the fallback when a normalizable mobile isn't available.
+  
   const url = new URL(request.url);
   const partyId = Number(url.searchParams.get('party_id'));
   const customerMobile = url.searchParams.get('customer_mobile') || null;

@@ -1,8 +1,5 @@
 'use client';
 
-// Applied-promo-code pill with a remove action, shown on cart and
-// checkout screens.
-
 import { CheckCircle2, Tag, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -15,13 +12,6 @@ import { cn } from '@/lib/utils';
  *   onRemove: () => void,
  *   className?: string,
  * }} props
- *   promoName — the promotion's real name (e.g. "20% Off Diamond"), shown
- *   instead of the raw code once applied — reported directly: a code like
- *   "57R53ZHE" means nothing to an operator/customer at a glance. Falls back
- *   to promoCode when a promotion's name isn't available for some reason.
- *   hasEffect (default true) — pass false when the code is applied but
- *   yields no actual discount, to show neutral/muted styling instead of
- *   the success tone (still shown as applied/removable either way).
  */
 export default function AppliedPromoTag({ promoCode, promoName, discountAmount, hasEffect = true, onRemove, className }) {
   if (!promoCode) return null;

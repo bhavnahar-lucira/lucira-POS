@@ -1,41 +1,3 @@
-// src/hooks/checkout/useCreateInvoice.js
-// PRIMARY checkout hook — POS/Invoice/Create → POS/Invoice/Post.
-// Use this for all direct-billing sales at the POS counter; use
-// useCreateOrder for deposit/reserve-and-collect scenarios.
-//
-// FLOW:
-//   1. buildInvoiceEntity() — assembles InvoiceRow from cart + session state
-//   2. createInvoice(entity) → SaveResponse { EntityId: transaction_id }
-//   3. postInvoice(transactionId) → finalises stock, accounting, receipts
-//   4. On success: clear cart, invalidate caches, show confirmation
-//
-// MONEY — nothing on this header is computed here. Every figure is summed
-// from the line items, which arrive priced by Helpers/SetSalesItems and then
-// discounted and re-taxed by Helper/ApplyPromotions. The cart's flat-3%-GST
-// figure is a display estimate only and never reaches a document. See
-// useCheckoutPricing.
-//
-// HEADER FIELDS mirror a real, successful Order/Create request captured from
-// OrnaVerse's own frontend (see useOrderHeaderConfig.js) — this family of
-// Create endpoints previously 500'd on a whole missing tier of header fields
-// that 400 validation never flagged: financial_year_id (from FinancialYear/
-// List, not implied by document_date), ledger_id (the document TYPE's own
-// control ledger, NOT the customer's receivable ledger), is_tax_applicable/
-// auto_posting/is_document_number_editable (per-document-type config from the
-// same DocumentNumbering row), round_off, allow_backdated_entry/
-// number_of_backdated_days (from headerConfig, not hardcoded), and document_id
-// itself. document_no, by contrast, must NOT be sent — the server assigns it.
-//
-// LINE ITEMS must be the full computed Helpers/SetSalesItems object (~70
-// fields, not a hand-rolled summary) — see checkoutPricingService.buildPricedLineItems,
-// which re-prices each item against today's rates at submission time.
-//
-// PROMOTIONS are priced by Helper/ApplyPromotions over the line items before
-// Create, and its `invoice_promotions[]` response IS this document's
-// promotion_details[], passed through untouched. See promotionService.applyPromotions.
-//
-// STATUS is derived after posting (balance_amount + receipt_amount) — never sent.
-
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
@@ -91,9 +53,6 @@ function buildInvoiceEntity({
     subTotal, discount, taxableAmount, taxAmount, netAmount,
     pieces, weight, netWeight,
   } = summarizeLineItems(lineItems);
-
-  // The lines come back from Helper/ApplyPromotions already discounted and
-  // re-taxed, so the header is a straight sum of them — nothing subtracted here.
   const roundedNet = Math.round(netAmount);
   const round_off  = +(roundedNet - netAmount).toFixed(2);
 
@@ -101,18 +60,11 @@ function buildInvoiceEntity({
     paymentModes, customerId, activeStoreId, exchangeRate, headerConfig,
   });
   const receiptAmount = +receipt_details.reduce((s, r) => s + (r.amount ?? 0), 0).toFixed(2);
-
-  // "Fulfill from order" — no dedicated header field exists for this; the
-  // source order closes out automatically server-side once claimStockPieces
-  // has claimed the reserved piece (see checkoutPricingService.js). All
-  // that's needed here is a readable audit trail in free-text narration.
   const fulfillmentNote = fulfillmentOrderNo ? `Fulfilled from Order ${fulfillmentOrderNo}` : null;
   const combinedNarration = [fulfillmentNote, narration].filter(Boolean).join(' — ') || undefined;
 
   return {
     party_id:      customerId,
-    // The header denormalizes customer identity beyond party_id.
-    // user_id is intentionally null (matches the real captured example).
     party_name:    customerName ?? undefined,
     mobile:        customerMobile ?? undefined,
     user_id:       null,
@@ -128,9 +80,6 @@ function buildInvoiceEntity({
     taxable_amount: taxableAmount,
     tax_amount:     taxAmount,
     net_amount:     roundedNet,
-    // base_* mirror the post-discount values on the real captured payload
-    // (base_net_amount there differs from the line items' own base_net_amount,
-    // which holds the pre-discount figure) — summed as-is.
     base_sub_total: subTotal,
     base_net_amount: roundedNet,
     base_tax_amount: taxAmount,
@@ -150,8 +99,6 @@ function buildInvoiceEntity({
     is_einvoice:                 false,
     line_items: lineItems,
     receipt_details,
-    // The invoice_promotions[] rows Helper/ApplyPromotions returned, passed
-    // through untouched.
     promotion_details: promotionDetails ?? [],
   };
 }
@@ -159,8 +106,6 @@ function buildInvoiceEntity({
 export function useCreateInvoice() {
   const queryClient = useQueryClient();
   const { items, appliedPromos, fulfillmentOrderNo } = useCart();
-  // Fallback for analytics only — every money figure on the document itself
-  // comes from the priced, promotion-applied line items.
   const { total: cartTotal } = useCartTotals();
   const { customerId, customerName, customerMobile } = useCustomerSession();
   const customerAddress = useSelector(selectCartCustomerAddress);
@@ -196,12 +141,6 @@ export function useCreateInvoice() {
       }
 
       const documentId = APP_CONFIG.DOCUMENT_TYPES.POS_INVOICE;
-
-      // Prefer the lines checkout already priced and quoted from
-      // (useCheckoutPricing) — re-pricing here would risk billing a
-      // different figure than what the customer was shown, and repeat the
-      // slowest calls in the flow. Falls back to pricing here for any
-      // caller that doesn't pre-price.
       let lineItems;
       let promotionDetails;
 
@@ -209,10 +148,6 @@ export function useCreateInvoice() {
         lineItems = pricedLineItems.map((row) => ({ ...row, sales_person_id: salesPersonId }));
         promotionDetails = promotionDetailsArg ?? [];
       } else {
-        // buildPricedLineItems decides ONE document type for the whole cart
-        // (see its own header); this fallback path (no pre-priced lines
-        // supplied) is Invoice-only, so it fails outright if the cart came
-        // back as an Order instead (any item short of real stock).
         const split = await buildPricedLineItems({ items, activeStoreId, salesPersonId });
         if (!split.invoice) {
           throw new Error('Nothing in this cart is currently in stock — an invoice needs at least one real stock piece.');

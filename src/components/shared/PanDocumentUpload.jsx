@@ -1,24 +1,5 @@
 'use client';
 
-// Upload + display a customer's PAN card / identity document.
-//
-// Two-step OrnaVerse contract (fileUploadService.js): uploadTemporaryFile()
-// first to get a `temporary/<guid>.<ext>` path, then save THAT path onto
-// Customer/Update's own `pan_document` field — a raw base64 data URI sent
-// directly into that field 500s (confirmed 2026-09-17). OrnaVerse promotes
-// the temp file into permanent storage itself once the customer record is
-// saved, which is also why a fresh refetch right after saving can't be
-// trusted to reflect it immediately — same masking/timing reason
-// CheckoutPanCapture's own justSavedPan exists for the PAN NUMBER; this
-// component tracks a `justSavedPath` of its own for the DOCUMENT for the
-// identical reason.
-//
-// Shared by CheckoutPanCapture (where OrnaVerse's real Invoice/Create
-// requirement for this was discovered live — "Please upload PAN & its
-// number" even with a valid number already on file) and the customer
-// profile Edit tab, so both save/display it identically rather than two
-// drifting copies.
-
 import { useRef, useState } from 'react';
 import { Paperclip, CheckCircle2, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -47,15 +28,6 @@ export default function PanDocumentUpload({
   const fileInputRef = useRef(null);
   const [error, setError] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
-  // Tracks ONLY "a save just succeeded this session", not a URL — CONFIRMED
-  // LIVE 2026-10-03: the temp path a successful save resolves is NOT the
-  // final one. OrnaVerse promotes it server-side into permanent storage
-  // during Customer/Update (e.g. "temporary/<guid>.png" becomes
-  // "Documents/00002/00002221_<hash>.png") — the temp path itself 404s
-  // immediately after. useUpdateCustomer's onSuccess already invalidates
-  // this customer's query, so the real permanent path arrives shortly after
-  // via `savedPath` (the refetched prop) — never build the View link from
-  // the temp path itself.
   const [justSaved, setJustSaved] = useState(false);
 
   const viewUrl = resolveImageSrc(savedPath);
@@ -85,10 +57,6 @@ export default function PanDocumentUpload({
         formChanges: { pan_document: tempPath, party_name: customerName },
       });
       setJustSaved(true);
-      // Reports the temp path upward purely as a truthy "a document now
-      // exists" signal (checkoutSchema's gate is `!!panDocument`, never a
-      // display URL) — see this component's own viewUrl comment above for
-      // why the temp path itself is never used for display.
       onSaved?.(tempPath);
     } catch (err) {
       setError(err?.serverMessage ?? err?.message ?? 'Could not save the document — please try again.');

@@ -4,10 +4,6 @@ import { TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 
-// `accent` reserves the terracotta treatment for the one primary metric
-// (Today's Revenue); other cards stay neutral. `icon` and the sparkline
-// below are both decorative only (aria-hidden) — the trend arrow/text
-// already conveys the same info in words.
 function Sparkline({ data }) {
   if (!data || data.length < 2) return null;
 

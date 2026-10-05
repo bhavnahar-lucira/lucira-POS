@@ -1,7 +1,3 @@
-// src/lib/normalizers/review.js
-// Shared helpers for Nector review data — see nectorService.js for the
-// confirmed raw response shapes.
-
 /**
  * Average rating + count from a reviews-count { count, sum } pair.
  * @param {{ count: number, sum: number }} countsum

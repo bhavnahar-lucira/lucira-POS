@@ -1,15 +1,5 @@
 'use client';
 
-// Floating "Sort | Filter" pill for true mobile only — the desktop+tablet
-// sticky filter bar (catalog/page.jsx) is `hidden` below `md` because it
-// took up roughly half the mobile viewport on its own (reported directly).
-// Below `md`, this pill is the only way to reach search/store/OOS/sort;
-// "Filter" opens the SAME shared BottomSheet(ProductFilterPanel) the
-// desktop/tablet "Filters" button does (owned by catalog/page.jsx, not this
-// component) — one filter panel implementation for every breakpoint, not a
-// separate mobile copy. Widened from lg to md (2026-09-28, explicit
-// direction) — tablet gets the desktop-style bar/button now, not this pill.
-
 import { useState } from 'react';
 import { ArrowUpDown, SlidersHorizontal, Check } from 'lucide-react';
 import BottomSheet from '@/components/shared/BottomSheet';

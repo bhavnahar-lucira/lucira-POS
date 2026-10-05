@@ -1,7 +1,5 @@
 'use client';
 
-// Amount entry for a single selected payment mode (split payment support).
-
 import { Input } from '@/components/ui/input';
 
 /**
@@ -11,9 +9,6 @@ import { Input } from '@/components/ui/input';
  *   onChange: (value: string) => void,
  *   readOnly?: boolean,
  * }} props
- *   readOnly (default false) — for a fixed, non-negotiable figure (Nector
- *   Loyalty's own eligibility answer, see CheckoutPaymentSection) rather
- *   than an operator-entered tender amount.
  */
 export default function PaymentAmountInput({ modeName, amount, onChange, readOnly = false }) {
   return (

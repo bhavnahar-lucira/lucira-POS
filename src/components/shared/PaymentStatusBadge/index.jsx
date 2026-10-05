@@ -1,10 +1,5 @@
 'use client';
 
-// Shared payment status badge for orders, scheme schedules, and returns.
-// Canonical states: settled/partial/overdue/pending/cancelled/draft — routes
-// through the same status-in-stock/status-made-order/status-error tokens
-// StockStatusBadge uses.
-
 import { Badge } from '@/components/ui/badge';
 
 const CONFIG = {

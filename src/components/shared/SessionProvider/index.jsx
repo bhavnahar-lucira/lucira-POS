@@ -1,13 +1,5 @@
 'use client';
 
-// Runs two independent idle timers off the same activity events:
-// - Customer idle timer (active while a customer is attached) detaches the
-//   customer + clears the cart and redirects to /dashboard — does NOT log
-//   out the agent.
-// - Staff idle timer (active whenever the agent is authenticated) fully
-//   logs the agent out via useAuth().logout().
-// Also tracks page views and clicks while the agent is authenticated.
-
 import { useEffect, useRef, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSelector, useDispatch } from 'react-redux';
@@ -26,11 +18,6 @@ import { getPageType } from '@/lib/analytics/pageType';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 import APP_CONFIG from '@/constants/appConfig';
 
-// A bare item id in a /products/:id path isn't memorable in a console/report
-// (reported directly) — pull the product's own name/sku off whatever
-// useProductDetail(itemId) already has cached (react-query, same query key),
-// no extra fetch. Returns {} off a product page or before that query has
-// resolved — CLICK still fires either way, just without these extra fields.
 const PRODUCT_PATH_RE = /^\/products\/(\d+)/;
 function readCachedProductContext(queryClient, pathname) {
   const match = pathname?.match(PRODUCT_PATH_RE);
@@ -51,18 +38,6 @@ const ACTIVITY_EVENTS = [
   'scroll', 'touchstart', 'pointerdown', 'click',
 ];
 
-// Every click across the whole app funnels through ONE handler below, so
-// WebEngage's own event_type came back as a flat "click" no matter what was
-// actually tapped (reported directly — "I clicked catalog, event_type was
-// just Click"). Derives a specific, readable event_type from whatever label
-// the clicked element actually has — "Catalog" -> "catalog_clicked" — same
-// lowercase_with_underscores convention webengageServer.js's toEventType()
-// uses for every other event (explicit direction, 2026-09-29), so this
-// reads consistently next to them in the WebEngage panel. Passed as an
-// explicit `event_type` property (see track() below), which OVERRIDES the
-// generic one toEventType() would otherwise derive from the shared
-// EVENTS.CLICK name — GA4 is unaffected, it still gets the one stable
-// "POS_click" event name either way, just with this as an extra parameter.
 function deriveClickEventType(label) {
   const words = String(label ?? '')
     .replace(/[^a-zA-Z0-9]+/g, ' ')
@@ -169,9 +144,6 @@ export default function SessionProvider({ children }) {
     staffIdleTimerRef.current = setTimeout(() => {
       toast.dismiss('staff-idle-warning');
       toast.info('Logged out due to inactivity.', { id: 'staff-idle-expired' });
-      // trackAgent() can't auto-derive store context, so it's passed explicitly
-      // here. Distinct from the AGENT_LOGOUT event logout() fires next — this
-      // one records why (idle timeout) the logout is happening.
       tracker.trackAgent(EVENTS.AGENT_IDLE_LOGOUT, {
         username:  authUser?.username,
         timeoutMs: APP_CONFIG.SESSION.STAFF_IDLE_TIMEOUT_MS,
@@ -203,10 +175,7 @@ export default function SessionProvider({ children }) {
       );
     };
   }, [isAuthenticated, resetStaffIdleTimer, clearStaffIdleTimers]);
-
-  // Page view tracking runs for the full staff session (not gated on a
-  // customer being attached) — tracker.track reads customer context from
-  // the session when present, but doesn't require it.
+  
   useEffect(() => {
     if (!isAuthenticated) return;
     if (pathname === lastPathRef.current) return;
@@ -225,9 +194,7 @@ export default function SessionProvider({ children }) {
       lastPathRef.current = null;
     }
   }, [isAuthenticated]);
-
-  // Tracks every click immediately (no debounce) — each click is a distinct
-  // event that needs its own row, unlike a search box's "final value wins".
+  
   useEffect(() => {
     if (!isAuthenticated) return;
 
@@ -241,8 +208,6 @@ export default function SessionProvider({ children }) {
       const ariaLabel = target.getAttribute('aria-label') ?? null;
 
       tracker.track(EVENTS.CLICK, {
-        // Overrides the generic "Click" WebEngage would otherwise derive
-        // from EVENTS.CLICK alone — see deriveClickEventType's own comment.
         event_type: deriveClickEventType(ariaLabel || text || target.id),
         tag:        target.tagName,
         text,

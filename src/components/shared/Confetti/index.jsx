@@ -1,15 +1,8 @@
 'use client';
 
-// One-shot celebratory confetti burst built on motion/react primitives.
-// Fires once on mount and calls onDone when finished so the caller can
-// unmount it — mount this only at the moment being celebrated (e.g. right
-// after an order/invoice is placed), it never re-fires on its own.
-
 import { useEffect, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 
-// Brand palette (globals.css): terracotta accent, made-to-order gold,
-// in-stock green, brand-primary brown, warm cream.
 const COLORS = ['#B77767', '#AF7C3E', '#189351', '#5A413F', '#F4E7DE'];
 const PARTICLE_COUNT = 70;
 const DURATION_MS = 2700;
@@ -37,8 +30,6 @@ function makeParticles() {
  */
 export default function Confetti({ onDone }) {
   const reduceMotion = useReducedMotion();
-  // Lazy-initialized once — must not regenerate on re-render, or an
-  // unrelated parent re-render would restart every particle mid-fall.
   const [particles] = useState(() => (reduceMotion ? [] : makeParticles()));
 
   useEffect(() => {

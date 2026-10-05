@@ -1,9 +1,5 @@
 'use client';
 
-// Reservations — placeholder page. Product hold/reservation endpoints are
-// not available in the current OrnaVerse Advantage API (v3.0); this screen
-// gives the sidebar item a destination until they ship.
-
 import Link from 'next/link';
 import { Bookmark, ShoppingBag } from 'lucide-react';
 import { Button } from '@/components/ui/button';

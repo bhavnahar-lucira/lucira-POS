@@ -8,11 +8,6 @@ import { useActiveStore } from '@/hooks/store/useActiveStore';
 import { useStoreSwitcher } from '@/hooks/store/useStoreSwitcher';
 import TOAST from '@/constants/toastMessages';
 
-/**
- * In-session store switcher, anchored to the StoreIndicator in the Header.
- * Selecting a different store calls useStoreSwitcher, which invalidates the
- * query cache and redirects to /dashboard.
- */
 export default function StoreSelectModal({ isOpen, onClose }) {
   const { availableStores, activeStoreId } = useActiveStore();
   const { handleSwitchStore } = useStoreSwitcher();
@@ -28,12 +23,8 @@ export default function StoreSelectModal({ isOpen, onClose }) {
     setSwitching(true);
     try {
       await handleSwitchStore(store);
-      // handleSwitchStore redirects to /dashboard — onClose fires anyway
       onClose();
     } catch {
-      // switchStore (inside handleSwitchStore) also switches OrnaVerse's own
-      // session company and can genuinely fail (network, session expired) —
-      // surface it rather than leaving the modal silently stuck open.
       toast.error(TOAST.STORE.SWITCH_FAILED);
     } finally {
       setSwitching(false);

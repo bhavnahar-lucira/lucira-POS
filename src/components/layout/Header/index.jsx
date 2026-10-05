@@ -27,16 +27,11 @@ import { NAV_ITEMS, BOTTOM_ITEMS } from '@/constants/navItems';
 import { cn } from '@/lib/utils';
 import { EASE_PREMIUM, DURATION } from '@/lib/motion';
 
-// Derives the header title from the same NAV_ITEMS/BOTTOM_ITEMS the Sidebar
-// uses, so there's no second label list to keep in sync. Routes not present
-// in nav config fall back to a capitalized version of the last path segment.
-
 const ALL_NAV_ITEMS = [...NAV_ITEMS, ...BOTTOM_ITEMS];
 
 function usePageTitle() {
   const pathname = usePathname();
-
-  // Checked before the generic fallback so a raw numeric ID isn't shown as the title.
+  
   if (pathname.startsWith('/products/')) return 'Product Detail';
 
   const match = ALL_NAV_ITEMS.find(
@@ -108,8 +103,6 @@ function StoreIndicator({ onOpen }) {
       )}
     >
       <Store size={15} aria-hidden="true" className="shrink-0 text-muted-foreground" />
-      {/* Icon-only below 1200px — the action cluster (customer control, cart,
-          user menu) overflows real tablet viewports before that point. */}
       <span className="hidden min-[1200px]:inline truncate max-w-[140px]">
         {activeStoreName ?? '—'}
       </span>
@@ -180,8 +173,6 @@ export default function Header() {
           >
             <Menu size={18} aria-hidden="true" />
           </Button>
-          {/* Hidden on mobile — ate too much of the row for the title/action
-              cluster to fit; kept on tablet/desktop where there's room. */}
           {canGoBack && (
             <Button
               type="button"
@@ -199,16 +190,12 @@ export default function Header() {
           </h1>
         </div>
 
-        {/* Spacer — pushes the action cluster to the right on wide screens */}
         <div className="hidden flex-1 md:block" />
 
         <div className="flex items-center gap-2 shrink-0 overflow-x-auto">
           <HeaderCustomerControl />
           <CartBadge onOpen={() => dispatch(openCart())} />
           <StoreIndicator onOpen={() => setStoreModalOpen(true)} />
-          {/* Hidden on mobile — moved into Sidebar's own mobile-drawer
-              footer (signed-in operator + Sign out), keeping the mobile
-              header down to just the essentials. Unchanged at md+. */}
           <div className="hidden md:block">
             <UserMenu />
           </div>

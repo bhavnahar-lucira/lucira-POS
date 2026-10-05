@@ -17,11 +17,6 @@ import TOAST from '@/constants/toastMessages';
 
 /**
  * @param {{ compact?: boolean, onViewCart?: () => void }} props
- *   compact: true hides the manual promo-code input (mini cart drawer only —
- *   see this file's header).
- *   onViewCart: only passed by the mini cart drawer — renders a "View
- *   Details" button next to "View available offers" that navigates to the
- *   full cart page. Omitted everywhere else (already on/past the cart).
  */
 export default function DiscountSection({ compact = false, onViewCart }) {
   const dispatch = useDispatch();

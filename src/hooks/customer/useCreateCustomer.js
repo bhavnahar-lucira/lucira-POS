@@ -1,9 +1,3 @@
-// src/hooks/customer/useCreateCustomer.js
-// Create a new customer via POS/Customer/Create.
-// Checks for an existing customer by mobile first (matches CustomerSessionSheet's
-// lookup-first behavior) to avoid duplicates; lookup failure fails open into create.
-// Response shape: SaveResponse { EntityId, Error, CustomData }.
-
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
@@ -13,10 +7,6 @@ import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 import TOAST from '@/constants/toastMessages';
 
-// Fire-and-forget — see api/customers/shopify-sync/route.js for why this
-// exists (OrnaVerse's own push to Shopify drops the phone number, breaking
-// Nector's mobile-based loyalty lookup). Never blocks or fails customer
-// creation if Shopify errors.
 function syncCustomerToShopify({ party_id, party_name, mobile, email }) {
   fetch('/api/customers/shopify-sync', {
     method:  'POST',
@@ -71,10 +61,7 @@ export function useCreateCustomer() {
         queryClient.invalidateQueries({ queryKey: ['customers'] });
       }
     },
-
-    // See useUpdateCustomer.js's identical fix — same reasoning, same
-    // real repro (a duplicate mobile number returning a specific, useful
-    // OrnaVerse message that this used to silently discard).
+    
     onError: (error) => {
       toast.error(error?.serverMessage ?? TOAST.CUSTOMER.CREATE_FAILED);
     },

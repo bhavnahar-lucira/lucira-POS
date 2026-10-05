@@ -1,8 +1,3 @@
-// Custom KPI icons supplied by design (line-art, 24x24, stroke-width 1.8).
-// Use `currentColor` rather than the original hardcoded #6B4A42 so each
-// icon inherits its badge's text color (text-accent / text-primary),
-// staying consistent with the rest of the app's token-driven icon system.
-
 export function RevenueIcon({ size = 20, ...props }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>

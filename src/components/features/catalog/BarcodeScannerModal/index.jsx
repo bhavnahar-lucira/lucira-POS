@@ -1,10 +1,5 @@
 'use client';
 
-// Camera-based barcode scanner using @zxing/browser. Lists available
-// cameras (any device exposed via getUserMedia), starts scanning on the
-// back camera by default, and lets the operator flip between cameras.
-// Calls onDetected(code) on a successful decode.
-
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import { X, RefreshCw, Camera } from 'lucide-react';
@@ -24,9 +19,6 @@ export default function BarcodeScannerModal({ isOpen, onDetected, onClose }) {
   const [cameraIndex,   setCameraIndex]   = useState(0);
   const [error,         setError]         = useState(null);
   const [scanning,      setScanning]      = useState(false);
-  // Debounce bookkeeping only — must stay a ref, not state: calling
-  // onDetected (which triggers a parent setState) from inside a state
-  // updater function runs it mid-render, which React flags/can misorder.
   const lastScannedRef = useRef(null);
 
   const stopStream = useCallback(() => {

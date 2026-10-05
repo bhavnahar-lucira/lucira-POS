@@ -33,8 +33,6 @@ function DashboardScreen() {
   if (isError && !isLoading) {
     return (
       <>
-        {/* Independent of the dashboard summary above — its own hook, its
-            own failure mode, so a summary outage never hides real rates. */}
         <MetalRatesTicker />
         <div className="max-w-6xl mx-auto w-full px-4 py-4 md:px-6">
           <ErrorState
@@ -107,9 +105,6 @@ function DashboardScreen() {
         </div>
 
         {/* ── ROW 3: Today's activity ────────────────────────────── */}
-        {/* Metal rates now live in MetalRatesTicker above, full-bleed under
-            the header rather than as a card in this column — see that
-            component's own header for why. */}
         <TodaysActivityStrip
           returns={activityToday.returns}
           exchanges={activityToday.exchanges}

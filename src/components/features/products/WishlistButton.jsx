@@ -1,18 +1,11 @@
 'use client';
 
-// Wishlist heart button — shared between ProductCard (floats over the image;
-// default `className` positions it absolute top-right) and the product
-// detail page (pass `className` to render it inline instead).
-// See hooks/products/useWishlist.js for isWishlisted/toggle.
-
 import { Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useIsWishlisted, useToggleWishlist } from '@/hooks/products/useWishlist';
 import { EASE_PREMIUM } from '@/lib/motion';
 
 export default function WishlistButton({ product, reduceMotion, className }) {
-  // A sized customization on the PDP is a different wishlist entry than the
-  // item's bare base design (item_size_id is null on catalog/carousel cards).
   const isWishlisted = useIsWishlisted(product.item_id, product.item_size_id ?? null);
   const toggleWishlist = useToggleWishlist();
 

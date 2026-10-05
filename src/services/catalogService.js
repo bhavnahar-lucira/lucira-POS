@@ -330,7 +330,19 @@ const BACKFILL_CONCURRENCY = 6;
 // blocking wait.
 const BACKFILL_SAFETY_MAX_RAW_PAGES = 60;
 
-export async function getProducts(params) {
+// FIXED (2026-10-05, reported: "clicking Clear Filters took a long time").
+// This loop had no cancellation — a narrow filter combo this store has few
+// or zero real matches for (e.g. a category+sub-category+karat combo) can
+// walk all the way to BACKFILL_SAFETY_MAX_RAW_PAGES before giving up.
+// Changing/clearing filters fires a brand-new query, but without `signal`
+// wired through, the OLD slow backfill just kept running in the
+// background — competing for the same connection pool/concurrency budget
+// as the new, otherwise-fast unfiltered request and delaying it. `signal`
+// is TanStack Query's own AbortSignal (same idiom as searchBySku/
+// getStockByStoresBatch below) — passing it to each axios call means a
+// superseded backfill's in-flight requests actually get cancelled instead
+// of racing the new one.
+export async function getProducts(params, signal) {
   const {
     current_company_id,
     Take              = APP_CONFIG.PAGINATION.CATALOG_TAKE,
@@ -360,7 +372,7 @@ export async function getProducts(params) {
         axiosInstance
           .post(API.CATALOG.GET_PRODUCTS, {
             current_company_id, Take, Skip: s, show_out_of_stock, ...rest,
-          })
+          }, { signal })
           .then((res) => res.data)
       )
     );

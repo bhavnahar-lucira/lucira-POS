@@ -1,24 +1,3 @@
-// src/app/api/analytics/webengage/route.js
-//
-// Server-side relay every tracker.track()/trackAgent() call POSTs to (via
-// webengageBridge.js) instead of the old client-side WebEngage Web SDK —
-// this is what actually calls WebEngage's REST API (webengageServer.js),
-// which holds the real API key server-only. See that file's own header for
-// the full "why" of this migration.
-//
-// Requires an authenticated operator session — same as every other internal
-// route in this app — so an anonymous caller who finds this URL can't spend
-// this app's WebEngage event quota. Every real tracked action already
-// happens during an authenticated session (including AGENT_LOGIN, which
-// fires only after the login POST that sets this same session cookie has
-// already resolved), so this is not a real restriction on anything that
-// legitimately needs tracking.
-//
-// Best-effort throughout: never throws, always 2xx/4xx/5xx JSON, since a
-// broken analytics relay must never surface as an app error to the caller
-// (webengageBridge.js's fetch().catch() already treats any response short
-// of network failure as "handled").
-
 import { getSessionFromRequest } from '@/lib/ornaverse/session';
 import { sendServerEventToWebEngage } from '@/lib/analytics/webengageServer';
 

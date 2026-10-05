@@ -1,21 +1,6 @@
-// src/lib/mongo/customerProfile.js
-//
-// Mirrors an OrnaVerse CustomerRow into Mongo, keyed by party_id, for
-// personalization/retargeting — MINUS PAN.
-//
-// PAN EXCLUDED ON PURPOSE: `pan_no` and `pan_document` are stripped before
-// every write. OrnaVerse already holds this data and the checkout PAN panel
-// reads it live from there, not from this mirror — mirroring it here would
-// add leak exposure for zero personalization value. If a real need for it
-// shows up later, add it back deliberately (with field-level encryption)
-// rather than by accident.
-
 import { getDb } from './client';
 
 const COLLECTION = 'customers_POS';
-
-// Deny-list, not an allow-list, so any OTHER field OrnaVerse adds later
-// still flows through the mirror — only these two are deliberately withheld.
 const EXCLUDED_FIELDS = ['pan_no', 'pan_document'];
 
 function omitExcludedFields(profile) {

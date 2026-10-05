@@ -6,9 +6,6 @@ import { useSelector } from 'react-redux';
 
 import { selectIsAuthenticated } from '@/store/slices/authSlice';
 
-// Wraps a client layout/page that requires authentication. Redirects to
-// /login when Redux's isAuthenticated is false, rendering nothing in the
-// meantime to avoid a flash of protected content.
 export default function AuthGuard({ children }) {
   const router = useRouter();
   const isAuthenticated = useSelector(selectIsAuthenticated);

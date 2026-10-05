@@ -1,9 +1,5 @@
 'use client';
 
-// Standalone cart page — reuses CartDrawer's components in a full-page layout.
-// Also the navigation target checkout redirects to when the cart is empty.
-// Back navigation is handled by the global Header (useSmartBack / BACK_FALLBACKS).
-
 import { useMemo } from 'react';
 import CartItemRow from '@/components/features/cart/CartItemRow';
 import CartEmptyState from '@/components/features/cart/CartEmptyState';
@@ -29,14 +25,7 @@ export default function CartPage() {
     updateQuantity,
     detachCustomer,
   } = useCart();
-
-  // Same pricing query DiscountSection uses (keyed on cart contents + applied
-  // promo codes) — gives real per-line discounts instead of cartSlice's
-  // always-0 client-side estimate, with no extra requests on checkout. A
-  // mixed-stock cart line still shows as two rows here (see
-  // buildCartDisplayRows) — the split is what it actually is, even before
-  // checkout — but the summary below stays ONE combined total; two separate
-  // documents only becomes a checkout-time concept.
+  
   const { invoice, order, isLoading: isPricing } = useCheckoutPricing();
   const displayRows = useMemo(
     () => buildCartDisplayRows(items, { invoice, order }),
@@ -45,9 +34,7 @@ export default function CartPage() {
   const pricedTotals = (invoice || order)
     ? combineGroupTotals(invoice?.totals ?? null, order?.totals ?? null)
     : null;
-  // Combined (not split by document) — this page never shows the
-  // invoice/order sections separately, unlike checkout. Same shared
-  // computation DiscountSection's own tags use, see its own header.
+    
   const discountBreakdown = getPromoBreakdown(appliedPromos, [
     ...(invoice?.promotionDetails ?? []),
     ...(order?.promotionDetails ?? []),

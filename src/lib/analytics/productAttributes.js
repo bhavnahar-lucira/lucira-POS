@@ -1,32 +1,3 @@
-// src/lib/analytics/productAttributes.js
-//
-// Single source of truth for "everything we know about a product" as
-// analytics attributes, so every product-related tracker.track() call site
-// (AddToCartButton, product detail view_item, ...) reports the same field
-// set with the same names instead of each hand-picking its own subset.
-//
-// SOURCES, most-specific first — pass whichever you have; earlier ones win
-// for the fields they can answer:
-//   pricedItem — a live-priced SetSalesItems row (real sub_total/net_amount/
-//     per-component amounts, the only source with a genuine per-piece sku)
-//   activeItem — the specific variant/customization currently selected
-//   product    — the item master (Items/Retrieve or ProductCatalogRow),
-//     fallback for identity/classification/hsn
-//
-// GEMSTONE DETAIL comes from item_components/components (the BOM array,
-// filtered to item_group_id === 113 / 'Color Stone' — same filter
-// ProductSpecifications.jsx uses), parsed from the row's composite
-// `attribute` string ("{Shape}/{Color}/{Metal}/{Size}/{Quality}", e.g.
-// "PR/RED/NA/4.5*4.5/NA") when resolved shape_name/stone_color_name are
-// missing — a priced component row often only carries the composite string.
-//
-// EVERY field defaults to null, never omitted — a caller checking
-// event.diamond_weight for "was there a diamond" can rely on null (not
-// undefined/absent) meaning no.
-//
-// PII-SAFE — nothing here is customer data; the GA4/WebEngage PII split
-// still belongs to each call site (see tracker.js's jsdoc).
-
 import { resolveMetalColorName } from '@/lib/metalColor';
 
 const GEMSTONE_GROUP_ID = 113;
@@ -39,9 +10,6 @@ function firstGemstoneComponent(components) {
   ) ?? null;
 }
 
-// Parses "{Shape}/{Color}/{Metal}/{Size}/{Quality}" — see this file's own
-// header. "NA" segments (OrnaVerse's placeholder for "not applicable")
-// resolve to null, same as every other "NA" field this app treats that way.
 function parseGemstoneAttribute(attribute) {
   if (!attribute || typeof attribute !== 'string') return {};
   const [shape, color, , size] = attribute.split('/');
@@ -49,25 +17,10 @@ function parseGemstoneAttribute(attribute) {
   return { shape: na(shape), color: na(color), size: na(size) };
 }
 
-// A loopback origin (dev server: http://localhost:3000 / 127.0.0.1) — confirmed
-// live (2026-09-28) that WebEngage's own ingest endpoint 403s the ENTIRE
-// event when any attribute value is a URL pointing at one (isolated via
-// direct testing: a localhost/127.0.0.1 URL 403s, an identical https:// or
-// even a private-LAN 192.168.x URL does not — a targeted anti-SSRF WAF rule,
-// not a generic "URL in payload" or attribute-count block). Retrying doesn't
-// help; this is deterministic. Only a real risk in local dev — a deployed
-// origin is a real domain — but must be guarded here since dev IS where this
-// gets tested. Returns null rather than sending an unreachable/blocked URL.
 function isLoopbackUrl(url) {
   return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(url);
 }
 
-// resolveImageSrc() (src/lib/resolveImageSrc.js) can return a root-relative
-// path ("/upload/..." or "/api/upload/...") — fine for a Next <Image> src,
-// but WebEngage's own servers can't resolve that without our origin. Already
-// an absolute http(s) URL (the NEXT_PUBLIC_ORNAVERSE_BASE_URL-prefixed case)
-// passes through untouched. Also applied to productUrl below — see
-// isLoopbackUrl's header for why a loopback result is dropped, not sent.
 function toAbsoluteUrl(src) {
   if (!src) return null;
   if (/^https?:\/\//.test(src)) return isLoopbackUrl(src) ? null : src;
@@ -129,18 +82,11 @@ export function buildProductAttributes({
     // Metal
     metal:       item.metal_name ?? null,
     karat:       item.karat_name ?? null,
-    // Use resolveMetalColorName rather than a bare item.metal_color_name —
-    // ProductCatalogRow only carries the short code (metal_color_code), not
-    // the full name (see resolveMetalColorName's own header).
     metal_color: resolveMetalColorName(item) ?? null,
 
     // Size
     size_id:   selectedSizeId   ?? item.item_size_id   ?? null,
     size_name: selectedSizeName ?? item.item_size_name ?? null,
-
-    // Weight — gross (everything: metal + diamonds + gemstones + all
-    // components, per ProductSpecifications.jsx's own static copy) vs net
-    // (metal only) vs per-component.
     gross_weight: item.weight     ?? null,
     net_weight:   item.net_weight ?? null,
     stone_weight:       priced.stone_weight       ?? item.stone_weight       ?? null,
@@ -165,9 +111,6 @@ export function buildProductAttributes({
     gemstone_color: gemstone?.stone_color_name ?? parsed.color ?? null,
     gemstone_size:  parsed.size ?? null,
 
-    // Price breakup — LIVE-priced entity only. The item master's own price
-    // fields (item_rate/sale_price/price/mrp/rate/compare_price) are never
-    // used as a fallback — they're stale and can understate a piece by 2-3x.
     price_metal_amount:       priced.metal_amount       ?? null,
     price_diamond_amount:     priced.diamond_amount      ?? null,
     price_stone_amount:       priced.stone_amount        ?? null,

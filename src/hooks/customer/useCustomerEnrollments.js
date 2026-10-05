@@ -1,7 +1,3 @@
-// src/hooks/customer/useCustomerEnrollments.js
-// Scheme enrollments for a specific customer (server-side filtered by party_id).
-// Note: `benifit_amount` is the API's own field name (typo) — preserve exactly.
-
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { getSchemeEnrollments } from '@/services/schemeService';
@@ -16,9 +12,6 @@ function isEmptyValue(v) {
 export function normalizeEnrollment(entity) {
   if (!entity) return null;
   const get = (key) => (!isEmptyValue(entity[key]) ? entity[key] : null);
-
-  // invested_amount doesn't reliably come back on this response, so derive
-  // it from scheme_monthly_details instead.
   const monthlyDetails = entity.scheme_monthly_details ?? [];
   const investedFromMonths = monthlyDetails
     .filter((m) => m.payment_made)
@@ -26,11 +19,6 @@ export function normalizeEnrollment(entity) {
   const hasPendingInstallment = monthlyDetails.length > 0
     ? monthlyDetails.some((m) => !m.payment_made)
     : true;
-
-  // CONFIRMED LIVE 2026-09-18 (see useSchemeEnrollments.js's own comment for
-  // the full context): scheme_status:0 = Cancelled, :2 = Matured, :3 =
-  // Redeemed. Without this, these all read as plain "Active"/"Completed"
-  // here too — same bug, same fix, duplicated hook.
   const isCancelled = entity.scheme_status === 0;
   const isMatured   = entity.scheme_status === 2;
   const isRedeemed  = entity.scheme_status === 3;

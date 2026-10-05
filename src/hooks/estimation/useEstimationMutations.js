@@ -1,9 +1,3 @@
-// Mutation hooks for Estimation/Quotation: Create -> Post (convert to sale),
-// or Cancel (customer declined). Mirrors useTransactionMutations.js: every
-// tracked event carries customer_id/store_id (session-derived), and CREATE
-// additionally carries party_id/net_amount/pieces/weight/line_item_count
-// off the payload posted to OrnaVerse.
-
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -69,8 +63,6 @@ export function usePostEstimation({ onSuccess } = {}) {
       onSuccess?.(data);
     },
     onError: (error, transactionId) => {
-      // "Post" means convert-to-sale here, so the matching constant is
-      // CONVERT_FAILED, not POST_FAILED (which doesn't exist for this domain).
       const message = getErrorMessage(error, TOAST.ESTIMATION.CONVERT_FAILED);
       toast.error(message);
       tracker.track(EVENTS.ESTIMATION_FAILED, { stage: 'post', transactionId, error: message, ...sessionCtx });

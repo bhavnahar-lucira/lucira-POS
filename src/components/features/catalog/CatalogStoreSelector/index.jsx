@@ -8,10 +8,6 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger,
 } from '@/components/ui/select';
 
-// Store objects shape (confirmed from StoreSelectionGrid):
-//   company_id, mailing_name, company_code
-// Redux activeStoreName is set from mailing_name via switchStore
-
 const selectAvailableStores = (s) => s.store.availableStores ?? [];
 const selectActiveStoreId   = (s) => s.store.activeStoreId;
 const selectActiveStoreName = (s) => s.store.activeStoreName;

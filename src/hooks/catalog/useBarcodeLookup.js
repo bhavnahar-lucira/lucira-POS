@@ -21,26 +21,8 @@ export function useBarcodeLookup({ storeId, partyId = null }) {
     try {
       const skuResponse = await getStockPieceBySku({ sku: trimmed, companyId: storeId });
       const skuMatch = skuResponse.data?.Entities?.[0];
-
-      // Navigates on whatever skuMatch this call returns, with no further
-      // client-side gate — this used to ALSO require
-      // skuMatch.company_id === storeId before navigating, a redundant
-      // check that could only ever fail spuriously (getStockPieceBySku is
-      // already scoped to `storeId` server-side; a match it returns can't
-      // carry a different company_id). NOT a cross-store lookup — confirmed
-      // live 2026-09-30 side-by-side with OrnaVerse's own POS counter's own
-      // "SKU / Barcode" field: scanning a real, confirmed-existing sku
-      // while a DIFFERENT store than the one holding it was active returned
-      // zero rows on OrnaVerse's own client too (identical request shape,
-      // no company_id sent — their server scopes by session state instead).
-      // A scan only ever finds a piece at the CURRENTLY ACTIVE store, same
-      // as real OrnaVerse — "not found" for a piece elsewhere is correct,
-      // not a bug.
       if (skuMatch?.item_id) {
         tracker.track(EVENTS.BARCODE_SCANNED, { code: trimmed, itemId: skuMatch.item_id });
-
-        // Best-effort, fire-and-forget logging (mirrors OrnaVerse's own POS) —
-        // must never block or fail the actual navigation below.
         createItemEnquiry({
           itemId:          skuMatch.item_id,
           itemAttributeId: skuMatch.item_attribute_id,

@@ -1,9 +1,3 @@
-// src/lib/analytics/gtag.js
-// Thin wrapper around the GA4 gtag.js global — loaded via <Script> in
-// src/app/layout.js, driven by NEXT_PUBLIC_GA_MEASUREMENT_ID. Every call
-// here is a no-op if gtag hasn't loaded (env var unset, script blocked,
-// SSR) — analytics must never be able to break the app.
-
 export function isGtagAvailable() {
   return typeof window !== 'undefined' && typeof window.gtag === 'function';
 }

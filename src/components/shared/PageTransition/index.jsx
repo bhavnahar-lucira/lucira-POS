@@ -1,10 +1,5 @@
 'use client';
 
-// Wraps AppShell's <main> content so every route change gets the same
-// fade/rise transition instead of an abrupt swap.
-// initial={false} skips animating the first paint (hard refresh / redirect);
-// mode="wait" avoids double-rendering two pages' data-fetching during a swap.
-
 import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { EASE_PREMIUM, DURATION } from '@/lib/motion';

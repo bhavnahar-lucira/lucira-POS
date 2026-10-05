@@ -57,11 +57,7 @@ export default function RecentlyViewedCarousel({ excludeItemId = null }) {
           modules={[FreeMode, Navigation, Mousewheel]}
           freeMode
           navigation={{ prevEl: '.swiper-button-prev', nextEl: '.swiper-button-next' }}
-          // Enables trackpad/mouse-wheel swiping on desktop; forceToAxis
-          // keeps a normal vertical page scroll from being hijacked.
           mousewheel={{ forceToAxis: true }}
-          // 1.5 on mobile is deliberate: a half-visible card signals "swipe
-          // for more" — a clean 1 looks like a single full-width banner.
           slidesPerView={1.5}
           spaceBetween={12}
           breakpoints={{
@@ -75,8 +71,6 @@ export default function RecentlyViewedCarousel({ excludeItemId = null }) {
             const isPricing = price == null && !settledIds.has(item.item_id);
             return (
               <SwiperSlide key={item.item_id}>
-                {/* showStockBadge is withheld while stock is still loading,
-                    to avoid flashing the item's stale stored has_stock. */}
                 <ProductCard
                   product={{ ...item, price, is_pricing: isPricing }}
                   showStockBadge={!stockLoading}

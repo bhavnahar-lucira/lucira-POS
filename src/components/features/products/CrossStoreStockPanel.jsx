@@ -1,10 +1,5 @@
 'use client';
 
-// Collapsible panel showing stock availability across all stores, with the
-// active store's row highlighted. Rendered above Add to Cart so the user
-// sees availability before purchasing. Data: useStockByStores, one
-// { company_id, companyname, pieces } entry per store.
-
 import { Store } from 'lucide-react';
 import { useSelector } from 'react-redux';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -14,9 +9,6 @@ import {
 import { deriveStockStatus } from '@/components/shared/StockStatusBadge';
 
 const selectActiveStoreId = (state) => state.store.activeStoreId;
-
-// Reuses StockStatusBadge's shared in-stock/out-of-stock derivation (binary
-// only, no "low stock" tier) instead of re-implementing it locally.
 
 const STATUS_TEXT_CLASSES = {
   out_stock: 'text-status-error',
@@ -49,13 +41,6 @@ function StockQty({ qty }) {
  *   onRetry:     () => void,
  *   collapsible?: boolean,
  * }} props
- *   collapsible (default true) - the product detail page's own standalone
- *   panel, with its own header + expand/collapse. false renders just the
- *   list content with no header/accordion of its own — for reuse inside
- *   CartItemRow's cart/checkout line items, which already have their OWN
- *   "View/Hide Stock Across Stores" toggle (same pattern as the price
- *   breakdown toggle there); nesting this panel's own accordion inside that
- *   would mean two clicks to see one thing.
  */
 export default function CrossStoreStockPanel({
   storeStocks = [], isLoading, isError = false, onRetry, collapsible = true,

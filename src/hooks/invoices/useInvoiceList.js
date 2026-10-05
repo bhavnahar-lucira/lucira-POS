@@ -1,6 +1,3 @@
-// Paginated invoice list — /invoices page.
-// Maps to: POST Services/POS/Invoice/List
-
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { fetchStoreScopedDocuments } from '@/services/crossStoreDocuments';
@@ -20,8 +17,6 @@ export function normalizeInvoice(entity) {
 
   const balanceAmount = get('balance_amount');
   const receiptAmount = get('receipt_amount');
-
-  // document_status is present on every InvoiceRow — see deriveDocumentStatus in useCustomerOrders.js.
   const status = deriveDocumentStatus(entity.document_status, balanceAmount, receiptAmount);
 
   return {
@@ -48,11 +43,6 @@ export function useInvoiceList({ skip = 0 } = {}) {
   const query = useQuery({
     queryKey: QUERY_KEYS.INVOICES.LIST({ skip, take, companyId: activeStoreId }),
     queryFn: async () => {
-      // Uses fetchStoreScopedDocuments rather than getInvoiceList directly:
-      // Invoice/List silently restricts some identities (e.g. a multi-store
-      // "admin" account) to their home company regardless of company_id —
-      // see crossStoreDocuments.js. `viaFallback` flags when data came via
-      // that slower path.
       const result   = await fetchStoreScopedDocuments({ kind: 'invoice', companyId: activeStoreId, take, skip });
       const entities = result.entities;
       return {

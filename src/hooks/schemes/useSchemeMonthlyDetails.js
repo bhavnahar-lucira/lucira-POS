@@ -1,6 +1,3 @@
-// Month-by-month payment schedule for a single scheme enrollment.
-// SchemeMonthlyDetails/List returns { Entities: SchemeMonthlyDetailsRow[] }.
-
 import { useQuery } from '@tanstack/react-query';
 import { getSchemeMonthlyDetails } from '@/services/schemeService';
 import { QUERY_KEYS } from '@/constants/queryKeys';
@@ -30,9 +27,6 @@ export function useSchemeMonthlyDetails(enrollmentId) {
     queryFn: async () => {
       const data = await getSchemeMonthlyDetails({ scheme_enrollment_id: enrollmentId });
       const rows = data?.Entities ?? [];
-      // Sort by due date, not month_id (1-12) — month_id alone puts a
-      // scheme crossing a year boundary in the wrong order. Falls back to
-      // month_id for rows with no due date.
       return rows.map(normalizeMonth).sort((a, b) => {
         if (a.dueDate && b.dueDate) return new Date(a.dueDate) - new Date(b.dueDate);
         if (a.dueDate) return -1;

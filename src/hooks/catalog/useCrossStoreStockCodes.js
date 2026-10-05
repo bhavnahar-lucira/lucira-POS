@@ -1,30 +1,47 @@
-// Real, live cross-store stock + store CODES for a set of items — the short
-// "BO1"/"N18"-style codes ProductCard's stock badge shows. Cross-referenced
-// from availableStores (GetUserStores, already in Redux at login) because
-// GetStockByStores/GetStockByStoresBatch only ever return company_id plus
-// the long `companyname` (e.g. "BO1-Sky City Borivali CoCo Store"), never a
-// short code.
-//
-// Exists because ProductCard's stock badge, outside the main catalog grid,
-// had nothing real to show: Recently Viewed's has_stock is a snapshot from
-// whichever store was active when the product was viewed, and Wishlist's
-// has_stock is never set at all in the write path — both then labeled
-// whatever they showed with the currently active store's code regardless of
-// whether that's the store actually in stock. This hook replaces the guess
-// with the genuine per-item, cross-store answer.
-//
-// item_id already encodes the specific variant/customization in this ERP
-// model (size, metal color, etc. are baked into a distinct item_id, not a
-// separate filter), so checking stock by item_id is naturally scoped to
-// "the same customization" with no extra matching needed.
-
 import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQueries } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { getStockByStoresBatch } from '@/services/catalogService';
 import { selectAvailableStores } from '@/store/slices/storeSlice';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 import APP_CONFIG from '@/constants/appConfig';
+
+const DEBOUNCE_MS = 150;
+
+let waiters = new Map(); // itemId -> deferred[]
+let timer = null;
+
+function enqueueStock(itemId) {
+  return new Promise((resolve, reject) => {
+    const existing = waiters.get(itemId);
+    if (existing) existing.push({ resolve, reject });
+    else waiters.set(itemId, [{ resolve, reject }]);
+
+    if (!timer) timer = setTimeout(flush, DEBOUNCE_MS);
+  });
+}
+
+async function flush() {
+  timer = null;
+  const batch = waiters;
+  waiters = new Map(); // ids arriving from here on start the next batch
+  if (!batch.size) return;
+
+  const ids = [...batch.keys()];
+  const settle = (id, fn) => (batch.get(id) ?? []).forEach(fn);
+
+  try {
+    const entities = (await getStockByStoresBatch(ids))?.Entities ?? [];
+    const rowsByItemId = new Map();
+    for (const row of entities) {
+      if (!rowsByItemId.has(row.item_id)) rowsByItemId.set(row.item_id, []);
+      rowsByItemId.get(row.item_id).push(row);
+    }
+    for (const id of ids) settle(id, (w) => w.resolve(rowsByItemId.get(id) ?? []));
+  } catch (err) {
+    for (const id of ids) settle(id, (w) => w.reject(err));
+  }
+}
 
 /**
  * @param {(number|null|undefined)[]} itemIds
@@ -48,37 +65,36 @@ export function useCrossStoreStockCodes(itemIds) {
     [itemIds]
   );
 
-  const query = useQuery({
-    queryKey:  QUERY_KEYS.CATALOG.STOCK_BY_STORES_BATCH(ids),
-    queryFn:   async () => (await getStockByStoresBatch(ids))?.Entities ?? [],
-    enabled:   ids.length > 0,
-    staleTime: APP_CONFIG.STALE_TIME.STOCK,
+  const results = useQueries({
+    queries: ids.map((itemId) => ({
+      queryKey:  QUERY_KEYS.CATALOG.STOCK_BY_STORES_ITEM(itemId),
+      queryFn:   () => enqueueStock(itemId),
+      staleTime: APP_CONFIG.STALE_TIME.STOCK,
+    })),
   });
 
+  const signature = results
+    .map((r, i) => `${ids[i]}:${r.status}:${r.dataUpdatedAt}`)
+    .join('|');
+  const isLoading = results.some((r) => r.isLoading);
+
   const stockByItemId = useMemo(() => {
-    const codesByItemId = new Map();
-    for (const row of query.data ?? []) {
-      if (!(row.pieces > 0)) continue;
-      const code = codeByCompanyId.get(row.company_id);
-      if (!code) continue; // no access to this store — nothing useful to show
-      if (!codesByItemId.has(row.item_id)) codesByItemId.set(row.item_id, new Set());
-      codesByItemId.get(row.item_id).add(code);
-    }
-
     const result = new Map();
-    codesByItemId.forEach((codes, itemId) => {
-      result.set(itemId, { hasStock: true, storeCodes: [...codes] });
-    });
-    // Every requested id resolves to a real (possibly empty) verdict once
-    // the query has actually answered — never left "missing" just because
-    // it happened to have zero in-stock rows.
-    if (!query.isLoading) {
-      for (const id of ids) {
-        if (!result.has(id)) result.set(id, { hasStock: false, storeCodes: [] });
-      }
-    }
-    return result;
-  }, [query.data, query.isLoading, codeByCompanyId, ids]);
+    results.forEach((r, i) => {
+      const itemId = ids[i];
+      if (itemId == null || r.isLoading) return; // not answered yet — leave unset
 
-  return { stockByItemId, isLoading: query.isLoading };
+      const codes = new Set();
+      for (const row of r.data ?? []) {
+        if (!(row.pieces > 0)) continue;
+        const code = codeByCompanyId.get(row.company_id);
+        if (code) codes.add(code);
+      }
+      result.set(itemId, { hasStock: codes.size > 0, storeCodes: [...codes] });
+    });
+    return result;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature, codeByCompanyId]);
+
+  return { stockByItemId, isLoading };
 }

@@ -1,9 +1,6 @@
 import { PackageOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-// Reusable empty/no-data state, used across the app whenever a list or
-// data section has zero results.
-//
 // @param {{ icon?: React.ElementType, title: string, description?: string, action?: React.ReactNode, className?: string }} props
 export default function EmptyState({
   icon: Icon = PackageOpen,

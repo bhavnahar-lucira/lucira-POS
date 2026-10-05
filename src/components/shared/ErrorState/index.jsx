@@ -2,9 +2,6 @@ import { AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-// Reusable error display — mirrors EmptyState's card/spacing convention
-// with a destructive tint and a built-in Retry button.
-//
 // @param {{ icon?: React.ElementType, title: string, description?: string, onRetry?: () => void, className?: string }} props
 export default function ErrorState({
   icon: Icon = AlertCircle,

@@ -1,9 +1,3 @@
-// src/hooks/customer/useCustomerLookup.js
-// Looks up a customer by mobile; on a hit, also fires a fire-and-forget sync
-// to Mongo (api/customers/sync) for the personalization/retargeting data layer.
-// The sync call is same-origin, so the operator's session cookie rides
-// along automatically — the route itself rejects if no one's signed in.
-
 import { useQuery } from '@tanstack/react-query';
 import { getCustomer } from '@/services/customerService';
 import { normalizeCustomer } from '@/lib/normalizers/customer';

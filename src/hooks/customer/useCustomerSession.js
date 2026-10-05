@@ -1,9 +1,3 @@
-// src/hooks/customer/useCustomerSession.js
-// Attach/detach the customer bound to the active cart session.
-// Attach/detach analytics is tracked centrally in store/analyticsMiddleware.js
-// (keyed off these action types), not here, since useCart.js also dispatches
-// them directly and bypasses this hook.
-
 import { useDispatch, useSelector } from 'react-redux';
 import { toast } from 'sonner';
 import {

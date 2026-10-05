@@ -1,14 +1,5 @@
 'use client';
 
-// Floating scroll-to-top button shown only on configured pages (see
-// src/constants/scrollToTopConfig.js). Hidden near the top; below the
-// threshold it hides on scroll-down and reveals on scroll-up.
-//
-// Most pages scroll via AppShell's #main-content, but some (e.g. /catalog)
-// scroll inside their own nested overflow-y-auto panel instead —
-// getScrollContainer() picks #main-content if scrollable, else the first
-// scrollable descendant.
-
 import { useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { ArrowUp } from 'lucide-react';
@@ -45,9 +36,6 @@ export default function ScrollToTopButton() {
   const enabled = isScrollToTopEnabled(pathname);
 
   useEffect(() => {
-    // No manual isVisible reset needed here: AppShell renders this with
-    // key={pathname}, so a route change remounts it and isVisible starts
-    // fresh at false on its own.
     if (!enabled) return;
 
     let container = getScrollContainer();
@@ -72,9 +60,7 @@ export default function ScrollToTopButton() {
     };
 
     container.addEventListener('scroll', handleScroll, { passive: true });
-
-    // Content may render after this effect runs on route change — re-resolve
-    // once shortly after mount in case the real scroll container wasn't ready.
+    
     const retryTimer = setTimeout(() => {
       const resolved = getScrollContainer();
       if (resolved && resolved !== container) {

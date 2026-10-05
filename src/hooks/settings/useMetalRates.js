@@ -1,13 +1,3 @@
-// Today's live per-karat metal rates — the highlighted strip shown under
-// OrnaVerse POS's own header. KARAT_RATES is a deliberately hardcoded list:
-// GetMetalRate takes a specific karat_id with no "list all configured
-// karats" mode, and the endpoint that looks like a list
-// (Services/Costing/KaratRates/List) returns empty regardless of params —
-// OrnaVerse's own client evidently just fires one GetMetalRate per known id.
-// Labels are OrnaVerse's own raw codes ("09", "14", "925", "S999", ...),
-// intentionally not translated to "14KT"/"Silver 925"/etc — see this file's
-// entry in project history for the full derivation of the id/code mapping.
-
 import { useQueries } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { getMetalRate } from '@/services/settingsService';
@@ -76,9 +66,6 @@ export function useMetalRates(onlyCodes = null) {
 
   return {
     rates,
-    // Stay "loading" until either something resolves (hasAny) or every call
-    // has settled — `.isLoading` alone flips false on error too, which would
-    // hide the strip while other calls are still in flight.
     isLoading: !hasAny && results.some((r) => r.isLoading),
     hasAny,
   };
