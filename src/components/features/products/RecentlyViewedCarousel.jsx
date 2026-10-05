@@ -1,42 +1,16 @@
 'use client';
 
-// "Recently Viewed" strip at the bottom of the product detail page.
-// Sourced from Redux (see hooks/products/useRecentlyViewed.js) — only ever
-// populated for an attached customer. Renders nothing (not even the
-// heading) when the list is empty.
-//
-// Uses a Swiper carousel (freeMode drag/swipe + arrow navigation). Cards are
-// the exact catalog ProductCard component — the item snapshot stored by
-// useRecentlyViewed.js is shaped to match what it expects (metal_id,
-// karat_code, has_stock; see that hook's deriveKaratCode), so star ratings,
-// the stock badge, and tap-to-navigate all come for free.
-//
-// Prices are always fetched live (never the value stored at view time) via
-// the same useLiveCatalogPrices pipeline the catalog page uses.
-
 import { useMemo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { FreeMode, Navigation, Mousewheel } from 'swiper/modules';
 import 'swiper/css';
 import 'swiper/css/free-mode';
-// 'swiper/css/navigation' is deliberately not imported — its default
-// .swiper-button-next/-prev styling would out-specificity the Tailwind
-// classes on NavButton below; the Navigation module's click-to-advance
-// behavior only needs the class names, not the stylesheet.
-//
-// Never override .swiper's own `overflow: hidden` (e.g. an
-// `overflow-visible!` className) — that's what clips slides to the visible
-// carousel width; without it slides bleed past the viewport and grow the
-// whole page a horizontal scrollbar.
 import ProductCard from '@/components/features/catalog/ProductCard';
 import { useLiveCatalogPrices } from '@/hooks/catalog/useLiveCatalogPrices';
 import { useCrossStoreStockCodes } from '@/hooks/catalog/useCrossStoreStockCodes';
 import { useRecentlyViewedItems } from '@/hooks/products/useRecentlyViewed';
 
-// swiper-button-prev/-next class names are how the Navigation module wires
-// click handlers — required even though the visual styling here is all
-// Tailwind, not Swiper's CSS.
 function NavButton({ direction }) {
   const isPrev = direction === 'prev';
   return (
@@ -112,10 +86,7 @@ export default function RecentlyViewedCarousel({ excludeItemId = null }) {
             );
           })}
         </Swiper>
-
-        {/* z-10 is required: Swiper's own base CSS gives .swiper
-            position:relative;z-index:1, which otherwise paints on top of
-            these arrow divs despite them coming later in the DOM. */}
+        
         <div className="pointer-events-none absolute inset-y-0 left-0 z-10 hidden items-center pl-1 opacity-0 transition-opacity duration-standard group-hover/carousel:opacity-100 sm:flex [&>button]:pointer-events-auto">
           <NavButton direction="prev" />
         </div>

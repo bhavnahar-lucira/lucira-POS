@@ -3,35 +3,38 @@
 // Mandatory PAN capture once the order total crosses the statutory
 // ₹2,00,000 threshold (Income Tax Rule 114B — see APP_CONFIG.COMPLIANCE).
 //
-// Only the PAN NUMBER is ever saved to OrnaVerse and gates Place Order
-// (checkoutSchema.js). The document attach below is local-only, for the
-// operator's own reference — OrnaVerse has no working way to persist a
-// PAN document (Customer/Update 500s on any non-empty pan_document, and
-// there's no dedicated upload endpoint), so it is never sent anywhere.
+// BOTH the PAN number AND an attached document gate Place Order
+// (checkoutSchema.js) — CONFIRMED LIVE 2026-10-03: OrnaVerse's real
+// Invoice/Create rejects an above-threshold sale with "Please upload PAN
+// & its number" even when a valid, saved PAN number is already on file, if
+// no document has ever been attached for that customer. The document
+// itself now saves for real via PanDocumentUpload (fileUploadService's
+// two-step TemporaryUpload → Customer/Update(pan_document) contract) — it
+// is no longer local-only/cosmetic as an earlier pass here assumed before
+// that two-step mechanism was found (see fileUploadService.js's header).
 //
 // Reuses useRetrieveCustomer/useUpdateCustomer (same pair as the customer
 // Edit tab) so the "on file" state refreshes for free after a save.
 
-import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, ShieldAlert, Paperclip, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { CheckCircle2, IdCard, ShieldAlert } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import PanDocumentUpload from '@/components/shared/PanDocumentUpload';
 import { useCustomerSession } from '@/hooks/customer/useCustomerSession';
 import { useRetrieveCustomer } from '@/hooks/customer/useRetrieveCustomer';
 import { useUpdateCustomer } from '@/hooks/customer/useUpdateCustomer';
 import { PAN_REGEX } from '@/validators/customerSchema';
 import APP_CONFIG from '@/constants/appConfig';
 
-const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5MB — local-only, no upload call to size against
-const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
-
 /**
  * @param {{
  *   totalAmount: number,
  *   onPanResolved: (pan: string|null) => void,
+ *   onPanDocumentResolved: (path: string|null) => void,
  * }} props
  */
-export default function CheckoutPanCapture({ totalAmount, onPanResolved }) {
+export default function CheckoutPanCapture({ totalAmount, onPanResolved, onPanDocumentResolved }) {
   const { customerId, isAttached } = useCustomerSession();
   const panRequired = totalAmount > APP_CONFIG.COMPLIANCE.PAN_MANDATORY_THRESHOLD;
 
@@ -41,12 +44,13 @@ export default function CheckoutPanCapture({ totalAmount, onPanResolved }) {
   const updateCustomer = useUpdateCustomer();
 
   const [value, setValue] = useState('');
-  const [fileError, setFileError] = useState(null);
-  const [attachedFile, setAttachedFile] = useState(null); // { name } — local-only, never sent
-  const fileInputRef = useRef(null);
   // Set the instant a Save succeeds this session — OrnaVerse masks pan_no
   // on every read (see below), so the refetch can never confirm it.
   const [justSavedPan, setJustSavedPan] = useState(null);
+  // Same reasoning, for the document — PanDocumentUpload tracks its own
+  // local justSavedPath for display, but this component also needs to know
+  // about it to report it upward via onPanDocumentResolved.
+  const [justSavedDocument, setJustSavedDocument] = useState(null);
 
   // OrnaVerse's Party/Retrieve masks any saved PAN as "**********" rather
   // than returning the real number. A masked value is truthy but fails
@@ -61,8 +65,8 @@ export default function CheckoutPanCapture({ totalAmount, onPanResolved }) {
   // confirmed valid and the server accepted, rather than waiting on a
   // refetch that can never pass PAN_REGEX.
   const panOnFile = fetchedPanOnFile ?? justSavedPan;
+  const documentOnFile = justSavedDocument ?? customer?.customerPanDocument ?? null;
 
-  // Resolved on the number alone — see header note on the document.
   // Only ever reports a saved value (fetched or just-saved), never the
   // still-being-typed one.
   useEffect(() => {
@@ -70,28 +74,14 @@ export default function CheckoutPanCapture({ totalAmount, onPanResolved }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panRequired, panOnFile]);
 
+  useEffect(() => {
+    onPanDocumentResolved(panRequired ? documentOnFile : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panRequired, documentOnFile]);
+
   if (!isAttached || !panRequired) return null;
 
   const isValid = PAN_REGEX.test(value);
-
-  const handleFileChange = (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = ''; // allow re-picking the same file after an error
-    if (!file) return;
-
-    if (!ACCEPTED_TYPES.includes(file.type)) {
-      setFileError('Use a JPG, PNG, or PDF file.');
-      setAttachedFile(null);
-      return;
-    }
-    if (file.size > MAX_FILE_BYTES) {
-      setFileError('File is too large — max 5MB.');
-      setAttachedFile(null);
-      return;
-    }
-    setFileError(null);
-    setAttachedFile({ name: file.name });
-  };
 
   const handleSave = () => {
     if (!isValid || !customer?.raw) return;
@@ -107,52 +97,22 @@ export default function CheckoutPanCapture({ totalAmount, onPanResolved }) {
     });
   };
 
-  // Rendered in both the "on file" and entry-form branches below — see
-  // header note: this is local-only and never persisted or sent anywhere.
+  // Rendered in both the "on file" and entry-form branches below.
   const documentBlock = (
-    <div>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept={ACCEPTED_TYPES.join(',')}
-        onChange={handleFileChange}
-        className="hidden"
-        aria-label="PAN card or document (for your reference only)"
-      />
-      {attachedFile ? (
-        <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2">
-          <span className="flex items-center gap-1.5 text-sm text-foreground truncate">
-            <Paperclip size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
-            <span className="truncate">{attachedFile.name}</span>
-          </span>
-          <button
-            type="button"
-            onClick={() => setAttachedFile(null)}
-            aria-label="Remove attached file"
-            className="shrink-0 min-h-11 min-w-11 flex items-center justify-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-          >
-            <X size={15} aria-hidden="true" />
-          </button>
-        </div>
-      ) : (
-        <Button
-          type="button"
-          variant="outline"
-          className="h-11 w-full gap-2"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <Paperclip size={15} />
-          Attach PAN card / document
-        </Button>
-      )}
-      {fileError && <p className="mt-1 text-xs text-destructive">{fileError}</p>}
-    </div>
+    <PanDocumentUpload
+      customerId={customerId}
+      customerName={customer?.customerName}
+      originalRaw={customer?.raw}
+      savedPath={customer?.customerPanDocument ?? null}
+      onSaved={setJustSavedDocument}
+    />
   );
 
   if (panOnFile) {
     return (
       <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-        <h2 className="text-sm font-bold text-foreground mb-2">
+        <h2 className="text-sm font-bold text-foreground mb-2 flex items-center gap-1.5">
+          <IdCard size={16} className="text-accent shrink-0" aria-hidden="true" />
           PAN Details <span className="text-destructive">*</span>
         </h2>
         <p className="flex items-center gap-1.5 text-sm text-status-in-stock mb-3">
@@ -166,7 +126,8 @@ export default function CheckoutPanCapture({ totalAmount, onPanResolved }) {
 
   return (
     <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-      <h2 className="text-sm font-bold text-foreground mb-1">
+      <h2 className="text-sm font-bold text-foreground mb-1 flex items-center gap-1.5">
+        <IdCard size={16} className="text-accent shrink-0" aria-hidden="true" />
         PAN Details <span className="text-destructive">*</span>
       </h2>
       <p className="flex items-center gap-1.5 text-xs text-status-made-order mb-3">

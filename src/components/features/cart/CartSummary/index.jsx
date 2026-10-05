@@ -12,21 +12,8 @@ import { useCartTotals } from '@/hooks/cart/useCartTotals';
  *   collapsible?: boolean,
  *   discountBreakdown?: {promoCode, promoName, amount, hasEffect}[],
  * }} props
- *   totals.cgstAmount/sgstAmount — real, summed straight from each line's own
- *   item_taxes[] (see checkoutPricingService.summarizeLineItems / lib/gst.js's
- *   sumRealGst) — never reconstructed. Before real pricing resolves (totals
- *   is null, only the cart's own flat estimate is available — see
- *   useCartTotals), there is no real per-line breakdown to draw from, so no
- *   CGST/SGST split is shown at all rather than guessing one.
- *
- *   discountBreakdown — from checkoutPricingService.getPromoBreakdown, the
- *   SAME computation DiscountSection's own applied-promo tags use, so the
- *   per-code figure shown here always agrees with the one shown there.
- *   Reported directly (2026-09-30): a customer applying two codes only ever
- *   saw one combined "Discount" figure and had no way to tell which promo
- *   contributed what — each code with a real effect (hasEffect) now gets its
- *   own named line, listed BEFORE the combined total below them.
  */
+
 export default function CartSummary({
   totals = null, isPricing = false, creditApplied = 0, collapsible = false, discountBreakdown = [],
 }) {
@@ -35,16 +22,11 @@ export default function CartSummary({
 
   const subtotal = totals ? totals.subTotal  : cart.subtotal;
   const discount = totals ? (totals.discount ?? 0) : cart.discount;
-  // Only codes that actually landed a real amount here — a declined/no-
-  // effect code is surfaced by AppliedPromoTag instead, not silently listed
-  // here at ₹0.
   const namedDiscounts = discountBreakdown.filter((b) => b.hasEffect && b.amount > 0);
   const rawTotal   = totals ? totals.netAmount : cart.total;
   const roundedTotal = Math.round(rawTotal);
   const roundOff   = +(roundedTotal - rawTotal).toFixed(2);
   const total      = Math.max(0, roundedTotal - creditApplied);
-  // Real only — null (no breakdown rendered) until the actual per-line
-  // pricing has resolved.
   const gst = totals ? { cgst: totals.cgstAmount ?? 0, sgst: totals.sgstAmount ?? 0 } : null;
   const showBreakdown = !collapsible || expanded;
 
@@ -68,7 +50,7 @@ export default function CartSummary({
     <div className="flex flex-col gap-2 py-2" aria-busy={isPricing || undefined}>
       {showBreakdown && (
         <>
-          <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <div className="flex items-center justify-between text-sm text-foreground">
             <span>Subtotal</span>
             <span className="font-medium text-foreground">
               ₹{subtotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
@@ -77,9 +59,7 @@ export default function CartSummary({
 
           {discount > 0 && (
             <div className="flex flex-col gap-1">
-              {/* "Discount" title row FIRST, its per-promo bifurcation
-                  listed beneath it — reported directly (2026-09-30). */}
-              <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <div className="flex items-center justify-between text-sm text-foreground">
                 <span>Discount</span>
                 <span className="font-medium text-status-in-stock">
                   −₹{discount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
@@ -97,7 +77,7 @@ export default function CartSummary({
           )}
 
           {creditApplied > 0 && (
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <div className="flex items-center justify-between text-sm text-foreground">
               <span>Credit Applied</span>
               <span className="font-medium text-status-in-stock">
                 −₹{creditApplied.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
@@ -106,7 +86,7 @@ export default function CartSummary({
           )}
           
           {totals && discount > 0 && (
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <div className="flex items-center justify-between text-sm text-foreground">
               <span>Taxable Value</span>
               <span className="font-medium text-foreground">
                 ₹{totals.taxableAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
@@ -116,13 +96,13 @@ export default function CartSummary({
 
           {gst && (
             <>
-              <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <div className="flex items-center justify-between text-sm text-foreground">
                 <span>CGST (1.5%)</span>
                 <span className="font-medium text-foreground">
                   ₹{gst.cgst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                 </span>
               </div>
-              <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <div className="flex items-center justify-between text-sm text-foreground">
                 <span>SGST (1.5%)</span>
                 <span className="font-medium text-foreground">
                   ₹{gst.sgst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
@@ -132,7 +112,7 @@ export default function CartSummary({
           )}
 
           {roundOff !== 0 && (
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <div className="flex items-center justify-between text-sm text-foreground">
               <span>Round Off</span>
               <span className="font-medium text-foreground">
                 {roundOff > 0 ? '+' : '−'}₹{Math.abs(roundOff).toLocaleString('en-IN', { maximumFractionDigits: 2 })}

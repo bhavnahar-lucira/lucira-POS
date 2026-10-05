@@ -130,7 +130,7 @@ export default function CustomersPage() {
     || (isNameSearch && isNameSearching);
 
   return (
-    <div className="flex flex-col gap-4 max-w-3xl mx-auto w-full p-4 md:p-6">
+    <div className="flex flex-col gap-4 w-full p-4 md:p-6">
       <div className='sticky top-0 z-10 -mx-4 -mt-4 flex flex-col gap-2 border-b border-border bg-background px-4 pt-4 pb-3 md:-mx-6 md:-mt-6 md:px-6 md:pt-6'>
         <div className='flex align-center justify-between gap-4'>
           <div className="relative w-full">
@@ -162,21 +162,21 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      <StaggerList className="grid grid-cols-1 md:grid-cols-2 gap-2">
+      <StaggerList className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
         {isBusy ? (
-          <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+          <div className="col-span-full flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
             <Loader2 size={16} className="animate-spin" aria-hidden="true" />
             {isNameSearch ? 'Searching customers…' : 'Loading customers…'}
           </div>
         ) : isMobileSearch && notFound ? (
-          <div className="flex flex-col items-center gap-3 py-10 text-center">
+          <div className="col-span-full flex flex-col items-center gap-3 py-10 text-center">
             <p className="text-sm text-muted-foreground">No customer found with this mobile number.</p>
             <Button type="button" variant="outline" onClick={() => setIsNewCustomerOpen(true)}>
               Create New Customer
             </Button>
           </div>
         ) : displayList.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-10">
+          <p className="col-span-full text-sm text-muted-foreground text-center py-10">
             {isSearchActive ? 'No matching customers found.' : 'No customers found.'}
           </p>
         ) : (
@@ -190,9 +190,12 @@ export default function CustomersPage() {
         )}
       </StaggerList>
 
-      {/* Pagination — hidden while searching */}
+      {/* Pagination — hidden while searching. Sticky to the viewport bottom
+          (same cancel-the-page's-own-padding technique as the sticky search
+          bar up top) so it stays reachable without scrolling all the way
+          down a long list. */}
       {!isSearchActive && totalCount > take && (
-        <div className="flex items-center justify-between pt-2">
+        <div className="sticky bottom-0 z-10 -mx-4 -mb-4 flex items-center justify-between border-t border-border bg-background px-4 pt-3 pb-4 md:-mx-6 md:-mb-6 md:px-6 md:pb-6">
           <Button
             type="button"
             variant="outline"
@@ -202,7 +205,7 @@ export default function CustomersPage() {
             className="gap-1"
           >
             <ChevronLeft size={16} aria-hidden="true" />
-            
+
           </Button>
           <span className="text-sm text-muted-foreground">
             Page {currentPage} of {totalPages} · {totalCount} customers
@@ -215,7 +218,7 @@ export default function CustomersPage() {
             disabled={skip + take >= totalCount || isFetching}
             className="gap-1"
           >
-            
+
             <ChevronRight size={16} aria-hidden="true" />
           </Button>
         </div>

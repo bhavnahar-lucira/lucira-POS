@@ -3,9 +3,18 @@
 // APP the same day: metal-only Custom Estimate -> Order HO-RPO-10-26-00002
 // (EntityId 311, customer Tahir Kutty), verified against OrnaVerse's own UAT
 // client afterward (identical rate/sub_total/tax/net, status Posted). A
-// metal+stone+labour attempt (EntityId unassigned — Order/Create 500'd) hit
-// a real OrnaVerse-side data bug once labour is attached — see
-// applyLabourToLine's own header below for the exact mechanism.
+// metal+stone(+labour) attempt originally 500'd on Order/Create.
+// Root-caused 2026-10-03 via isolation (metal+stone alone, no labour, 500'd
+// identically — proving labour was never the cause): the hand-built stone
+// item_components row only carried itemGroupId/shapeId/.../amount, while
+// OrnaVerse's line validation requires the SAME full field set on every
+// item_components row regardless of category (confirmed live by fetching
+// Order/Create directly with a fully-fleshed stone row -> EntityId 321
+// succeeded). CustomEstimateForm.jsx's handleSubmit now builds the stone row
+// with that full shape (rm_id/uoc_id/uom_id/sales_costing_id/etc. at their
+// "not applicable" defaults, same as a real stone component would carry).
+// The separate applyLabourToLine item_operations/item_taxes-wiping bug
+// (still real, see that function's own header) is handled independently.
 //
 // There is NO separate "Custom Estimate" document. "Custom" is a bespoke
 // LINE-ITEM BUILDER (pick a catalog item flagged allow_custom_estimation,
@@ -155,19 +164,25 @@ export async function getLabourRate({
 
 /**
  * Re-prices the line WITH labour operations attached — CONFIRMED LIVE
- * 2026-10-02: this call itself succeeds (folds the labour amount into the
- * line's rate/amount). The problem surfaces one step later: the operation
- * row this endpoint returns has `amount` (e.g. 6250) and `base_amount`
- * (e.g. 2500) that don't reconcile for a 1x exchange rate, and submitting
- * that row's line_item to Order/Create 500s generically
+ * 2026-10-02/03: this call itself always succeeds (200), but its response is
+ * NOT trustworthy as the final line: in different live captures it has come
+ * back with the operation row's own `amount`/`base_amount` not reconciling
+ * for a 1x exchange rate (e.g. 6250 vs 2500), AND/OR with `item_operations`
+ * and `item_taxes` both wiped to `[]` entirely, including the tax breakdown
+ * that was correctly populated before labour was ever attached. Either
+ * shape, submitted as-is to Order/Create, 500s generically
  * (`{"Error":{"Code":"Exception","Message":"An error occurred while
- * processing your request."}}`) — a real OrnaVerse-side data issue in its
- * own labour-rate response, not something wrong with the submitted payload
- * (confirmed: the identical item/operations shape posts fine once
- * item_operations is empty). Callers must surface this as an
- * expected-possible failure at ORDER SUBMIT time, not at this call.
+ * processing your request."}}`) because the line then declares a non-zero
+ * tax_amount/labour amount with nothing in item_taxes/item_operations to
+ * back it up — a real OrnaVerse-side data-loss bug in this specific
+ * endpoint's labour path, not something wrong with the submitted payload.
+ * CustomEstimateForm.jsx's handleSubmit works around BOTH by rebuilding
+ * item_operations (from the original labour proposal) and item_taxes (from
+ * the pre-labour pricing response, rescaled) itself rather than trusting
+ * whatever this call returns.
  * @param {{ item: object, operations: object[], documentDate: Date, documentId: number }} params
- * @returns {Promise<object[]>} re-priced line
+ * @returns {Promise<object[]>} re-priced line — use for its rate/amount
+ *   fields only; item_operations/item_taxes are unreliable, see above.
  */
 export async function applyLabourToLine({ item, operations, documentDate = new Date(), documentId }) {
   const response = await axiosInstance.post(API.HELPERS.SET_SALES_ITEMS, {

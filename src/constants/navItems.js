@@ -31,16 +31,10 @@ export const NAV_ITEMS = [
   { label: 'Invoices',     href: '/invoices',     icon: FileText        },
   { label: 'Transactions', href: '/transactions', icon: ArrowLeftRight  },
   { label: 'Repair',       href: '/repair',       icon: Wrench          },
-  // ADDED 2026-09-17 — Interstore Return went from a static "not available
-  // yet" placeholder to a fully wired feature (see /transfers/page.jsx),
-  // but was never added to the sidebar, so it was unreachable from the UI
-  // despite working end to end. Fixed here.
   { label: 'Transfers',    href: '/transfers',    icon: Repeat          },
   { label: 'Estimation',   href: '/estimation',   icon: FileSpreadsheet },
   { label: 'Customers',    href: '/customers',    icon: Users           },
   { label: 'Schemes',      href: '/schemes',      icon: BookOpen        },
-  // ADDED 2026-09-08, rebuilt on live OrnaVerse CRM data 2026-09-28 (no
-  // local DB) — see app/(pos)/walkins/page.jsx's own header.
   { label: 'Walk-ins',     href: '/walkins',      icon: Footprints      },
 ];
 

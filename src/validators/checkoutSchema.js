@@ -94,6 +94,12 @@ export const checkoutSchema = z
     // the statutory threshold, required above it.
     panNumber: z.string().nullable(),
 
+    // CONFIRMED LIVE 2026-10-03: OrnaVerse's real Invoice/Create rejects an
+    // above-threshold sale ("Please upload PAN & its number") even with a
+    // valid panNumber already on file, if no document has ever been
+    // attached for that customer — the number alone isn't enough server-side.
+    panDocument: z.string().nullable(),
+
     allowPartialPayment: z.boolean().optional().default(false),
   })
   .superRefine((data, ctx) => {
@@ -145,5 +151,15 @@ export const checkoutSchema = z
     {
       message: `PAN is mandatory for orders above ₹${APP_CONFIG.COMPLIANCE.PAN_MANDATORY_THRESHOLD.toLocaleString('en-IN')}`,
       path: ['panNumber'],
+    }
+  )
+  .refine(
+    (data) => {
+      if (data.totalAmount <= APP_CONFIG.COMPLIANCE.PAN_MANDATORY_THRESHOLD) return true;
+      return !!data.panDocument;
+    },
+    {
+      message: `A PAN card / document must be attached for orders above ₹${APP_CONFIG.COMPLIANCE.PAN_MANDATORY_THRESHOLD.toLocaleString('en-IN')}`,
+      path: ['panDocument'],
     }
   );

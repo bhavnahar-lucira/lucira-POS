@@ -159,50 +159,56 @@ export default function ProductGrid({
   }
 
   return (
-    <VirtuosoGrid
-      customScrollParent={scrollParent}
-      totalCount={products.length}
-      overscan={OVERSCAN_PX}
-      listClassName={GRID_CLASSNAME}
-      rangeChanged={onRangeChanged}
-      // FIXED 2026-09-23 (reported: "View Similar shows the previous
-      // product's results no matter which card you open it from") — this
-      // had no computeItemKey at all, so Virtuoso's own item recycling kept
-      // whichever DOM/component instance a given grid slot already had and
-      // just handed it new props, INCLUDING every ProductCard's own local
-      // hook state (isSimilarOpen, and useSimilarProducts' memoized match
-      // list riding along with it) — a slot that had shown one product's
-      // "similar" sheet open could get recycled into a completely different
-      // product without React ever treating it as a fresh mount. Keying by
-      // the real item_id forces a genuine remount whenever a slot's product
-      // identity actually changes, instead of silently reusing stale state.
-      computeItemKey={(index) => products[index]?.item_id ?? index}
-      endReached={() => {
-        if (hasMore && !isFetchingMore) onLoadMore();
-      }}
-      itemContent={(index) => {
-        const product = products[index];
-        return (
-          <ProductCard
-            product={product}
-            showStockBadge={showStockBadge}
-            storeCode={storeCode}
-            priorityImage={prioritizeFirstRow && index < FIRST_ROW_PRIORITY_COUNT}
-          />
-        );
-      }}
-      components={{
-        Footer: () => (
-          <>
-            {isFetchingMore && <FetchingSpinner />}
-            {!hasMore && products.length > 0 && (
-              <p className="py-6 text-center text-xs text-muted-foreground">
-                All {products.length} products loaded
-              </p>
-            )}
-          </>
-        ),
-      }}
-    />
+    <>
+      <VirtuosoGrid
+        customScrollParent={scrollParent}
+        totalCount={products.length}
+        overscan={OVERSCAN_PX}
+        listClassName={GRID_CLASSNAME}
+        rangeChanged={onRangeChanged}
+        // FIXED 2026-09-23 (reported: "View Similar shows the previous
+        // product's results no matter which card you open it from") — this
+        // had no computeItemKey at all, so Virtuoso's own item recycling kept
+        // whichever DOM/component instance a given grid slot already had and
+        // just handed it new props, INCLUDING every ProductCard's own local
+        // hook state (isSimilarOpen, and useSimilarProducts' memoized match
+        // list riding along with it) — a slot that had shown one product's
+        // "similar" sheet open could get recycled into a completely different
+        // product without React ever treating it as a fresh mount. Keying by
+        // the real item_id forces a genuine remount whenever a slot's product
+        // identity actually changes, instead of silently reusing stale state.
+        computeItemKey={(index) => products[index]?.item_id ?? index}
+        endReached={() => {
+          if (hasMore && !isFetchingMore) onLoadMore();
+        }}
+        itemContent={(index) => {
+          const product = products[index];
+          return (
+            <ProductCard
+              product={product}
+              showStockBadge={showStockBadge}
+              storeCode={storeCode}
+              priorityImage={prioritizeFirstRow && index < FIRST_ROW_PRIORITY_COUNT}
+            />
+          );
+        }}
+      />
+      {/* CONFIRMED LIVE 2026-10-03 (reported: "AVAILABLE AT OTHER STORES"
+          overlapping "All 48 products loaded" on mobile): rendered via
+          components.Footer, this text lived inside VirtuosoGrid's own
+          absolutely-positioned viewport, whose height VirtuosoGrid computes
+          WITHOUT including that footer's own height — the footer rendered
+          ~64px past the bottom edge of the space actually reserved for the
+          grid in page flow, overlapping whatever followed it (here, the
+          "Available at other stores" header). Rendering it as a plain
+          sibling below the grid, in normal flow, sidesteps that measurement
+          gap entirely instead of trying to pad around a guessed pixel count. */}
+      {isFetchingMore && <FetchingSpinner />}
+      {!hasMore && products.length > 0 && (
+        <p className="py-6 text-center text-xs text-muted-foreground">
+          All {products.length} products loaded
+        </p>
+      )}
+    </>
   );
 }

@@ -46,12 +46,12 @@ function OfferTicket({ promo, isApplied, isSelected, isExpanded, onToggleSelect,
   return (
     <div
       className={cn(
-        'rounded-2xl border shadow-sm transition-colors',
+        'rounded-2xl border shadow-xs transition-colors',
         isApplied
           ? 'border-status-in-stock/30 bg-status-in-stock/10'
           : isSelected
-            ? 'border-primary bg-primary/5'
-            : 'border-border bg-card',
+            ? 'border-accent bg-accent/5 shadow-sm'
+            : 'border-border bg-card hover:border-accent/40',
       )}
     >
       <button
@@ -60,7 +60,7 @@ function OfferTicket({ promo, isApplied, isSelected, isExpanded, onToggleSelect,
         onClick={() => onToggleSelect(promo.promotion_code)}
         className="flex w-full items-center gap-3 p-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
       >
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent">
           <Percent className="size-4" aria-hidden="true" />
         </span>
 
@@ -74,7 +74,7 @@ function OfferTicket({ promo, isApplied, isSelected, isExpanded, onToggleSelect,
         </span>
 
         {badge && (
-          <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary">
+          <span className="shrink-0 rounded-full bg-accent/10 px-2.5 py-1 text-xs font-bold text-accent">
             {badge}
           </span>
         )}
@@ -86,11 +86,11 @@ function OfferTicket({ promo, isApplied, isSelected, isExpanded, onToggleSelect,
         ) : (
           <span
             className={cn(
-              'flex size-5 shrink-0 items-center justify-center rounded-full border-2',
-              isSelected ? 'border-primary bg-primary' : 'border-border',
+              'flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
+              isSelected ? 'border-accent bg-accent' : 'border-border',
             )}
           >
-            {isSelected && <span className="size-2 rounded-full bg-primary-foreground" />}
+            {isSelected && <span className="size-2 rounded-full bg-accent-foreground" />}
           </span>
         )}
 
@@ -218,11 +218,12 @@ export default function PromoCodeSheet({ onApply, isApplying, appliedPromos = []
           // nowrap/fixed-height — sitting next to a sibling button in a
           // flex-1 row (see DiscountSection) leaves too little width on
           // small screens for this label to stay on one line otherwise.
-          'h-auto min-h-9 justify-center gap-2 whitespace-normal text-center text-xs font-semibold bg-secondary leading-tight py-2 sm:text-sm',
+          'h-auto min-h-9 justify-center gap-2 whitespace-normal text-center text-xs font-semibold leading-tight py-2 sm:text-sm',
+          'border-accent/40 bg-accent/5 hover:border-accent hover:bg-accent/10',
           triggerClassName,
         )}
       >
-        <Tag className="size-4 shrink-0" aria-hidden="true" />
+        <Tag className="size-4 shrink-0 text-accent" aria-hidden="true" />
         View available offers
       </Button>
 

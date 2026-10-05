@@ -75,7 +75,12 @@ export default function PaymentModeSelector({
   }
 
   return (
-    <div className="grid grid-cols-3 gap-2">
+    // Reported directly: side-by-side like before, not stacked — auto-fit
+    // (rather than a fixed grid-cols-3) is what actually fixes the original
+    // complaint, a half-empty trailing row when the mode count isn't a
+    // multiple of 3 — each row's tiles now stretch to fill the full width
+    // evenly no matter how many land in it.
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(90px,1fr))] gap-2">
       {paymentModes.map((mode) => {
         const isSelected = selectedModeIds.includes(mode.modeId);
         const isDisabled = disabledModeIds.includes(mode.modeId);
@@ -91,7 +96,7 @@ export default function PaymentModeSelector({
             title={isDisabled ? disabledReasons[mode.modeId] : undefined}
             className={`
               relative flex flex-col items-center justify-center gap-1.5
-              min-h-[72px] px-2 py-3 rounded-xl border text-sm font-medium
+              min-h-18 px-2 py-3 rounded-xl border text-sm font-medium
               transition-colors
               ${isDisabled
                 ? 'cursor-not-allowed border-border bg-muted text-muted-foreground/50 opacity-60'

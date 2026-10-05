@@ -20,9 +20,12 @@ const nextConfig = {
         hostname: 'cdn.shopify.com',
       },
       {
-        // Nector-hosted customer review photos (see ProductReviewsList).
         protocol: 'https',
         hostname: 'cdn.nector.io',
+      },
+      {
+        protocol: 'https',
+        hostname: 's3.amazonaws.com',
       },
     ],
   },
@@ -64,12 +67,6 @@ const nextConfig = {
       },
     ];
   },
-  // NOTE: '/api/:path*' used to be proxied here via rewrites(). That
-  // mechanism returned empty-body 400s from nginx on business-data
-  // endpoints even with a valid bearer token — see
-  // src/app/api/[...path]/route.js, which replaces it with an explicit
-  // server-side fetch we fully control. A filesystem route always wins
-  // over a rewrite for the same path, so this config needs nothing here.
 };
 
 export default nextConfig;

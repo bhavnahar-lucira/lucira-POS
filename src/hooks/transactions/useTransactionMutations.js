@@ -142,6 +142,10 @@ export function useCreateRefund({ onSuccess } = {}) {
         party_id:        payload?.partyId,
         payout_amount:   payload?.payout?.amount,
         payout_mode_code: payload?.payout?.modeCode,
+        // Same field name as orderTracking.js's trackDocumentPlaced —
+        // reported directly that reference number should be captured
+        // everywhere a payment is recorded, not just checkout.
+        payment_reference: payload?.payout?.refNo || null,
         credits_settled_count: Array.isArray(payload?.credits) ? payload.credits.length : undefined,
         credits_settled_total: Array.isArray(payload?.credits)
           ? +payload.credits.reduce((s, c) => s + (c.amount ?? 0), 0).toFixed(2)

@@ -22,6 +22,7 @@
 import axiosInstance from '@/lib/axios/axiosInstance';
 import API from '@/constants/apiEndpoints';
 import { switchCompany } from '@/services/storeService';
+import { uploadTemporaryFile } from '@/services/fileUploadService';
 import APP_CONFIG from '@/constants/appConfig';
 
 const { INTERSTORE_RETURN_STATUS } = APP_CONFIG;
@@ -204,32 +205,6 @@ export function mapReturnLineToInterstoreReturnLine(returnLine, lineNo) {
     item_json: JSON.stringify(returnLine),
     images: [],
   };
-}
-
-/**
- * Uploads a photo file to OrnaVerse's generic (not IRR-specific) Serenity
- * temp-file store, returning a path to reference elsewhere — e.g. in
- * addInterstoreReturnItemImage's own `image_path`. CONFIRMED LIVE
- * 2026-10-02 (real capture of OrnaVerse's own Returns screen's cross-store
- * photo-attach flow): `POST File/TemporaryUpload`, multipart/form-data,
- * response `{ TemporaryFile: "temporary/<guid>.png", Size, IsImage, Width,
- * Height }`. `TemporaryFile` is the value to pass as `image_path` — it is
- * NOT a data URI.
- *
- * Content-Type is deliberately left for axios/the browser to set (with the
- * correct multipart boundary) rather than the instance's default
- * `application/json` — passing a FormData body lets it compute this.
- *
- * @param {File} file
- * @returns {Promise<string>} the `TemporaryFile` path
- */
-export async function uploadTemporaryFile(file) {
-  const formData = new FormData();
-  formData.append('file', file);
-  const response = await axiosInstance.post(API.FILES.TEMPORARY_UPLOAD, formData, {
-    headers: { 'Content-Type': undefined },
-  });
-  return response.data?.TemporaryFile;
 }
 
 /**

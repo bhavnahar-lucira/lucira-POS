@@ -131,7 +131,7 @@ export default function InvoicesPage() {
   const currentPage = Math.floor(skip / take) + 1;
 
   return (
-    <div className="flex flex-col gap-3 max-w-3xl mx-auto w-full p-4 md:p-6">
+    <div className="flex flex-col gap-3 w-full p-4 md:p-6">
       {/* ── Filters — sticky (2026-08-24) — see the identical block in
           orders/page.jsx for the full reasoning (native position:sticky,
           no JS pin/unpin logic needed; the negative-margin/padding swap
@@ -145,45 +145,49 @@ export default function InvoicesPage() {
           </div>
         )}
 
-        <div className="relative">
-          <Search
-            size={16}
-            aria-hidden="true"
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            type="search"
-            placeholder="Search by invoice number or customer"
-            value={inputVal}
-            onChange={handleSearchChange}
-            className="pl-9 pr-9"
-            aria-label="Search invoices"
-          />
-          {inputVal.length > 0 && (
-            <button
-              type="button"
-              onClick={() => {
-                clearTimeout(debounceRef.current);
-                setInputVal('');
-                setSearchQuery('');
-              }}
-              aria-label="Clear search"
-              className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center h-7 w-7 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            >
-              <X size={15} aria-hidden="true" />
-            </button>
-          )}
-        </div>
-
+        {/* Search + dates share ONE row on md+ (reported directly,
+            2026-10-03: wasted space stacking them on wide screens); mobile
+            keeps the default flex-col stack — search gets its own full-width
+            row first, then dates/clear follow below it. */}
         <div className="flex flex-col gap-2 md:flex-row md:items-center">
-          <div className="flex items-center gap-2 flex-1">
+          <div className="relative md:flex-1 md:min-w-50">
+            <Search
+              size={16}
+              aria-hidden="true"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              type="search"
+              placeholder="Search by invoice number or customer"
+              value={inputVal}
+              onChange={handleSearchChange}
+              className="pl-9 pr-9"
+              aria-label="Search invoices"
+            />
+            {inputVal.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  clearTimeout(debounceRef.current);
+                  setInputVal('');
+                  setSearchQuery('');
+                }}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center h-7 w-7 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <X size={15} aria-hidden="true" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
             <Input
               type="date"
               value={fromDate}
               max={todayDateString()}
               onChange={(e) => setFromDate(e.target.value)}
               aria-label="From date"
-              className="flex-1 min-w-0"
+              className="flex-1 min-w-0 md:w-36 md:flex-none"
             />
             <span className="text-muted-foreground text-sm shrink-0">to</span>
             <Input
@@ -192,7 +196,7 @@ export default function InvoicesPage() {
               max={todayDateString()}
               onChange={(e) => setToDate(e.target.value)}
               aria-label="To date"
-              className="flex-1 min-w-0"
+              className="flex-1 min-w-0 md:w-36 md:flex-none"
             />
           </div>
 
@@ -219,7 +223,7 @@ export default function InvoicesPage() {
       </div>
 
       {/* ── List ────────────────────────────────────────── */}
-      <StaggerList className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+      <StaggerList className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-1.5">
         {isLoading ? (
           <InlineLoader className="col-span-full" label={isSearchActive ? 'Searching invoices…' : 'Loading invoices…'} />
         ) : isError ? (
@@ -245,9 +249,12 @@ export default function InvoicesPage() {
         )}
       </StaggerList>
 
-      {/* ── Pagination — hidden while any filter is active ── */}
+      {/* ── Pagination — hidden while any filter is active. Sticky to the
+          viewport bottom (same cancel-the-page's-own-padding technique as
+          the sticky filter bar up top) so it stays reachable without
+          scrolling all the way down a long list. ── */}
       {!isSearchActive && totalCount > take && (
-        <div className="flex items-center justify-between pt-1">
+        <div className="sticky bottom-0 z-10 -mx-4 -mb-4 flex items-center justify-between border-t border-border bg-background px-4 pt-3 pb-4 md:-mx-6 md:-mb-6 md:px-6 md:pb-6">
           <Button
             type="button"
             variant="outline"

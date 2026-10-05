@@ -53,7 +53,7 @@ function toOrderItems(lineItems = []) {
  * @param {object[]} lineItems — the priced line items on that entity.
  * @param {{customerId, customerName, customerMobile, customerAddress}} customer
  * @param {{activeStoreId, activeStoreCode, activeStoreName}} store
- * @param {{modeCode?, modeName?, amount}[]} paymentModes
+ * @param {{modeCode?, modeName?, amount, refNo?}[]} paymentModes
  * @param {number} salesPersonId
  * @param {string} [salesPersonName] — resolved the same way SalesPersonSelect
  *   does (see checkout/page.jsx), so reports show a readable name, not just an id.
@@ -72,6 +72,28 @@ export function trackDocumentPlaced({
   // doesn't have to parse payment_modes' joined string. Null for a genuine
   // split payment (two or more modes) — there's no one "the" method then.
   const paymentMethod = modes.length === 1 ? (modes[0].modeCode ?? modes[0].modeName ?? null) : null;
+
+  // Same single-vs-split pattern as payment_method/payment_modes above, for
+  // the reference/UTR number — reported directly as missing from WebEngage.
+  //
+  // Read from entity.receipt_details (the literal receipt_details[] rows
+  // Create actually submitted to OrnaVerse — see orderService.js), NOT from
+  // paymentModes[].refNo directly: buildReceiptDetails (documentFields.js)
+  // overrides ref_no away from the operator-typed refNo for two row kinds —
+  // a credit/helper draw (Exchange Credit/Credit Note/Old Gold Value) gets
+  // ref_no: credit.document_no (the source receipt's own document number),
+  // and a Nector Loyalty row gets a fixed constant (NECTOR-CREDITS/
+  // NECTOR-COINS) — never whatever (if anything) was in the UI. Only a
+  // plain tender row (Cash/Card/UPI) passes operator-typed refNo straight
+  // through unchanged. Reading the built receipt rows instead of the raw
+  // input means this is always "whatever OrnaVerse actually recorded" by
+  // construction, not a second guess at it.
+  const receiptRows = entity?.receipt_details ?? [];
+  const paymentReferenceSummary = receiptRows
+    .filter((r) => r.ref_no)
+    .map((r) => `${r.mode_code || r.mode_name || 'mode'}:${r.ref_no}`)
+    .join(', ') || undefined;
+  const paymentReference = receiptRows.length === 1 ? (receiptRows[0].ref_no || null) : null;
 
   tracker.trackEcommerce(GA_ECOMMERCE_EVENTS.PURCHASE, EVENTS.ORDER_PLACED, {
     document_type:  documentType,
@@ -93,6 +115,8 @@ export function trackDocumentPlaced({
     payment_method:  paymentMethod,
     payment_modes:   paymentSummary,
     payment_mode_count: modes.length,
+    payment_reference:  paymentReference,
+    payment_references: paymentReferenceSummary,
     store_id:        activeStoreId,
     store_code:      activeStoreCode,
     store_name:      activeStoreName,

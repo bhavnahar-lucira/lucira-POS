@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSelector, useDispatch } from 'react-redux';
-import { ShieldCheck } from 'lucide-react';
+import { ShieldCheck, Package, Receipt, CreditCard, UserCog } from 'lucide-react';
 import ConfirmDialog    from '@/components/shared/ConfirmDialog';
 import CheckoutCustomerSummary  from '@/components/features/checkout/CheckoutCustomerSummary';
 import CheckoutPanCapture       from '@/components/features/checkout/CheckoutPanCapture';
@@ -72,7 +72,8 @@ function CheckoutScreen() {
   const [salesPersonId, setSalesPersonId] = useState(null);
   const { salesPersons } = useSalesPersonOptions(activeStoreId);
   const salesPersonName = salesPersons.find((p) => p.employee_id === salesPersonId)?.employee_name ?? null;
-  const [panNumber, setPanNumber]   = useState(null);
+  const [panNumber, setPanNumber]     = useState(null);
+  const [panDocument, setPanDocument] = useState(null);
   const [isBackConfirmOpen, setIsBackConfirmOpen] = useState(false);
   const [isPaymentConfirmOpen, setIsPaymentConfirmOpen] = useState(false);
 
@@ -166,6 +167,7 @@ function CheckoutScreen() {
     totalAmount:  doc.amountDue,
     cartTotal:    doc.amountDue,
     panNumber,
+    panDocument,
     allowPartialPayment: documentType === 'order',
   }) : { success: true };
 
@@ -239,9 +241,11 @@ function CheckoutScreen() {
             key={customerId}
             totalAmount={payableTotal}
             onPanResolved={setPanNumber}
+            onPanDocumentResolved={setPanDocument}
           />
           <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-            <h2 className="text-sm font-bold text-foreground mb-2">
+            <h2 className="text-sm font-bold text-foreground mb-2 flex items-center gap-1.5">
+              <UserCog size={16} className="text-accent shrink-0" aria-hidden="true" />
               Sales Person <span className="text-destructive">*</span>
             </h2>
             <SalesPersonSelect
@@ -252,9 +256,20 @@ function CheckoutScreen() {
           </section>
           <DiscountSection />
         </div>
-        <div className="flex flex-col gap-5 w-full">
+        {/* Sticky on lg+ only (same breakpoint the grid goes 2-column) so
+            Order Items/Summary/Payment stay visible while the left column
+            scrolls. max-h + overflow-y-auto is required, not decorative —
+            without it a tall column would pin its top edge while its
+            bottom ran off-screen with no way to reach it. The subtracted
+            value is coupled to Header's min-h-[64px] (src/components/layout/
+            Header), this column's own lg:top-6 offset, and the footer bar
+            below (now fixed at every breakpoint, not just mobile) — if any
+            of those change, re-check this number live, don't just carry it
+            forward. */}
+        <div className="flex flex-col gap-5 w-full lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-12.5rem)] lg:overflow-y-auto">
           <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-            <h2 className="text-sm font-bold text-foreground mb-1">
+            <h2 className="text-sm font-bold text-foreground mb-1 flex items-center gap-1.5">
+              <Package size={16} className="text-accent shrink-0" aria-hidden="true" />
               Order Items <span className="text-muted-foreground font-normal text-xs">({displayRows.length} item{displayRows.length !== 1 ? 's' : ''})</span>
             </h2>
             <div>
@@ -276,7 +291,10 @@ function CheckoutScreen() {
 
           {hasDoc && (
             <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-              <h2 className="text-sm font-bold text-foreground mb-1">Order Summary</h2>
+              <h2 className="text-sm font-bold text-foreground mb-1 flex items-center gap-1.5">
+                <Receipt size={16} className="text-accent shrink-0" aria-hidden="true" />
+                Order Summary
+              </h2>
               <CartSummary
                 totals={doc.totals}
                 isPricing={isPricing}
@@ -288,7 +306,10 @@ function CheckoutScreen() {
 
           {hasDoc && (
             <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm">
-              <h2 className="text-sm font-bold text-foreground">Payment</h2>
+              <h2 className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                <CreditCard size={16} className="text-accent shrink-0" aria-hidden="true" />
+                Payment
+              </h2>
               <CheckoutPaymentSection
                 key={`payment-${customerId}`}
                 bare
@@ -322,7 +343,11 @@ function CheckoutScreen() {
       
       <CheckoutTrustStrip />
 
-      <div className="fixed bottom-0 left-0 right-0 border-t border-border bg-card p-4 sm:static sm:border-0 sm:bg-transparent sm:p-0">
+      {/* Always fixed now (not just mobile) — reported directly: Place
+          Order should stay reachable without scrolling on desktop too. z-20
+          keeps it above the sticky right column it now permanently
+          overlaps at the bottom of the viewport. */}
+      <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-border bg-card p-4 shadow-lg md:px-6">
         <div className="max-w-6xl mx-auto w-full flex flex-col items-center gap-2">
           <PlaceOrderButton
             isValid={isValid}

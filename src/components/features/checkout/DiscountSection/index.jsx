@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useDispatch } from 'react-redux';
 import { toast } from 'sonner';
-import { Eye } from 'lucide-react';
+import { Eye, Tag } from 'lucide-react';
 import { useCart } from '@/hooks/cart/useCart';
 import { useCheckoutPricing } from '@/hooks/checkout/useCheckoutPricing';
 import { usePromoValidation } from '@/hooks/checkout/usePromoValidation';
@@ -27,9 +27,6 @@ export default function DiscountSection({ compact = false, onViewCart }) {
   const dispatch = useDispatch();
   const { appliedPromos, removePromo, isEmpty } = useCart();
   const { invoice, order, isLoading: isPricing } = useCheckoutPricing();
-  // A code can be applied to the invoice group, the order group, or both —
-  // combine both groups' promotion_details rows so "is this code already
-  // showing an effect" reads correctly regardless of which one it landed on.
   const promotionDetails = [
     ...(invoice?.promotionDetails ?? []),
     ...(order?.promotionDetails ?? []),
@@ -39,10 +36,6 @@ export default function DiscountSection({ compact = false, onViewCart }) {
   const disabledHint = isEmpty
     ? 'Add items to your cart before applying a promo code.'
     : 'Still pricing your cart — promo codes can be applied once that’s done.';
-
-  // Single source of truth for "how much did this code actually save" —
-  // see getPromoBreakdown's own header for why this must sum every matching
-  // row across both groups, not just find the first.
   const breakdown = getPromoBreakdown(appliedPromos, promotionDetails);
   const breakdownByCode = new Map(breakdown.map((b) => [b.promoCode, b]));
 
@@ -58,12 +51,11 @@ export default function DiscountSection({ compact = false, onViewCart }) {
   }, [isPricing, promotionDetails]);
 
   return (
-    <div className="flex flex-col gap-3">
-      {/* Both discount actions sit side by side, one row, on every surface —
-          reported directly (2026-09-30): stacked full-width buttons read as
-          a longer list than this really is. Mini cart drawer (compact) pairs
-          "View available offers" with "View Details" (→ /cart); cart/checkout
-          pair it with "Enter Promo" instead. */}
+    <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm">
+      <h2 className="text-sm font-bold text-foreground flex items-center gap-1.5">
+        <Tag size={16} className="text-accent shrink-0" aria-hidden="true" />
+        Discounts &amp; Offers
+      </h2>
       <div className="flex gap-2">
         <PromoCodeSheet
           onApply={validatePromo}
@@ -109,6 +101,6 @@ export default function DiscountSection({ compact = false, onViewCart }) {
           </div>
         );
       })}
-    </div>
+    </section>
   );
 }

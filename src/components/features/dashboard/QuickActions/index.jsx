@@ -13,7 +13,7 @@ import {
   CreditCard,
   FileText,
   BookOpen,
-  ClipboardCheck,
+  FileSpreadsheet,
   ScanLine,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -108,14 +108,14 @@ const QUICK_ACTIONS = [
     href:        '/schemes',
     accent:      'bg-card text-foreground border border-border shadow-sm hover:shadow-md hover:border-accent/40 hover:text-accent',
   },
-  // {
-  //   id:          'day-close',
-  //   label:       'Day Close',
-  //   description: 'Close today',
-  //   icon:        ClipboardCheck,
-  //   href:        '/daily-closing',
-  //   accent:      'bg-card text-foreground border border-border shadow-sm hover:shadow-md hover:border-accent/40 hover:text-accent',
-  // },
+  {
+    id:          'custom',
+    label:       'Custom',
+    description: 'Custom Estimation',
+    icon:        FileSpreadsheet,
+    href:        '/estimation?view=custom',
+    accent:      'bg-card text-foreground border border-border shadow-sm hover:shadow-md hover:border-accent/40 hover:text-accent',
+  },
 ];
 
 function QuickActionButton({ action, onClick }) {

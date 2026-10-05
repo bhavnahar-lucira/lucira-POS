@@ -98,6 +98,7 @@ export const QUERY_KEYS = {
     LIST:     (params)    => ['customers', 'list', params],
     SEARCH:   (companyId, containsText) => ['customers', 'search', companyId, containsText],
     WISHLIST: (partyId) => ['customers', 'wishlist', partyId],
+    RECENTLY_VIEWED: (partyId) => ['customers', 'recently-viewed', partyId],
   },
   
   WALKINS: {

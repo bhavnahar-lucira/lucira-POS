@@ -22,7 +22,10 @@ export default function CheckoutCustomerSummary() {
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-bold text-foreground">Customer</h2>
+        <h2 className="text-sm font-bold text-foreground flex items-center gap-1.5">
+          <User size={16} className="text-accent shrink-0" aria-hidden="true" />
+          Customer
+        </h2>
         <Button
           type="button"
           variant="ghost"

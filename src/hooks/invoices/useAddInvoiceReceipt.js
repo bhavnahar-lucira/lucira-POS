@@ -60,7 +60,7 @@ export function useAddInvoiceReceipt() {
     // companyId), not the currently-attached session — an operator can
     // record a receipt against any invoice from the /invoices list, not
     // just the attached customer's own.
-    onSuccess: (_data, { transactionId, partyId, companyId, amount, mode }) => {
+    onSuccess: (_data, { transactionId, partyId, companyId, amount, mode, refNo }) => {
       toast.success(TOAST.INVOICES.RECEIPT_ADDED);
       tracker.track(EVENTS.INVOICE_RECEIPT_ADDED, {
         transactionId,
@@ -68,6 +68,12 @@ export function useAddInvoiceReceipt() {
         store_id:    companyId,
         amount,
         modeCode:    mode?.modeCode,
+        // Same payment_reference field name as orderTracking.js's
+        // trackDocumentPlaced — reported directly that reference number
+        // should be captured everywhere a payment is recorded, not just
+        // checkout. refNo here is the literal value this call submits as
+        // ref_no (see mutationFn above), no override to account for.
+        payment_reference: refNo || null,
       });
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
     },

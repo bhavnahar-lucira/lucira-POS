@@ -244,6 +244,14 @@ export function useCreateRepairInvoiceReceipt({ onSuccess } = {}) {
       toast.success(TOAST.REPAIR.RECEIPT_CREATED);
       tracker.track(EVENTS.REPAIR_RECEIPT_CREATED, {
         amount: payload?.amount, ...sessionCtx, transactionId: payload?.transaction_id ?? payload?.transactionId,
+        // Same payment_reference field name as orderTracking.js's
+        // trackDocumentPlaced — reported directly that reference number
+        // should be captured everywhere a payment is recorded, not just
+        // checkout. No mode_code/mode_name passed into this call (only
+        // mode_id — see repair/page.jsx's addReceipt.mutateAsync), so that's
+        // reported as payment_mode_id instead of a name.
+        payment_mode_id:   payload?.mode_id ?? null,
+        payment_reference: payload?.ref_no || null,
       });
       onSuccess?.(data);
     },

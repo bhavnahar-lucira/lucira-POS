@@ -1,32 +1,13 @@
 'use client';
 
-// Estimation / Quotation — give a customer a price quote before they
-// commit to a purchase. Confirmed 2026-07-16 via real API data: line items
-// reference a genuine catalog item_id (same shape as Invoice line items),
-// so this reuses ItemSearchPicker from the Exchange/Buyback/Repair rebuild.
-//
-// UNLIKE every other POS transaction type here, Create and Post are NOT
-// chained together automatically — Post means "customer agreed, convert
-// this quote into a sale," which is a deliberate action taken later (maybe
-// days later), not an automatic finalisation step. So Create just saves
-// the draft quote; Convert/Cancel are separate per-record actions in the list.
-//
-// HEADER FIELDS (2026-07-28) — the "AccessDenied" framing below is STALE.
-// Confirmed live 2026-07-28 that this whole family of Create endpoints
-// actually 500s on a missing-header-fields gap, not AccessDenied — see
-// [[pos-cash-checkout-status]] memory. Applied the same fix here
-// (financial_year_id/ledger_id/document_id/document_no/party identity/
-// receipt+balance — see transactionHeaderService.buildTransactionHeaderFields,
-// useOrderHeaderConfig), UNVERIFIED LIVE per the user's explicit direction
-// to code this without a live round-trip per flow.
-
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSelector }        from 'react-redux';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver }        from '@hookform/resolvers/zod';
 import { z }                  from 'zod';
 import { toast }              from 'sonner';
 import { FileText, ChevronRight, RefreshCw, Plus, X, Check, Ban, AlertTriangle } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 
 import { useEstimations } from '@/hooks/estimation/useEstimationList';
 import {
@@ -49,11 +30,6 @@ import { Button }  from '@/components/ui/button';
 import { Input }   from '@/components/ui/input';
 import { Label }   from '@/components/ui/label';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-// De-duplicated 2026-09-08 — formatINR/formatDate here were identical
-// copies of the same two functions in transactions/page.jsx and
-// repair/page.jsx; see lib/priceUtils.js's formatAmountOrDash and
-// lib/dateUtils.js's formatDatePadded for the shared versions.
 const formatINR = formatAmountOrDash;
 const formatDate = formatDatePadded;
 
@@ -276,7 +252,15 @@ function EstimationList() {
 
 function EstimationScreen() {
   const storeId = useSelector((state) => state.store.activeStoreId);
+  const searchParams = useSearchParams();
   const [view, setView] = useState('list');
+
+  useEffect(() => {
+    const requestedView = searchParams.get('view');
+    if(requestedView === 'custom') {
+      setView('custom');
+    }
+  }, [searchParams]);
 
   return (
     <div className="p-4 pb-8 flex flex-col gap-4">

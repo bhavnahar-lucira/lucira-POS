@@ -1,20 +1,11 @@
 'use client';
 
-// Full customer profile page — reached via "View Full Profile" from CustomerDetailSheet.
-//
-// TABS: Profile | Edit | Orders | Schemes | History | Points
-// DEFAULT TAB: Edit (so staff can immediately update customer details)
-// Edit form is pre-filled from Customer/Retrieve (full record, not list snapshot)
-//
-// Uses useRetrieveCustomer(partyId) — direct fetch by party_id.
-// No longer relies on useAllCustomers directory lookup (fragile, stale).
-
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, Phone, Mail, MapPin, CreditCard,
   ClipboardList, BookOpen,
-  ShoppingCart, FileText, RotateCcw, ArrowLeftRight, Coins, Gem, Receipt, Star, Info, Heart,
+  ShoppingCart, FileText, RotateCcw, ArrowLeftRight, Coins, Gem, Receipt, Star, Info, Heart, History,
 } from 'lucide-react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -26,6 +17,7 @@ import { Button }   from '@/components/ui/button';
 import { Input }    from '@/components/ui/input';
 import { Label }    from '@/components/ui/label';
 import LocationSelect from '@/components/shared/LocationSelect';
+import PanDocumentUpload from '@/components/shared/PanDocumentUpload';
 import PillTabs from '@/components/shared/PillTabs';
 import EmptyState from '@/components/shared/EmptyState';
 import ErrorState from '@/components/shared/ErrorState';
@@ -39,6 +31,7 @@ import { useCustomerEnrollments } from '@/hooks/customer/useCustomerEnrollments'
 import { useNectorLoyaltyPoints } from '@/hooks/customer/useNectorLoyaltyPoints';
 import { useCustomer360 }         from '@/hooks/customer/useCustomer360';
 import { useCustomerWishlist }    from '@/hooks/customer/useCustomerWishlist';
+import { useCustomerRecentlyViewed } from '@/hooks/customer/useCustomerRecentlyViewed';
 import { useLiveCatalogPrices }   from '@/hooks/catalog/useLiveCatalogPrices';
 import { useCrossStoreStockCodes } from '@/hooks/catalog/useCrossStoreStockCodes';
 import { useCountries, useStates, useCities } from '@/hooks/settings/useLocation';
@@ -47,33 +40,13 @@ import { formatAmountOrDash } from '@/lib/priceUtils';
 import { formatDateNumeric } from '@/lib/dateUtils';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-// De-duplicated 2026-09-08 — fmt/fmtDate here were the same shape as
-// several other files' own copies; see lib/priceUtils.js's
-// formatAmountOrDash and lib/dateUtils.js's formatDateNumeric.
 const fmt = formatAmountOrDash;
 const fmtDate = formatDateNumeric;
-
-// REMOVED 2026-09-08 — a maskPan() used to live here, showing PAN as
-// "****1234" on the assumption OrnaVerse itself masks it on read.
-// Confirmed live against LIVE (Customer/Retrieve on several unrelated
-// party_ids) that it does NOT — full PAN comes back same as mobile/email.
-// customerPan is now shown as-is (see ProfileTab below) rather than
-// re-masked client-side for no real privacy benefit.
-
-// ── Tab config ────────────────────────────────────────────────────────────────
-// '360' added 2026-08-12 — see useCustomer360.js. 'orders' and 'history' were
-// REMOVED the same day: both were fully subsumed by 360's Order/Invoice
-// sub-tabs (360 covers the same documents plus real aggregate totals
-// useCustomerHistory's own header comment said it couldn't find a source
-// for) — kept as separate tabs, they were just the same data shown twice.
-// useCustomerOrders/useCustomerHistory hooks are left in place (still valid,
-// just no longer wired to this page) rather than deleted outright.
-// 'wishlist' added 2026-08-23 — reads lib/mongo/wishlist.js directly by
-// party_id (see useCustomerWishlist.js), independent of wishlistSlice
-// (which only ever describes whoever's currently ATTACHED to the POS
-// session, not whoever's profile is being viewed here — often different
-// people).
-const TABS    = ['profile', 'edit', 'schemes', 'points', '360', 'wishlist'];
+const TABS    = ['profile', 'edit', 'schemes', 'points', '360', 'wishlist', 'RecentlyViewed'];
+// Text/form tabs get a readable max-width (see the tab-content wrapper
+// below) — the remaining tabs are product-card grids that should use the
+// full available width instead.
+const TEXT_TABS = ['profile', 'edit', 'schemes', 'points', '360'];
 const TAB_LABELS = {
   profile:  'Profile',
   edit:     'Edit',
@@ -81,11 +54,9 @@ const TAB_LABELS = {
   points:   'Points',
   '360':    '360',
   wishlist: 'Wishlist',
+  RecentlyViewed: 'Recently Viewed',
 };
 
-// Document-type sub-tabs inside the 360 tab's transaction table. Keys match
-// useCustomer360's `documents` shape exactly. "Scheme" isn't included here —
-// it's already the existing Schemes tab above, not duplicated.
 const DOC_TYPES = [
   { key: 'order',    label: 'Order',        icon: ShoppingCart },
   { key: 'invoice',  label: 'Invoice',      icon: FileText },
@@ -96,10 +67,6 @@ const DOC_TYPES = [
   { key: 'receipt',  label: 'Receipt',      icon: Receipt },
 ];
 
-// Sales Insights are backend-computed and open-ended (kind/severity/title/
-// detail/priority) — render whatever comes back rather than hardcoding
-// per-insight copy. Icon map is best-effort by `kind`, with a generic
-// fallback for any kind not yet seen.
 const INSIGHT_ICON = {
   preference:         Star,
   open_order_balance: ShoppingCart,
@@ -260,72 +227,125 @@ function EditTab({ customer, onSaved }) {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="ep_name">Full name <span className="text-destructive">*</span></Label>
-        <Input id="ep_name" {...register('party_name')} className="h-11" />
-        {errors.party_name && <p className="text-sm text-destructive">{errors.party_name.message}</p>}
+      {/* Short fields pair up on sm+ screens instead of each stacking its own
+          full-width row — same "use the available space" fix as the rest of
+          this page; still a single column on mobile. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ep_name">Full name <span className="text-destructive">*</span></Label>
+          <Input id="ep_name" {...register('party_name')} className="h-11" />
+          {errors.party_name && <p className="text-sm text-destructive">{errors.party_name.message}</p>}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ep_mobile">Mobile <span className="text-destructive">*</span></Label>
+          <Controller
+            name="mobile"
+            control={control}
+            render={({ field }) => (
+              <PhoneNumberField id="ep_mobile" value={field.value} onChange={field.onChange} />
+            )}
+          />
+          {errors.mobile && <p className="text-sm text-destructive">{errors.mobile.message}</p>}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ep_phone">Phone <span className="text-muted-foreground text-xs">(optional)</span></Label>
+          <Controller
+            name="phone"
+            control={control}
+            render={({ field }) => (
+              <PhoneNumberField id="ep_phone" value={field.value} onChange={field.onChange} />
+            )}
+          />
+          {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ep_email">Email</Label>
+          <Input id="ep_email" type="email" {...register('email')} className="h-11" />
+          {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ep_pan">PAN</Label>
+          <Input id="ep_pan" {...register('pan_no')} className="h-11" style={{ textTransform: 'uppercase' }} />
+          {errors.pan_no && <p className="text-sm text-destructive">{errors.pan_no.message}</p>}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ep_tax_no">GSTIN <span className="text-muted-foreground text-xs">(optional)</span></Label>
+          <Input id="ep_tax_no" {...register('tax_no')} className="h-11" style={{ textTransform: 'uppercase' }} />
+          {errors.tax_no && <p className="text-sm text-destructive">{errors.tax_no.message}</p>}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ep_passport_number">Passport No <span className="text-muted-foreground text-xs">(optional)</span></Label>
+          <Input id="ep_passport_number" {...register('passport_number')} className="h-11" style={{ textTransform: 'uppercase' }} />
+          {errors.passport_number && <p className="text-sm text-destructive">{errors.passport_number.message}</p>}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ep_aadhaar_number">Aadhaar No <span className="text-muted-foreground text-xs">(optional)</span></Label>
+          <Input id="ep_aadhaar_number" type="text" inputMode="numeric" maxLength={12} {...register('aadhaar_number')} className="h-11" />
+          {errors.aadhaar_number && <p className="text-sm text-destructive">{errors.aadhaar_number.message}</p>}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ep_dl_number">Driving License <span className="text-muted-foreground text-xs">(optional)</span></Label>
+          <Input id="ep_dl_number" {...register('dl_number')} className="h-11" style={{ textTransform: 'uppercase' }} />
+          {errors.dl_number && <p className="text-sm text-destructive">{errors.dl_number.message}</p>}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ep_pin">PIN Code</Label>
+          <Input id="ep_pin" type="text" inputMode="numeric" {...register('pin_code')} className="h-11" maxLength={6} />
+          {errors.pin_code && <p className="text-sm text-destructive">{errors.pin_code.message}</p>}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Country</Label>
+          <LocationSelect
+            control={control}
+            name="country_id" items={countries} idKey="country_id" labelKey="country_name"
+            placeholder="Select country" isLoading={countriesLoading}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>State</Label>
+          <LocationSelect
+            control={control}
+            name="state_id" items={states} idKey="state_id" labelKey="state_name"
+            placeholder="Select state" disabled={!countryId} disabledPlaceholder="Select country first"
+            isLoading={statesLoading}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>City</Label>
+          <LocationSelect
+            control={control}
+            name="city_id" items={cities} idKey="city_id" labelKey="city_name"
+            placeholder="Select city" disabled={!stateId} disabledPlaceholder="Select state first"
+            isLoading={citiesLoading}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Nationality <span className="text-muted-foreground text-xs">(optional)</span></Label>
+          {/* nationality_id is a country_id (confirmed live) — reuses the
+              same Country list loaded above. */}
+          <LocationSelect
+            control={control}
+            name="nationality_id" items={countries} idKey="country_id" labelKey="country_name"
+            placeholder="Select nationality" isLoading={countriesLoading}
+          />
+        </div>
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="ep_mobile">Mobile <span className="text-destructive">*</span></Label>
-        <Controller
-          name="mobile"
-          control={control}
-          render={({ field }) => (
-            <PhoneNumberField id="ep_mobile" value={field.value} onChange={field.onChange} />
-          )}
-        />
-        {errors.mobile && <p className="text-sm text-destructive">{errors.mobile.message}</p>}
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="ep_phone">Phone <span className="text-muted-foreground text-xs">(optional)</span></Label>
-        <Controller
-          name="phone"
-          control={control}
-          render={({ field }) => (
-            <PhoneNumberField id="ep_phone" value={field.value} onChange={field.onChange} />
-          )}
-        />
-        {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="ep_email">Email</Label>
-        <Input id="ep_email" type="email" {...register('email')} className="h-11" />
-        {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="ep_pan">PAN</Label>
-        <Input id="ep_pan" {...register('pan_no')} className="h-11" style={{ textTransform: 'uppercase' }} />
-        {errors.pan_no && <p className="text-sm text-destructive">{errors.pan_no.message}</p>}
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="ep_tax_no">GSTIN <span className="text-muted-foreground text-xs">(optional)</span></Label>
-        <Input id="ep_tax_no" {...register('tax_no')} className="h-11" style={{ textTransform: 'uppercase' }} />
-        {errors.tax_no && <p className="text-sm text-destructive">{errors.tax_no.message}</p>}
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="ep_passport_number">Passport No <span className="text-muted-foreground text-xs">(optional)</span></Label>
-        <Input id="ep_passport_number" {...register('passport_number')} className="h-11" style={{ textTransform: 'uppercase' }} />
-        {errors.passport_number && <p className="text-sm text-destructive">{errors.passport_number.message}</p>}
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="ep_aadhaar_number">Aadhaar No <span className="text-muted-foreground text-xs">(optional)</span></Label>
-        <Input id="ep_aadhaar_number" type="text" inputMode="numeric" maxLength={12} {...register('aadhaar_number')} className="h-11" />
-        {errors.aadhaar_number && <p className="text-sm text-destructive">{errors.aadhaar_number.message}</p>}
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="ep_dl_number">Driving License <span className="text-muted-foreground text-xs">(optional)</span></Label>
-        <Input id="ep_dl_number" {...register('dl_number')} className="h-11" style={{ textTransform: 'uppercase' }} />
-        {errors.dl_number && <p className="text-sm text-destructive">{errors.dl_number.message}</p>}
-      </div>
-
+      {/* Full-width fields — a two-line address and a document uploader
+          don't pair naturally with anything, so they stay their own row. */}
       <div className="flex flex-col gap-1.5">
         <Label>Address</Label>
         <Input {...register('address')} className="h-11" placeholder="Address line 1" />
@@ -333,48 +353,12 @@ function EditTab({ customer, onSaved }) {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <Label>Country</Label>
-        <LocationSelect
-          control={control}
-          name="country_id" items={countries} idKey="country_id" labelKey="country_name"
-          placeholder="Select country" isLoading={countriesLoading}
-        />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label>State</Label>
-        <LocationSelect
-          control={control}
-          name="state_id" items={states} idKey="state_id" labelKey="state_name"
-          placeholder="Select state" disabled={!countryId} disabledPlaceholder="Select country first"
-          isLoading={statesLoading}
-        />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label>City</Label>
-        <LocationSelect
-          control={control}
-          name="city_id" items={cities} idKey="city_id" labelKey="city_name"
-          placeholder="Select city" disabled={!stateId} disabledPlaceholder="Select state first"
-          isLoading={citiesLoading}
-        />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="ep_pin">PIN Code</Label>
-        <Input id="ep_pin" type="text" inputMode="numeric" {...register('pin_code')} className="h-11" maxLength={6} />
-        {errors.pin_code && <p className="text-sm text-destructive">{errors.pin_code.message}</p>}
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label>Nationality <span className="text-muted-foreground text-xs">(optional)</span></Label>
-        {/* nationality_id is a country_id (confirmed live) — reuses the
-            same Country list loaded above. */}
-        <LocationSelect
-          control={control}
-          name="nationality_id" items={countries} idKey="country_id" labelKey="country_name"
-          placeholder="Select nationality" isLoading={countriesLoading}
+        <Label>PAN Document</Label>
+        <PanDocumentUpload
+          customerId={customer.customerId}
+          customerName={customer.customerName}
+          originalRaw={raw}
+          savedPath={customer.customerPanDocument}
         />
       </div>
 
@@ -394,7 +378,7 @@ function SchemesTab({ customerId }) {
   if (!enrollments.length) return <TabEmpty icon={BookOpen} label="No scheme enrollments." />;
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       {enrollments.map((e, idx) => (
         <div key={e.enrollmentId ?? idx} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5">
           <div className="min-w-0">
@@ -429,10 +413,6 @@ function SchemesTab({ customerId }) {
   );
 }
 
-// ── 360 Tab ───────────────────────────────────────────────────────────────────
-// Built 2026-08-12 — see useCustomer360.js for the three endpoints backing
-// this (PARTY.RETRIEVE, CUSTOMER_HISTORY.PARTY_TRANSACTIONS, .SALES_INSIGHTS),
-// all confirmed live against UAT with a real party_id before this was built.
 function InsightCard({ insight }) {
   const Icon = INSIGHT_ICON[insight.kind] ?? Info;
   const elevated = insight.severity === 'high' || insight.severity === 'critical';
@@ -490,7 +470,7 @@ function Customer360Tab({ customerId }) {
   return (
     <div className="flex flex-col gap-4">
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
         <div className="rounded-lg border border-border p-3">
           <p className="text-xs text-muted-foreground/70">Total Earnings</p>
           <p className="text-sm font-semibold text-status-in-stock mt-0.5">{fmt(totals.invoiceTotal)}</p>
@@ -536,7 +516,7 @@ function Customer360Tab({ customerId }) {
         {activeDocs.length === 0 ? (
           <TabEmpty icon={ClipboardList} label={`No ${activeLabel.toLowerCase()} records.`} />
         ) : (
-          <div className="flex flex-col gap-1.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
             {activeDocs.map((doc, idx) => (
               <DocumentRow key={doc.transaction_id ?? doc.document_id ?? idx} doc={doc} />
             ))}
@@ -547,38 +527,6 @@ function Customer360Tab({ customerId }) {
   );
 }
 
-// ── Points Tab ────────────────────────────────────────────────────────────────
-// ADDED 2026-09-08 — "Lucira Coins" (Nector's loyalty program, tied to the
-// Shopify storefront) shown ABOVE OrnaVerse's own native rewards points
-// below — two entirely separate programs, kept visually distinct rather
-// than merged into one number.
-//
-// FIXED 2026-09-08 — this used to require the profile being viewed to also
-// be the currently-ATTACHED session customer (gating the Nector lookup on
-// `session.customerId === customerId`), on the assumption that
-// Customer/Retrieve masks mobile and the session's own customerMobile
-// (captured from whatever staff typed into the mobile-search box) was the
-// only real number available. Re-checked live against LIVE 2026-09-08:
-// Customer/Retrieve does NOT mask mobile there (confirmed against several
-// unrelated party_ids, full 10-digit numbers came back, no asterisks) — the
-// masking CustomerSessionSheet's own "KNOWN LIMITATION" comment documents
-// is real, but was observed on a different environment/auth scope than
-// this LIVE service-account token uses. Now uses `customer.customerMobile`
-// — this exact profile's own retrieved mobile — directly, no masked-string
-// guard: OrnaVerse isn't masking, so there's nothing to defend against.
-//
-// FIXED AGAIN 2026-09-08 — even after the above, the card still never
-// rendered: PointsTab (below) used to also call OrnaVerse's own native
-// CRM/CustomerRewards endpoint (a completely different, since-confirmed-dead
-// system from Nector — see apiEndpoints.js's REWARDS comment) and returned
-// early whenever that call was still loading or had errored, with
-// LucraCoinsCard mounted AFTER that early return. So any customer where the
-// native-rewards call was slow or errored never got a chance to show Lucira
-// Coins either, regardless of Nector having a real balance for them.
-// LucraCoinsCard has always had its own independent loading state (see
-// useNectorLoyaltyPoints) — it doesn't need to wait on a different
-// endpoint's outcome. Moved above that early return so it always mounts and
-// fetches on its own.
 function LucraCoinsCard({ customerMobile }) {
   const { points, isFound, isLoading } = useNectorLoyaltyPoints(customerMobile, {
     enabled: !!customerMobile,
@@ -608,10 +556,6 @@ function LucraCoinsCard({ customerMobile }) {
   );
 }
 
-// This tab is Lucira Coins (Nector) only — OrnaVerse's own native
-// CRM/CustomerRewards points, which used to render below it, is a confirmed
-// dead end (see API.REWARDS's own comment in apiEndpoints.js). The hook
-// that called it (useCustomerLoyalty) has been deleted, not just unwired.
 function PointsTab({ customerMobile }) {
   return (
     <div className="flex flex-col gap-3">
@@ -621,24 +565,9 @@ function PointsTab({ customerMobile }) {
 }
 
 // ── Wishlist Tab ──────────────────────────────────────────────────────────────
-// Renders the exact catalog ProductCard component (2026-08-23) — same
-// reasoning as RecentlyViewedCarousel: reuse, not a look-alike, so stock
-// badges/star ratings/tap-to-navigate all come for free. A plain grid
-// rather than a carousel — this is a dedicated tab with room to show
-// everything at once, not a bottom-of-page strip fighting for space.
 function WishlistTab({ customerId, customerMobile }) {
   const { items, isLoading, isError } = useCustomerWishlist(customerId, customerMobile);
-
-  // Same live-pricing pipeline the catalog page uses — a wishlisted item's
-  // price is exactly as likely to have moved since it was saved as a
-  // recently-viewed one, so it gets the same "never trust a stored price"
-  // treatment (see useLiveCatalogPrices' own header for why).
   const { priceById, settledIds } = useLiveCatalogPrices(items);
-
-  // Real cross-store stock — nothing in the wishlist write path ever sets
-  // has_stock (see lib/mongo/wishlist.js), so there was never a real verdict
-  // here at all, only whatever the badge defaulted to. See
-  // useCrossStoreStockCodes' own header for the full story.
   const itemIds = useMemo(() => items.map((i) => i.item_id), [items]);
   const { stockByItemId, isLoading: stockLoading } = useCrossStoreStockCodes(itemIds);
 
@@ -647,15 +576,40 @@ function WishlistTab({ customerId, customerMobile }) {
   if (items.length === 0) return <TabEmpty icon={Heart} label="No wishlisted products yet." />;
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
       {items.map((item) => {
         const price = priceById.get(item.item_id) ?? null;
         const isPricing = price == null && !settledIds.has(item.item_id);
         return (
-          // item_size_id in the key too (2026-08-24) — the base design and a
-          // confirmed customization of the same item_id are now distinct
-          // wishlist entries that can coexist (see wishlistSlice's
-          // wishlistKey); item_id alone would collide once they do.
+          <ProductCard
+            key={`${item.item_id}-${item.item_size_id ?? 'base'}`}
+            product={{ ...item, price, is_pricing: isPricing }}
+            showStockBadge={!stockLoading}
+            realStock={stockByItemId.get(item.item_id) ?? null}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Recently Viewed Tab ───────────────────────────────────────────────────────
+function RecentlyViewedTab({ customerId, customerMobile }) {
+  const { items, isLoading, isError } = useCustomerRecentlyViewed(customerId, customerMobile);
+  const { priceById, settledIds } = useLiveCatalogPrices(items);
+  const itemIds = useMemo(() => items.map((i) => i.item_id), [items]);
+  const { stockByItemId, isLoading: stockLoading } = useCrossStoreStockCodes(itemIds);
+
+  if (isLoading) return <TabLoading label="Loading recently viewed…" />;
+  if (isError)   return <TabError label="Failed to load recently viewed products." />;
+  if (items.length === 0) return <TabEmpty icon={History} label="No recently viewed products yet." />;
+
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      {items.map((item) => {
+        const price = priceById.get(item.item_id) ?? null;
+        const isPricing = price == null && !settledIds.has(item.item_id);
+        return (
           <ProductCard
             key={`${item.item_id}-${item.item_size_id ?? 'base'}`}
             product={{ ...item, price, is_pricing: isPricing }}
@@ -674,28 +628,9 @@ export default function CustomerDetailPage() {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const partyId      = Number(params?.customerId);
-  // ROLLED BACK 2026-09-08 — the name-first URL (/customers/tahir-kutty-12345)
-  // was reverted (see git history for the removed slug/canonicalisation
-  // code): the profile stopped loading for the operator entirely. Reverted
-  // straight back to the bare-id route this file always had. The customer's
-  // NAME is still passed through, just via ?name= instead of the URL path
-  // — see fallbackCustomerName below — so the header/loading state can
-  // still show it immediately without needing the URL itself to carry it.
   const fallbackCustomerName = searchParams.get('name');
-
-  // Edit is admin-only (2026-09-28, explicit direction) — everyone else
-  // can create a customer but not edit an existing one. Enforced
-  // server-side too (see api/[...path]/route.js's ADMIN_ONLY_PATHS); this
-  // is the matching UI gate.
   const isSuperAdmin = useSelector(selectIsSuperAdmin);
   const visibleTabs = isSuperAdmin ? TABS : TABS.filter((t) => t !== 'edit');
-
-  // Default to Edit tab so staff can immediately update details — unless
-  // arrived via a deep link (e.g. CustomerDetailSheet's "Customer 360"
-  // button, ?tab=360), in which case honor that instead, or the operator
-  // isn't an admin (falls back to Profile). Read once at mount (useState
-  // initializer), not synced afterward — same one-shot pattern as any
-  // other query-param-seeded initial state in this app.
   const [activeTab, setActiveTab] = useState(() => {
     const requested = searchParams.get('tab');
     if (requested && visibleTabs.includes(requested)) return requested;
@@ -711,28 +646,7 @@ export default function CustomerDetailPage() {
   };
 
   return (
-    <div className="p-4 pb-8 flex flex-col gap-4 max-w-3xl mx-auto w-full">
-
-      {/* <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={() => router.push('/customers')}
-          aria-label="Back to customers"
-          className="h-9 w-9 -ml-2 shrink-0"
-        >
-          <ArrowLeft size={18} aria-hidden="true" />
-        </Button>
-        <h1 className="text-base font-bold text-foreground truncate">
-          {customer?.customerName ?? 'Customer Profile'}
-        </h1>
-      </div> */}
-
-      {/* fallbackCustomerName (2026-09-08) — passed via ?name= by whichever
-          link brought the operator here (see CustomerDetailSheet/
-          CustomerSessionSheet), so the loading state can show WHO instead
-          of a bare spinner while useRetrieveCustomer is still in flight. */}
+    <div className="p-4 pb-8 flex flex-col gap-4 w-full">
       {isLoading && (
         <InlineLoader
           className="py-16"
@@ -772,19 +686,7 @@ export default function CustomerDetailPage() {
               )}
             </div>
           </div>
-
           
-
-          {/* Tab bar — variant="chip" made explicit 2026-08-24. This was
-              relying on PillTabs' default ('pill'), which used to look
-              close enough to 'chip' by coincidence (both were content-
-              hugging separate pills). 'pill' is now a full-width segmented
-              control instead (see PillTabs' own header comment) — right
-              for a 2-3-option toggle, wrong for these 6 scrollable tabs,
-              which stretched into evenly-spaced, oddly-gapped pills once
-              'pill' started spanning the full row. 'chip' is what this
-              always actually was: a compact, scrollable, content-hugging
-              strip. */}
           <PillTabs
             tabs={visibleTabs}
             value={activeTab}
@@ -796,13 +698,18 @@ export default function CustomerDetailPage() {
             className="-mx-1 px-1"
           />
 
-          <div>
+          {/* Text/form tabs stay a readable max-width even on a wide screen;
+              the two product-grid tabs (Wishlist/Recently Viewed) use the
+              full card width instead — same "don't waste space" fix as the
+              invoices/orders/customers list pages. */}
+          <div className={TEXT_TABS.includes(activeTab) ? 'max-w-full w-full' : 'w-full'}>
             {activeTab === 'profile' && <ProfileTab customer={customer} />}
             {activeTab === 'edit'    && isSuperAdmin && <EditTab customer={customer} onSaved={handleSaved} />}
             {activeTab === 'schemes' && <SchemesTab customerId={customer.customerId} />}
             {activeTab === 'points'  && <PointsTab customerMobile={customer.customerMobile} />}
             {activeTab === '360'     && <Customer360Tab customerId={customer.customerId} />}
             {activeTab === 'wishlist' && <WishlistTab customerId={customer.customerId} customerMobile={customer.customerMobile} />}
+            {activeTab === 'RecentlyViewed' && <RecentlyViewedTab customerId={customer.customerId} customerMobile={customer.customerMobile} />}
           </div>
 
         </div>

@@ -3,7 +3,7 @@
 // Applied-promo-code pill with a remove action, shown on cart and
 // checkout screens.
 
-import { Tag, X } from 'lucide-react';
+import { CheckCircle2, Tag, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -27,13 +27,14 @@ export default function AppliedPromoTag({ promoCode, promoName, discountAmount, 
   if (!promoCode) return null;
 
   const tone = hasEffect
-    ? { bg: 'bg-status-in-stock/10', text: 'text-status-in-stock' }
-    : { bg: 'bg-muted', text: 'text-muted-foreground' };
+    ? { bg: 'bg-status-in-stock/10', text: 'text-status-in-stock', border: 'border-status-in-stock/20' }
+    : { bg: 'bg-muted', text: 'text-muted-foreground', border: 'border-border' };
+  const Icon = hasEffect ? CheckCircle2 : Tag;
 
   return (
-    <div className={cn('flex items-center justify-between gap-2 rounded-lg px-3 py-2.5', tone.bg, className)}>
+    <div className={cn('flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5 shadow-xs', tone.bg, tone.border, className)}>
       <div className="flex items-center gap-2 min-w-0">
-        <Tag size={16} className={cn(tone.text, 'shrink-0')} aria-hidden="true" />
+        <Icon size={16} className={cn(tone.text, 'shrink-0')} aria-hidden="true" />
         <div className="min-w-0">
           <p className={cn('text-sm font-semibold truncate', tone.text)}>
             {promoName || promoCode} applied

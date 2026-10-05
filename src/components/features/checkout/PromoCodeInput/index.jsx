@@ -1,11 +1,5 @@
 'use client';
 
-// "Enter Promo" trigger — opens a sheet (same pattern as PromoCodeSheet's
-// "View available offers") to type a code + optional Override Amount,
-// instead of always showing the code/amount inputs inline on the checkout
-// page — reported directly: wanted it collapsed behind a button, matching
-// the Available Offers sheet's own look.
-
 import { useState } from 'react';
 import { Loader2, Tag } from 'lucide-react';
 import BottomSheet from '@/components/shared/BottomSheet';
@@ -20,21 +14,6 @@ import { Button } from '@/components/ui/button';
  *   disabledHint?: string,
  *   triggerClassName?: string,
  * }} props
- *   disabled/disabledHint — kept disabled (rather than left to fail after
- *   the click) while the basket hasn't finished pricing yet, since a
- *   code's real eligibility can't be checked until then (usePromoValidation).
- *
- *   Override Amount — matches OrnaVerse's own "Enter Promo" dialog field
- *   (confirmed live 2026-09-30, same placeholder/helper copy): replaces this
- *   promotion's own Net/Gross-calculated discount with a final-bill
- *   reduction the operator types directly. Only sent alongside a real code.
- *   No local cap — the server enforces the promotion's own tiered
- *   promotion_rules[] bracket caps and clamps silently if exceeded (verified
- *   live), so this app doesn't second-guess that with its own limit.
- *
- *   triggerClassName - wraps the trigger button + disabled hint (kept
- *   together in their own container, not a bare fragment) so DiscountSection
- *   can sit this as one flex item next to PromoCodeSheet's own trigger.
  */
 export default function PromoCodeInput({
   onApply, isValidating, disabled = false, disabledHint, triggerClassName = 'w-full',
@@ -55,9 +34,6 @@ export default function PromoCodeInput({
     setOpen(next);
   };
 
-  // Closes immediately on click, same fire-and-forget pattern as
-  // PromoCodeSheet's "Apply Selected" — usePromoValidation reports the
-  // outcome (success/failure) via toast once the check comes back.
   const handleApply = () => {
     const trimmed = code.trim().toUpperCase();
     if (!trimmed || isDisabled) return;
@@ -81,9 +57,9 @@ export default function PromoCodeInput({
         variant="outline"
         onClick={() => setOpen(true)}
         disabled={isDisabled}
-        className="h-auto min-h-9 w-full justify-center gap-2 whitespace-normal py-2 text-center text-xs font-semibold leading-tight bg-secondary sm:text-sm"
+        className="h-auto min-h-9 w-full justify-center gap-2 whitespace-normal py-2 text-center text-xs font-semibold leading-tight border-accent/40 bg-accent/5 hover:border-accent hover:bg-accent/10 sm:text-sm"
       >
-        <Tag className="size-4 shrink-0" aria-hidden="true" />
+        <Tag className="size-4 shrink-0 text-accent" aria-hidden="true" />
         Enter Promo
       </Button>
       {disabled && disabledHint && (

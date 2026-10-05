@@ -1,17 +1,9 @@
 'use client';
 
-// Custom Estimate — a bespoke line-item builder (metal + stones + optional
-// labour) whose only output is one fully-priced line fed into a normal POS
-// Order Create. Self-contained flow, not routed through the shared product
-// cart/checkout pipeline — same pattern as transactions/page.jsx's
-// SoldItemFlowForm / repairService.js's Repair Order / URD Purchase in this
-// same app. See customEstimateService.js for the full confirmed-live
-// contract this implements.
-
 import { useState } from 'react';
 import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
-import { Plus, X, AlertTriangle } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 
 import { useCustomEstimateItems, useItemSizesByType, useStoneTypeDetails } from '@/hooks/estimation/useCustomEstimate';
 import { useItemGroups } from '@/hooks/catalog/useCategoryFilters';
@@ -53,10 +45,6 @@ function FormField({ label, required, children }) {
   );
 }
 
-// Thin shared wrapper — every dropdown in this form (Item, Item size, and
-// the four stone-table lookups) is the same shadcn Select/Trigger/Content
-// triple with a different options list, so it's factored once here instead
-// of repeated six times.
 function PickerSelect({ value, onChange, placeholder, options, getValue, getLabel, disabled }) {
   return (
     <Select value={value != null && value !== '' ? String(value) : ''} onValueChange={onChange} disabled={disabled}>
@@ -81,9 +69,6 @@ function Section({ title, children }) {
   );
 }
 
-// CONFIRMED LIVE 2026-10-02 only for Diamond (item_group_id 112) — Color
-// Stone (113) / Cubic Zirconia (114) would each need their own live capture
-// of base_item_id/sales_costing_id/purchase_costing_id before being wired.
 const STONE_COSTING_DEFAULTS = {
   112: { baseItemId: 13, salesCostingId: 10, purchaseCostingId: 10 },
 };
@@ -112,6 +97,7 @@ export default function CustomEstimateForm({ onDone }) {
   const [sizeId, setSizeId]             = useState('');
   const [weight, setWeight]             = useState('');
   const [baseRow, setBaseRow]           = useState(null);
+  const [taxTemplate, setTaxTemplate]   = useState(null);
   const [isPricingItem, setIsPricingItem] = useState(false);
   const { sizes } = useItemSizesByType(selectedItem?.type_id);
 
@@ -137,11 +123,13 @@ export default function CustomEstimateForm({ onDone }) {
     setLabourProposal(null);
     setAppliedLabour(null);
     setBaseRow(null);
+    setTaxTemplate(null);
     setIsPricingItem(true);
     try {
       const [priced] = await calculateItemRates([item], APP_CONFIG.DOCUMENT_TYPES.POS_ORDER);
       if (!priced) throw new Error('Could not price this item.');
       setBaseRow(priced);
+      setTaxTemplate(priced.item_taxes ?? []);
     } catch (err) {
       toast.error(getErrorMessage(err));
       setSelectedItem(null);
@@ -149,11 +137,7 @@ export default function CustomEstimateForm({ onDone }) {
       setIsPricingItem(false);
     }
   };
-
-  // Weight edits recompute pure_weight/amount CLIENT-SIDE only — CONFIRMED
-  // LIVE: OrnaVerse's own screen fires no network call when Weight changes
-  // (same pattern as URD Purchase's Metal category — see
-  // returnItemsService.calculateURDItems's own header for the precedent).
+  
   const metalComponent = baseRow?.item_components?.[0] ?? null;
   const purity    = metalComponent?.purity ?? 0;
   const metalRate = metalComponent?.rate ?? 0;
@@ -164,6 +148,14 @@ export default function CustomEstimateForm({ onDone }) {
   const stonesTotal  = +stones.reduce((s, row) => s + (row.amount || 0), 0).toFixed(2);
   const labourAmount = appliedLabour ? +appliedLabour.reduce((s, op) => s + (op.amount || 0), 0).toFixed(2) : 0;
   const subTotal  = +(metalAmount + stonesTotal + labourAmount).toFixed(2);
+  const diamondStones = stones.filter((s) => s.itemGroupId === 112);
+  const otherStones    = stones.filter((s) => s.itemGroupId !== 112);
+  const diamondAmount = +diamondStones.reduce((s, r) => s + (r.amount || 0), 0).toFixed(2);
+  const diamondPieces = diamondStones.reduce((s, r) => s + (r.pieces || 0), 0);
+  const diamondWeight = +diamondStones.reduce((s, r) => s + (r.weight || 0), 0).toFixed(3);
+  const stoneAmount   = +otherStones.reduce((s, r) => s + (r.amount || 0), 0).toFixed(2);
+  const stonePieces   = otherStones.reduce((s, r) => s + (r.pieces || 0), 0);
+  const stoneWeight   = +otherStones.reduce((s, r) => s + (r.weight || 0), 0).toFixed(3);
   const taxAmount = +(subTotal * APP_CONFIG.TAX.GST_RATE).toFixed(2);
   const netAmount = +(subTotal + taxAmount).toFixed(2);
 
@@ -194,6 +186,7 @@ export default function CustomEstimateForm({ onDone }) {
         itemGroupId: Number(itemGroupId), shapeId: Number(shapeId),
         stoneColorId: Number(stoneColorId), qualityId: Number(qualityId), typeId: Number(typeId),
         pieces: Number(pieces) || 1, weight: Number(stoneWeight), rate: rate || 0, amount,
+        baseItemId: defaults.baseItemId, salesCostingId: defaults.salesCostingId, purchaseCostingId: defaults.purchaseCostingId,
         itemGroupName: stoneItemGroups.find((g) => g.item_group_id === Number(itemGroupId))?.item_group_name,
         shapeName:   shapeOptions.find((o) => o.value === Number(shapeId))?.label,
         colorName:   colorOptions.find((o) => o.value === Number(stoneColorId))?.label,
@@ -274,6 +267,12 @@ export default function CustomEstimateForm({ onDone }) {
     setIsSubmitting(true);
     try {
       const chosenSize = sizes.find((s) => s.item_size_id === Number(sizeId));
+      const rebuiltItemTaxes = taxTemplate?.length
+        ? taxTemplate.map((t) => {
+            const rowTax = +(taxAmount / taxTemplate.length).toFixed(2);
+            return { ...t, taxable_amount: subTotal, tax_amount: rowTax, base_tax_amount: rowTax };
+          })
+        : [];
       const lineItem = {
         ...baseRow,
         weight: weightNum,
@@ -291,19 +290,31 @@ export default function CustomEstimateForm({ onDone }) {
         item_components: [
           { ...metalComponent, weight: weightNum, pure_weight: pureWeight, amount: metalAmount, base_amount: metalAmount },
           ...stones.map((s) => ({
-            item_group_id: s.itemGroupId, shape_id: s.shapeId, stone_color_id: s.stoneColorId,
-            quality_id: s.qualityId, type_id: s.typeId, pieces: s.pieces, weight: s.weight,
+            item_id: selectedItem.item_id, rm_id: 0, rm_attribute_id: 0, setting_id: 0,
+            stone_status_id: 1, certificate_no: '', pieces: s.pieces, weight: s.weight,
+            uoc_id: 4, uom_id: 7, purity: 0, pure_weight: s.weight,
             rate: s.rate, amount: s.amount, base_amount: s.amount,
+            markup: 0, pointer_weight: 0, parts: 0, discount: 0, discount_percent: 0,
+            is_center_stone: false, base_item_id: s.baseItemId,
+            metal_id: 0, metal_name: 'NA', metal_code: 'NA', karat_id: 0,
+            item_group_id: s.itemGroupId, type_id: s.typeId, sub_type_id: 0, metal_color_id: 0,
+            attribute: '', item_code: '', is_customer_item: false,
+            sales_costing_id: s.salesCostingId, purchase_costing_id: s.purchaseCostingId,
+            is_configurable: false,
+            shape_id: s.shapeId, stone_color_id: s.stoneColorId, quality_id: s.qualityId,
           })),
         ],
-        // CONFIRMED LIVE 2026-10-02: baseRow's own item_operations came back
-        // empty from applyLabourToLine's re-priced response even though the
-        // labour amount was correctly folded into its rate/amount — without
-        // this explicit override, sub_total/net_amount above would declare a
-        // labour charge with no operation row backing it, which 500'd
-        // Order/Create (declared totals not reconciling against components +
-        // operations).
+        
         item_operations: appliedLabour ?? [],
+        item_taxes: rebuiltItemTaxes,
+        metal_amount: metalAmount,
+        diamond_amount: diamondAmount,
+        diamond_pieces: diamondPieces,
+        diamond_weight: diamondWeight,
+        stone_amount: stoneAmount,
+        stone_pieces: stonePieces,
+        stone_weight: stoneWeight,
+        item_labour: labourAmount,
       };
 
       const createRes = await createOrder({
@@ -475,13 +486,6 @@ export default function CustomEstimateForm({ onDone }) {
               <Button type="button" variant="outline" size="sm" disabled={isLabourBusy} onClick={handleProposeLabour} className="self-start">
                 {isLabourBusy ? 'Checking…' : 'Apply labour'}
               </Button>
-            )}
-            {appliedLabour && (
-              <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                <AlertTriangle size={13} className="shrink-0 mt-0.5 text-status-made-order" aria-hidden="true" />
-                Placing the order with labour attached is known to fail on OrnaVerse&apos;s own UAT tenant right now
-                (a data inconsistency in the labour rate it returns) — not something wrong with what you entered.
-              </p>
             )}
           </Section>
 
