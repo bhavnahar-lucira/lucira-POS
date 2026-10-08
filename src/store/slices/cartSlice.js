@@ -226,6 +226,20 @@ const cartSlice = createSlice({
       recalculateTotals(state);
     },
 
+    // Auto-alignment only — see DiscountSection's gold-coin quantity-discovery
+    // effect for the full mechanism. Matches on freeGiftPromoCode (not
+    // itemId/sizeId/styleId like updateQuantity) since that's the one field
+    // that unambiguously identifies THE free-gift line this promo added, even
+    // if the same item also exists elsewhere in the cart as a normal paid line.
+    setFreeGiftQuantity: (state, action) => {
+      const { promoCode, quantity } = action.payload;
+      if (!(quantity > 0)) return;
+      const item = state.items.find((i) => i.freeGiftPromoCode === promoCode);
+      if (!item) return;
+      item.quantity = quantity;
+      recalculateTotals(state);
+    },
+
     removePromo: (state, action) => {
       const promoCode = action.payload;
       state.appliedPromos = state.appliedPromos.filter((p) => p.promoCode !== promoCode);
@@ -332,6 +346,7 @@ export const {
   attachCustomer,
   detachCustomer,
   applyPromo,
+  setFreeGiftQuantity,
   removePromo,
   clearCart,
   clearCartKeepCustomer,

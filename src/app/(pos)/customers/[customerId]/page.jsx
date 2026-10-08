@@ -10,8 +10,14 @@ import {
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useSelector } from 'react-redux';
+import { useQuery } from '@tanstack/react-query';
 import PhoneNumberField from '@/components/shared/PhoneNumberField';
 import { selectIsSuperAdmin } from '@/store/slices/authSlice';
+import { selectActiveStoreId } from '@/store/slices/storeSlice';
+import { getLoyaltyCheckoutSettings } from '@/services/nectorService';
+import { isThirdPartyLoyalty } from '@/lib/checkout/loyaltyEligibility';
+import { useNectorCheckoutInfo } from '@/hooks/checkout/useNectorCheckoutInfo';
+import { QUERY_KEYS } from '@/constants/queryKeys';
 
 import { Button }   from '@/components/ui/button';
 import { Input }    from '@/components/ui/input';
@@ -28,7 +34,6 @@ import { storedValueToPhone }     from '@/lib/normalizers/customer';
 import { useRetrieveCustomer }    from '@/hooks/customer/useRetrieveCustomer';
 import { useUpdateCustomer }      from '@/hooks/customer/useUpdateCustomer';
 import { useCustomerEnrollments } from '@/hooks/customer/useCustomerEnrollments';
-import { useNectorLoyaltyPoints } from '@/hooks/customer/useNectorLoyaltyPoints';
 import { useCustomer360 }         from '@/hooks/customer/useCustomer360';
 import { useCustomerWishlist }    from '@/hooks/customer/useCustomerWishlist';
 import { useCustomerRecentlyViewed } from '@/hooks/customer/useCustomerRecentlyViewed';
@@ -513,10 +518,52 @@ function Customer360Tab({ customerId }) {
   );
 }
 
-function LucraCoinsCard({ customerMobile }) {
-  const { points, isFound, isLoading } = useNectorLoyaltyPoints(customerMobile, {
-    enabled: !!customerMobile,
+// A large, safely-above-threshold synthetic cart — never submitted as a real
+// document (Preview only ever quotes, it doesn't redeem; redemption happens
+// when a real receipt row is later posted, see nectorService.js's own
+// header), just enough to clear any tenant's configured min_invoice_value so
+// the real available balance comes back instead of an eligibility
+// rejection. Confirmed live 2026-10-08 against a real customer: coin_value
+// came back identical (1100) for a probe of 50,000 and of 500,000 — Preview
+// reflects the stored balance once the gate clears, it doesn't scale with
+// cart size.
+const LOYALTY_PROBE_AMOUNT = 1000000;
+
+// Same hook, same two endpoints (GetSettings + Preview) checkout's own
+// Nector Loyalty tile calls — reported directly (2026-10-08): this card used
+// to read a completely different, unrelated upstream (the Shopify storefront
+// webhook) and showed 0 for a customer checkout then showed 500 for. Pointing
+// both at the one real OrnaVerse-native source closes that gap at the root,
+// not just here — whatever checkout would quote is exactly what this shows.
+function LucraCoinsCard({ customerMobile, customerId }) {
+  const activeStoreId = useSelector(selectActiveStoreId);
+
+  const { data: loyaltySettings } = useQuery({
+    queryKey: QUERY_KEYS.NECTOR.LOYALTY_CHECKOUT_SETTINGS(activeStoreId),
+    queryFn: () => getLoyaltyCheckoutSettings(activeStoreId),
+    enabled: !!activeStoreId,
+    staleTime: 5 * 60 * 1000, // near-static, same as checkout's own settings query
   });
+  const isThirdParty = isThirdPartyLoyalty(loyaltySettings);
+  const probeItemGroup = loyaltySettings?.item_groups?.[0] ?? null;
+
+  const { promotion, isLoading } = useNectorCheckoutInfo(
+    {
+      mobile: customerMobile,
+      companyId: activeStoreId,
+      partyId: customerId,
+      netAmount: LOYALTY_PROBE_AMOUNT,
+      remainingDue: LOYALTY_PROBE_AMOUNT,
+      lineItems: probeItemGroup != null
+        ? [{ item_group_id: probeItemGroup, taxable_amount: LOYALTY_PROBE_AMOUNT }]
+        : [],
+    },
+    { enabled: !!customerMobile && !!customerId && !!activeStoreId && !!loyaltySettings && isThirdParty }
+  );
+
+  const points = promotion?.coin_value ?? 0;
+  const notConfigured = !!loyaltySettings && !isThirdParty;
+  const settingsLoading = !!activeStoreId && loyaltySettings === undefined;
 
   return (
     <div className="rounded-xl border border-border bg-gradient-to-br from-amber-50 to-card p-4 flex flex-col gap-3">
@@ -528,24 +575,24 @@ function LucraCoinsCard({ customerMobile }) {
         <div className="flex items-center gap-1.5 rounded-full bg-card border border-border px-3 py-1.5 shrink-0">
           <Coins size={16} className="text-amber-500" aria-hidden="true" />
           <span className="text-base font-bold text-foreground tabular-nums">
-            {!customerMobile || isLoading ? '—' : points.toLocaleString('en-IN')}
+            {!customerMobile || settingsLoading || isLoading ? '—' : points.toLocaleString('en-IN')}
           </span>
         </div>
       </div>
       {!customerMobile && (
         <p className="text-xs text-muted-foreground">No mobile number on file for this customer.</p>
       )}
-      {customerMobile && !isLoading && !isFound && (
-        <p className="text-xs text-muted-foreground">Not enrolled in Lucira Coins yet.</p>
+      {customerMobile && notConfigured && (
+        <p className="text-xs text-muted-foreground">Loyalty points aren&apos;t configured for this store.</p>
       )}
     </div>
   );
 }
 
-function PointsTab({ customerMobile }) {
+function PointsTab({ customerMobile, customerId }) {
   return (
     <div className="flex flex-col gap-3">
-      <LucraCoinsCard customerMobile={customerMobile} />
+      <LucraCoinsCard customerMobile={customerMobile} customerId={customerId} />
     </div>
   );
 }
@@ -616,7 +663,7 @@ export default function CustomerDetailPage() {
   const partyId      = Number(params?.customerId);
   const fallbackCustomerName = searchParams.get('name');
   const isSuperAdmin = useSelector(selectIsSuperAdmin);
-  const visibleTabs = isSuperAdmin ? TABS : TABS.filter((t) => t !== 'edit');
+  const visibleTabs = isSuperAdmin ? TABS : TABS.filter((t) => t !== 'edit' && t !== '360');
   const [activeTab, setActiveTab] = useState(() => {
     const requested = searchParams.get('tab');
     if (requested && visibleTabs.includes(requested)) return requested;
@@ -687,8 +734,8 @@ export default function CustomerDetailPage() {
             {activeTab === 'profile' && <ProfileTab customer={customer} />}
             {activeTab === 'edit'    && isSuperAdmin && <EditTab customer={customer} onSaved={handleSaved} />}
             {activeTab === 'schemes' && <SchemesTab customerId={customer.customerId} />}
-            {activeTab === 'points'  && <PointsTab customerMobile={customer.customerMobile} />}
-            {activeTab === '360'     && <Customer360Tab customerId={customer.customerId} />}
+            {activeTab === 'points'  && <PointsTab customerMobile={customer.customerMobile} customerId={customer.customerId} />}
+            {activeTab === '360'     && isSuperAdmin && <Customer360Tab customerId={customer.customerId} />}
             {activeTab === 'wishlist' && <WishlistTab customerId={customer.customerId} customerMobile={customer.customerMobile} />}
             {activeTab === 'RecentlyViewed' && <RecentlyViewedTab customerId={customer.customerId} customerMobile={customer.customerMobile} />}
           </div>

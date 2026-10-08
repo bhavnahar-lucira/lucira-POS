@@ -39,6 +39,26 @@ export async function getFeaturedItems() {
 }
 
 /**
+ * A small, stable, tenant-wide sample of real items — used ONLY to pick
+ * pricing-epoch canaries from (see hooks/catalog/usePricingEpoch.js).
+ * Deliberately carries NO search/filter/store params: canary selection must
+ * land on the exact same items no matter which catalog view (or store)
+ * happens to trigger it first, or two different filtered views compute
+ * different epoch strings for the identical real-world rate — confirmed
+ * live 2026-10-07 (switching to a filtered/sorted view picked a different
+ * representative item per karat than the plain catalog had, producing a
+ * different epoch for no real pricing reason, and defeating cross-session
+ * cache sharing for exactly that reason). Sorted by item_id so selection is
+ * reproducible across requests even if the API's own ordering isn't.
+ * @returns {Promise<object[]>} ItemsRow[], sorted by item_id ascending
+ */
+export async function getCanaryCandidatePool() {
+  const response = await axiosInstance.post(API.ITEMS.LIST, { Take: 100 });
+  const entities = response.data?.Entities ?? [];
+  return [...entities].sort((a, b) => a.item_id - b.item_id);
+}
+
+/**
  * Fetches new-arrival items from the master items list.
  * @returns {Promise<object>} { Entities: ItemsRow[] }
  */

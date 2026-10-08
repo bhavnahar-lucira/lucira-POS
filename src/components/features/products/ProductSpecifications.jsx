@@ -338,22 +338,26 @@ export default function ProductSpecifications({ product, pricedItem = null }) {
     ?? (product.purity && product.purity !== 0 ? String(product.purity) : null);
   const metalColor  = val(product.metal_color_name);
   const metalType   = val(product.metal_name);
-  const netWeight   = formatWeight(product.net_weight);
+  const netWeight   = formatWeight(pricedItem?.net_weight ?? product.net_weight);
 
   const height        = formatDimension(product.height);
   const width         = formatDimension(product.width);
   const depth         = formatDimension(product.depth);
   const length         = formatDimension(product.length);
-  const grossWeight   = formatWeight(product.weight);
-  const stoneWeight   = formatWeight(product.stone_weight);
-  const diamondWeight = formatWeight(product.diamond_weight);
-  const pointerCt     = formatCarats(product.pointer_weight);
+  const grossWeight   = formatWeight(pricedItem?.weight ?? product.weight);
+  const stoneWeight   = formatWeight(pricedItem?.stone_weight ?? product.stone_weight);
+  const diamondWeight = formatWeight(pricedItem?.diamond_weight ?? product.diamond_weight);
+  const pointerCt     = formatCarats(pricedItem?.pointer_weight ?? product.pointer_weight);
 
-  const diamondPieces    = product.diamond_pieces      > 0 ? String(product.diamond_pieces)     : null;
-  const diamondCarats    = formatCarats(product.diamond_weight);
-  const stonePieces      = product.stone_pieces        > 0 ? String(product.stone_pieces)       : null;
-  const otherPieces      = product.other_pieces        > 0 ? String(product.other_pieces)       : null;
-  const otherWeight      = formatWeight(product.other_weight);
+  const diamondPiecesRaw = pricedItem?.diamond_pieces ?? product.diamond_pieces;
+  const diamondWeightRaw = pricedItem?.diamond_weight ?? product.diamond_weight;
+  const diamondPieces    = diamondPiecesRaw > 0 ? String(diamondPiecesRaw) : null;
+  const diamondCarats    = formatCarats(diamondWeightRaw);
+  const stonePiecesRaw   = pricedItem?.stone_pieces ?? product.stone_pieces;
+  const otherPiecesRaw   = pricedItem?.other_pieces ?? product.other_pieces;
+  const stonePieces      = stonePiecesRaw > 0 ? String(stonePiecesRaw) : null;
+  const otherPieces      = otherPiecesRaw > 0 ? String(otherPiecesRaw) : null;
+  const otherWeight      = formatWeight(pricedItem?.other_weight ?? product.other_weight);
 
   // Gemstone/Diamond cards — see the JSDoc above for why pricedItem is preferred.
   const masterComponents = product.item_components ?? product.components ?? [];

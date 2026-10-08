@@ -42,6 +42,12 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
   });
   const walkIn = useWalkInLookup();
   const walkInKnown = walkIn.result?.found ? walkIn.result.customer : null;
+  // Server dedupes to one walk-in per customer per 4 hours — a found
+  // customer very often means no NEW visit got recorded this time.
+  // CONFIRMED LIVE 2026-10-08: must reflect that, not always say "recorded".
+  const walkInStatusText = walkIn.result?.walkInRecorded
+    ? 'Visit recorded'
+    : (walkIn.result?.message ?? 'Already visited recently');
   const { results: nameResults, isLoading: isNameSearching } = useCustomerSearch(trimmed, {
     enabled: isNameSearch,
   });
@@ -81,6 +87,13 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
       session.detach();
     }
     session.attach(customerToAttach, options);
+    // The single point a customer actually becomes "the one in the
+    // session" — recording here (not just on search keystrokes) covers
+    // every attach path, including a freshly-created customer, which
+    // otherwise never recorded a visit at all.
+    if (customerToAttach.customerMobile) {
+      walkIn.lookup(customerToAttach.customerMobile);
+    }
     handleClose();
   };
 
@@ -148,7 +161,7 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
             <div className="flex flex-col gap-3">
               {walkInKnown && (
                 <p className="text-xs text-muted-foreground">
-                  Visit recorded{walkInKnown.name ? ` — welcome back, ${walkInKnown.name}` : ' — welcome back'}.
+                  {walkInStatusText}{walkInKnown.name ? ` — welcome back, ${walkInKnown.name}` : ' — welcome back'}.
                 </p>
               )}
               <CustomerDisplayCard customer={customer} />
@@ -214,7 +227,7 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
               )}
               {walkInKnown && (
                 <p className="text-xs text-muted-foreground">
-                  Visit recorded{walkInKnown.name ? ` — welcome back, ${walkInKnown.name}` : ' — welcome back'}.
+                  {walkInStatusText}{walkInKnown.name ? ` — welcome back, ${walkInKnown.name}` : ' — welcome back'}.
                 </p>
               )}
               <CustomerDisplayCard customer={customer} />

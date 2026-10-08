@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import {
@@ -9,6 +10,17 @@ import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import { useCart } from '@/hooks/cart/useCart';
 import { roundToNearestRupee } from '@/lib/priceUtils';
 import APP_CONFIG from '@/constants/appConfig';
+
+// Quantity-stepper clicks update Redux (and so `items`) on every single click,
+// with nothing to stop N rapid clicks from firing N full re-pricing passes —
+// each one a real StockJournal/SetSalesItems/ApplyPromotions round trip, all
+// racing. Reported directly (2026-10-08): bumping a gold-coin line's quantity
+// from 1 to 25 queued ~15 overlapping passes, and briefly rendered as if the
+// cart had fallen to Made-to-Order (no SKUs, discount gone, promo-removal
+// toasts) before the final pass settled — not a pricing or promotion bug, a
+// thundering-herd one. Debouncing `items` so only the quiet-period-final
+// quantity ever reaches the query closes it at the root.
+const DEBOUNCE_MS = 400;
 
 function summarizeGroup(lineItems) {
   const totals = summarizeLineItems(lineItems);
@@ -34,16 +46,25 @@ function summarizeGroup(lineItems) {
 export function useCheckoutPricing() {
   const { items, appliedPromos } = useCart();
   const activeStoreId = useSelector(selectActiveStoreId);
-  const cartKey  = items.map((i) => `${i.itemId}x${i.quantity}`).join('|');
+
+  const [debouncedItems, setDebouncedItems] = useState(items);
+  const debounceRef = useRef(null);
+  useEffect(() => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedItems(items), DEBOUNCE_MS);
+    return () => clearTimeout(debounceRef.current);
+  }, [items]);
+
+  const cartKey  = debouncedItems.map((i) => `${i.itemId}x${i.quantity}`).join('|');
   const promoKey = appliedPromos.map((p) => `${p.promoCode}:${p.overrideAmount ?? ''}`).join('|');
 
   const query = useQuery({
     queryKey: ['checkout-pricing', activeStoreId, cartKey, promoKey],
-    enabled:  items.length > 0 && !!activeStoreId,
+    enabled:  debouncedItems.length > 0 && !!activeStoreId,
     staleTime: 5 * 60 * 1000,
     retry: false,
     queryFn: async () => {
-      const split = await buildPricedLineItems({ items, activeStoreId });
+      const split = await buildPricedLineItems({ items: debouncedItems, activeStoreId });
 
       const [invoicePromoted, orderPromoted] = await Promise.all([
         split.invoice

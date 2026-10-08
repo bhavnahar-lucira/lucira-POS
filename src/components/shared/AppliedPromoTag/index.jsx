@@ -22,27 +22,21 @@ export default function AppliedPromoTag({ promoCode, promoName, discountAmount, 
   const Icon = hasEffect ? CheckCircle2 : Tag;
 
   return (
-    <div className={cn('flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5 shadow-xs', tone.bg, tone.border, className)}>
-      <div className="flex items-center gap-2 min-w-0">
-        <Icon size={16} className={cn(tone.text, 'shrink-0')} aria-hidden="true" />
-        <div className="min-w-0">
-          <p className={cn('text-sm font-semibold truncate', tone.text)}>
-            {promoName || promoCode} applied
-          </p>
-          {discountAmount > 0 && (
-            <p className={cn('text-xs', tone.text)}>
-              You saved ₹{discountAmount.toLocaleString('en-IN')}
-            </p>
-          )}
-        </div>
-      </div>
+    <div className={cn('flex items-center gap-1.5 rounded-sm border pl-2.5 pr-1 py-1 shadow-xs', tone.bg, tone.border, className)}>
+      <Icon size={13} className={cn(tone.text, 'shrink-0')} aria-hidden="true" />
+      <p className={cn('text-xs font-semibold truncate min-w-0', tone.text)}>
+        {promoName || promoCode}
+        {discountAmount > 0 && (
+          <span className="font-normal opacity-80"> · Saved ₹{discountAmount.toLocaleString('en-IN')}</span>
+        )}
+      </p>
       <button
         type="button"
         onClick={onRemove}
         aria-label={`Remove promo code ${promoCode}`}
-        className="shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+        className={cn('shrink-0 ml-auto flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:text-destructive hover:bg-destructive/10', tone.text)}
       >
-        <X size={16} aria-hidden="true" />
+        <X size={13} aria-hidden="true" />
       </button>
     </div>
   );

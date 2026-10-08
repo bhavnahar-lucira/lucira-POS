@@ -3,13 +3,15 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { Trash2, Coins, Store, ChevronDown } from 'lucide-react';
+import { useSelector } from 'react-redux';
+import { Trash2, Coins, Store, ChevronDown, Loader2 } from 'lucide-react';
 import Logo from '@/components/shared/Logo';
 import StockStatusBadge from '@/components/shared/StockStatusBadge';
 import CartItemQuantityControl from '@/components/features/cart/CartItemQuantityControl';
 import PriceBreakdown from '@/components/features/products/PriceBreakdown';
 import CrossStoreStockPanel from '@/components/features/products/CrossStoreStockPanel';
 import { useStockByStores } from '@/hooks/products/useStockByStores';
+import { selectFreeGiftDiscoveryPromoCode } from '@/store/slices/uiSlice';
 import { cn } from '@/lib/utils';
 import { isShopifyImageUrl, shopifyImageLoader } from '@/lib/shopifyImageLoader';
 
@@ -36,6 +38,15 @@ export default function CartItemRow({
   const {
     data: storeStocks, isLoading: stockLoading, isError: stockError, refetch: refetchStock,
   } = useStockByStores(showStockAcrossStores && stockPanelOpen ? item.itemId : null);
+
+  // While DiscountSection is still working out this free-gift line's real
+  // entitlement (see its own quantity-discovery effect), showing its
+  // in-flight quantity — applyPromo's starting 1, then the stock-probe
+  // ceiling, before the final trim — reads as a bug ("the count isn't being
+  // calculated"), reported directly twice (2026-10-08). Show a plain loading
+  // state instead for exactly this line until it settles.
+  const discoveringPromoCode = useSelector(selectFreeGiftDiscoveryPromoCode);
+  const isDiscoveringQuantity = item.freeGiftPromoCode != null && item.freeGiftPromoCode === discoveringPromoCode;
 
   const unitPrice = priced ? priced.unitPrice : item.unitPrice;
   const lineTotal = priced ? priced.lineTotal : item.unitPrice * displayQuantity;
@@ -116,7 +127,12 @@ export default function CartItemRow({
             )}
 
             <div className="mt-1">
-              {readOnly ? (
+              {isDiscoveringQuantity ? (
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+                  Calculating offer…
+                </span>
+              ) : readOnly ? (
                 <span className="text-xs text-muted-foreground tabular-nums">
                   {displayQuantity} ×
                 </span>

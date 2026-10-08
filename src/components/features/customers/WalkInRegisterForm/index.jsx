@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { useSelector } from 'react-redux';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -13,13 +13,14 @@ import {
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem,
 } from '@/components/ui/dropdown-menu';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Loader2, UserCheck } from 'lucide-react';
 import LocationSelect from '@/components/shared/LocationSelect';
 import PhoneNumberField from '@/components/shared/PhoneNumberField';
 import SalesPersonSelect from '@/components/features/checkout/SalesPersonSelect';
 import { walkInRegisterSchema } from '@/validators/walkInRegisterSchema';
 import { storedValueToPhone } from '@/lib/normalizers/customer';
 import { useWalkInRegister } from '@/hooks/customer/useWalkInRegister';
+import { useWalkInLookup } from '@/hooks/customer/useWalkInLookup';
 import { useSources } from '@/hooks/customer/useSources';
 import { useCategories } from '@/hooks/catalog/useCategoryFilters';
 import { useCountries, useStates, useCities } from '@/hooks/settings/useLocation';
@@ -69,6 +70,32 @@ export default function WalkInRegisterForm({ defaultMobile = '', onRegistered })
 
   const registerWalkIn = useWalkInRegister();
 
+  // Mirrors OrnaVerse's own Walk-In screen: "enter mobile and tab out" checks
+  // for an existing CRM customer before letting the operator fill out a
+  // full registration (which would otherwise create a duplicate record).
+  const walkIn = useWalkInLookup();
+  const [checkedMobile, setCheckedMobile] = useState(null);
+  const mobileValue = watch('mobile');
+
+  const mobileDigits = (mobileValue ?? '').startsWith('+91') ? mobileValue.slice(3) : mobileValue;
+  const isCompleteMobile = /^\d{10}$/.test(mobileDigits ?? '');
+
+  useEffect(() => {
+    if (checkedMobile && mobileDigits !== checkedMobile) {
+      walkIn.reset();
+      setCheckedMobile(null);
+    }
+  }, [mobileDigits, checkedMobile]);
+
+  const handleMobileBlur = () => {
+    if (isCompleteMobile && mobileDigits !== checkedMobile) {
+      setCheckedMobile(mobileDigits);
+      walkIn.lookup(mobileDigits);
+    }
+  };
+
+  const existingCustomer = walkIn.result?.found ? walkIn.result.customer : null;
+
   const toggleInterest = (typeId) => {
     setValue('interest', interest.includes(typeId)
       ? interest.filter((id) => id !== typeId)
@@ -100,12 +127,42 @@ export default function WalkInRegisterForm({ defaultMobile = '', onRegistered })
           name="mobile"
           control={control}
           render={({ field }) => (
-            <PhoneNumberField id="wi_mobile" value={field.value} onChange={field.onChange} placeholder="Mobile number" />
+            <PhoneNumberField
+              id="wi_mobile"
+              value={field.value}
+              onChange={field.onChange}
+              onBlur={() => { field.onBlur(); handleMobileBlur(); }}
+              placeholder="Mobile number"
+            />
           )}
         />
         {errors.mobile && <p className="text-sm text-destructive">{errors.mobile.message}</p>}
+        {walkIn.isLoading && (
+          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+            Checking for an existing customer…
+          </p>
+        )}
+        {existingCustomer && (
+          <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 p-3">
+            <UserCheck size={16} className="shrink-0 mt-0.5 text-foreground/70" aria-hidden="true" />
+            <div className="text-sm">
+              <p className="font-medium text-foreground">
+                {existingCustomer.name ? `${existingCustomer.name} is already registered.` : 'Already registered.'}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {walkIn.result?.walkInRecorded
+                  ? 'Their visit has just been recorded.'
+                  : (walkIn.result?.message ?? 'A visit was already logged for them recently.')}
+                {' '}No need to register again.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
+      {!existingCustomer && (
+      <>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="wi_first_name">First name <span className="text-destructive">*</span></Label>
         <Input id="wi_first_name" {...register('first_name')} className="h-11" />
@@ -287,6 +344,8 @@ export default function WalkInRegisterForm({ defaultMobile = '', onRegistered })
       <Button type="submit" disabled={registerWalkIn.isPending} className="h-11 mt-1">
         {registerWalkIn.isPending ? 'Registering…' : 'Register Walk-in'}
       </Button>
+      </>
+      )}
     </form>
   );
 }

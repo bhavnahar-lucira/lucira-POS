@@ -24,9 +24,10 @@ function getBucket(storeId) {
   return bucket;
 }
 
-function enqueuePrice(itemId, storeId) {
+function enqueuePrice(itemId, storeId, epoch) {
   return new Promise((resolve, reject) => {
     const bucket = getBucket(storeId);
+    bucket.epoch = epoch; // latest wins — all ids in one 200ms window share it in practice
     const existing = bucket.waiters.get(itemId);
     if (existing) existing.push({ resolve, reject });
     else bucket.waiters.set(itemId, [{ resolve, reject }]);
@@ -36,19 +37,57 @@ function enqueuePrice(itemId, storeId) {
   });
 }
 
+// Best-effort read against the Mongo-backed price cache (see
+// src/lib/mongo/catalogPriceCache.js) — any failure here (network, bad
+// response, Mongo down) degrades to "no hits", never an error, so a cache
+// problem can only cost speed, never correctness or availability.
+async function readCachedPrices(storeId, epoch, ids) {
+  try {
+    const res = await fetch('/api/catalog/price-cache', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ storeId, epoch, itemIds: ids }),
+    });
+    if (!res.ok) return new Map();
+    const { prices } = await res.json();
+    return new Map(Object.entries(prices ?? {}).map(([id, price]) => [Number(id), price]));
+  } catch {
+    return new Map();
+  }
+}
+
+// Fire-and-forget — primes the cache for the next viewer of this item under
+// this epoch. Never awaited by callers; a failure here is silently logged
+// server-side only (see the route), nothing for this viewer to react to.
+function writeCachedPrices(storeId, epoch, entries) {
+  fetch('/api/catalog/price-cache', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ storeId, epoch, entries }),
+  }).catch(() => {});
+}
+
 async function flush(storeId) {
   const bucket = getBucket(storeId);
   bucket.timer = null;
+  const epoch = bucket.epoch;
 
   const waiters = bucket.waiters;
   bucket.waiters = new Map(); // ids arriving from here on start the next batch
   if (!waiters.size) return;
 
-  const ids = [...waiters.keys()];
+  const settle = (id, fn) => (waiters.get(id) ?? []).forEach(fn);
+
+  let ids = [...waiters.keys()];
+  if (epoch != null) {
+    const hits = await readCachedPrices(storeId, epoch, ids);
+    for (const [id, value] of hits) settle(id, (w) => w.resolve(value));
+    ids = ids.filter((id) => !hits.has(id));
+  }
+  if (!ids.length) return;
+
   const chunks = [];
   for (let i = 0; i < ids.length; i += CHUNK_SIZE) chunks.push(ids.slice(i, i + CHUNK_SIZE));
-
-  const settle = (id, fn) => (waiters.get(id) ?? []).forEach(fn);
 
   let cursor = 0;
   async function worker() {
@@ -56,6 +95,9 @@ async function flush(storeId) {
       const chunk = chunks[cursor++];
       try {
         const { prices, answered } = await getLivePricesForItems(chunk, storeId);
+        if (epoch != null && prices.size) {
+          writeCachedPrices(storeId, epoch, [...prices.entries()].map(([item_id, net_amount]) => ({ item_id, net_amount })));
+        }
         for (const id of chunk) {
           if (answered.has(id)) {
             const value = prices.get(id) ?? null;
@@ -104,12 +146,12 @@ export function useLiveCatalogPrices(products, { priorityItemIds, storeIdOverrid
 
     return ordered.slice(0, PRICE_WINDOW);
   }, [products, priorityItemIds]);
-  const { epoch, isBlind } = usePricingEpoch(products, storeId);
+  const { epoch, isBlind } = usePricingEpoch(storeId);
 
   const results = useQueries({
     queries: idsNeeding.map((itemId) => ({
       queryKey: QUERY_KEYS.CATALOG.PRICE(itemId, storeId, epoch),
-      queryFn:  () => enqueuePrice(itemId, storeId),
+      queryFn:  () => enqueuePrice(itemId, storeId, epoch),
       enabled:  epoch != null,
       staleTime: isBlind ? BLIND_FALLBACK_STALE : Infinity,
       gcTime:    PRICE_GC_TIME,

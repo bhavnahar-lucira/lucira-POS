@@ -248,7 +248,6 @@ export const QUERY_KEYS = {
   },
 
   NECTOR: {
-    LOYALTY: (mobile) => ['nector', 'loyalty', mobile],
     CHECKOUT_INFO: (mobile, amount) => ['nector', 'checkout-info', mobile, amount],
     // OrnaVerse's own native LoyaltyCheckout integration (2026-09-28) — see
     // nectorService.js's header for why this is a separate, independent

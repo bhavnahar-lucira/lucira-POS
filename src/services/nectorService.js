@@ -2,10 +2,10 @@
 //
 // Two INDEPENDENT Nector integrations exist, confirmed live 2026-09-28 —
 // don't conflate them:
-//   1. Everything above getLoyaltyCheckoutSettings — calls our own
-//      /api/nector proxy (the Shopify storefront's "Custom Checkout Webhook",
-//      NECTOR_WEBHOOK_KEY) — never Nector directly, API key never reaches
-//      the browser. Fail-safe: none of these throw.
+//   1. getReviewSummary/getReviews — calls our own /api/nector proxy (the
+//      Shopify storefront's "Custom Checkout Webhook", NECTOR_WEBHOOK_KEY) —
+//      never Nector directly, API key never reaches the browser. Fail-safe:
+//      none of these throw.
 //   2. getLoyaltyCheckoutSettings/previewLoyaltyCheckout — OrnaVerse's OWN
 //      native Nector integration (Services/CRM/LoyaltyCheckout/*), the one
 //      their real POS screen actually uses for checkout redemption. Found by
@@ -16,11 +16,15 @@
 //
 // THESE REPORT DIFFERENT BALANCES FOR THE SAME CUSTOMER — confirmed live:
 // the webhook (path 1) said 500 available; LoyaltyCheckout/Preview (path 2)
-// said coin_value 1100 for the identical phone number, same moment. Path 2
-// is the one to trust for POS checkout — it's what OrnaVerse's own screen
-// uses and what actually gets redeemed when a document posts a receipt row
-// against it. Path 1 remains the source for the plain balance-display
-// lookup elsewhere (getCustomerLoyalty) until that's migrated too.
+// said coin_value 1100 for the identical phone number, same moment. Path 2 is
+// the one to trust — it's what OrnaVerse's own screen uses and what actually
+// gets redeemed when a document posts a receipt row against it. The old
+// path-1-backed balance lookup (getCustomerLoyalty, used by Customer 360's
+// Points tab) was reported showing a stale/wrong figure there for exactly
+// this reason — reported directly 2026-10-08 (0 on the profile vs. 500 at
+// checkout for the same customer) — and was removed in favour of pointing
+// the Points tab at path 2 too (useNectorCheckoutInfo with a safe probe
+// cart), so every balance this app shows now comes from the one real source.
 
 import axiosInstance from '@/lib/axios/axiosInstance';
 import API from '@/constants/apiEndpoints';
@@ -103,49 +107,6 @@ export async function getReviews({ shopifyProductId, page = 1, limit = 10 }) {
 }
 
 /**
- * A customer's Nector loyalty points balance, looked up by mobile number —
- * Nector's own term for a customer record is a "lead".
- *
- * 200 → { data: { item: { available: "500" (string!), tier, name,
- *   wallet: { available, ... }, ... } } } — a real Nector lead exists.
- * 422 → { data: { message: "Lead does not exists" } } — NOT an error to
- *   report; a customer who's simply never interacted with the Shopify
- *   storefront (never earned a Nector lead record) is the normal case for
- *   most in-store-only customers. `found: false` lets a caller show "not
- *   enrolled" instead of a scary error state.
- *
- * @param {string|number} mobile — real, UNMASKED mobile number (the same one
- *   this app already has via useCustomerSession().customerMobile)
- * @returns {Promise<{ found: boolean, points: number, tier: string|null, name: string|null }>}
- */
-export async function getCustomerLoyalty(mobile) {
-  const empty = { found: false, points: 0, tier: null, name: null };
-  if (!mobile) return empty;
-
-  try {
-    const params = new URLSearchParams({ mobile: String(mobile) });
-    const res = await fetch(`/api/nector/leads?${params}`);
-    if (!res.ok) return empty; // 422 "Lead does not exists", or any other failure
-
-    const json = await res.json();
-    const item = json?.data?.item;
-    if (!item) return empty;
-
-    return {
-      found:  true,
-      // "available" comes back as a numeric STRING ("500"), not a number —
-      // confirmed live, not a typo to "fix" here.
-      points: Number(item.available) || 0,
-      tier:   item.tier ?? null,
-      name:   item.name ?? null,
-    };
-  } catch (err) {
-    console.warn('[nectorService] getCustomerLoyalty failed:', err);
-    return empty;
-  }
-}
-
-/**
  * What a customer can redeem right now, given the cart/order's total value —
  * CONFIRMED LIVE 2026-09-22 against the real "Custom Checkout Webhook"
  * integration the Shopify storefront's own checkout backend uses (read
@@ -154,7 +115,7 @@ export async function getCustomerLoyalty(mobile) {
  * for redemption purposes: `amount` here is Nector's own eligibility input
  * (the cart/order total), NOT the coin amount — it decides what's
  * redeemable from its own configured rules, we don't tell it how much to
- * take. `getCustomerLoyalty` above still covers simple balance display.
+ * take.
  *
  * 200 → { data: { points_balance, offers[], promotions: [{ type,
  *   coin_value, fiat_value, id, ... }] } } — at least one redemption is

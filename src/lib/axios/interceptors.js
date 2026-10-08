@@ -87,7 +87,14 @@ const extractServerMessage = (data) => {
  */
 const normalizeError = (error) => {
   if (error.response && process.env.NODE_ENV !== 'production') {
-    console.error(
+    // A 4xx here is very often an expected, already-handled business
+    // response (a declined promo, a stock conflict, etc.) — callers up the
+    // stack routinely catch and surface these gracefully. Logging every one
+    // as a red console.error made the console look broken even when nothing
+    // was; reserving console.error for 5xx (a genuine server-side failure)
+    // keeps the signal for things actually worth alarm.
+    const log = error.response.status >= 500 ? console.error : console.warn;
+    log(
       '[normalizeError] RAW error response:',
       error.config?.url,
       error.response.status,

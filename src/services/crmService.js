@@ -57,6 +57,12 @@ export async function getCustomerVisits({ companyId, take = 200 }) {
   const response = await axiosInstance.post(API.CRM.CUSTOMER_VISITS_LIST, {
     Take: take,
     EqualityFilter: { company_id: companyId },
+    // Without this, the server's default order is oldest-first — CONFIRMED
+    // LIVE 2026-10-08: with 447 total visits for one store, an unsorted
+    // Take:300 returned only Feb-Sept records, silently missing every visit
+    // from the last month (including ones recorded the same day). This made
+    // real, successfully-recorded walk-ins look like they "weren't recorded."
+    Sort: ['date DESC'],
   });
   return response.data;
 }

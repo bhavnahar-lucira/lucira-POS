@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
-import { getLivePricesForItems } from '@/services/catalogService';
+import { getLivePricesForItems, getCanaryCandidatePool } from '@/services/catalogService';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 import APP_CONFIG from '@/constants/appConfig';
@@ -9,32 +9,23 @@ const MAX_CANARIES = 3;
 const EPOCH_CHECK_FLOOR = APP_CONFIG.STALE_TIME.STOCK; // 1 min
 const EPOCH_POLL_MS = 3 * 60 * 1000; // 3 min
 const NO_EPOCH = 'no-epoch';
-const canaryByStore = new Map(); // storeId -> number[]
 
-function freezeCanaries(storeId, products) {
-  if (storeId == null) return null;
-  const existing = canaryByStore.get(storeId);
-  if (existing) return existing;
-  if (!products?.length) return null; // still loading — try again next render
-
-  const usable = products.filter((p) => p.item_id != null);
+// Picks up to MAX_CANARIES items, one per distinct karat, from the stable
+// tenant-wide pool (see catalogService.getCanaryCandidatePool's own header
+// for why this can't be derived from whatever's currently on screen).
+function pickCanaries(pool) {
+  const usable = pool.filter((p) => p.item_id != null);
   const withKarat = usable.filter((p) => p.karat_id != null);
-  const pool = withKarat.length ? withKarat : usable;
-  const ranked = [...pool].sort((a, b) =>
-    (b.has_stock ? 1 : 0) - (a.has_stock ? 1 : 0) || a.item_id - b.item_id
-  );
+  const source = withKarat.length ? withKarat : usable; // already item_id-sorted
 
   const byKarat = new Map();
-  for (const p of ranked) {
+  for (const p of source) {
     const karat = p.karat_id ?? 'unknown';
     if (!byKarat.has(karat)) byKarat.set(karat, p.item_id);
     if (byKarat.size >= MAX_CANARIES) break;
   }
   if (!byKarat.size) return null;
-
-  const ids = [...byKarat.values()].sort((a, b) => a - b);
-  canaryByStore.set(storeId, ids);
-  return ids;
+  return [...byKarat.values()].sort((a, b) => a - b);
 }
 
 function isBlindEpoch(epoch) {
@@ -43,8 +34,6 @@ function isBlindEpoch(epoch) {
 }
 
 /**
- * @param {object[]} products — current display list, used once per store to
- *   choose the canaries. Later changes to it are ignored on purpose.
  * @param {number|null} [storeIdOverride] — prices the canaries against THIS
  *   store instead of the Redux global active store — see useLiveCatalogPrices
  *   for why this must follow the store actually being browsed.
@@ -55,14 +44,25 @@ function isBlindEpoch(epoch) {
  *   `isBlind` means the epoch cannot detect change and must not be trusted as
  *   a licence to cache indefinitely.
  */
-export function usePricingEpoch(products, storeIdOverride) {
+export function usePricingEpoch(storeIdOverride) {
   const activeStoreId = useSelector(selectActiveStoreId);
   const storeId = storeIdOverride ?? activeStoreId;
   const queryClient = useQueryClient();
 
+  // Tenant-wide, store-independent, effectively-permanent — every store and
+  // every catalog view shares this one fetch, so canary selection (and
+  // therefore the epoch) is identical everywhere, not just within one view.
+  const { data: canaryPool } = useQuery({
+    queryKey: ['catalog', 'canary-pool'],
+    queryFn:  getCanaryCandidatePool,
+    staleTime: Infinity,
+    gcTime:    Infinity,
+    retry:     2,
+  });
+
   const canaryIds = useMemo(
-    () => freezeCanaries(storeId, products),
-    [storeId, products]
+    () => (canaryPool ? pickCanaries(canaryPool) : null),
+    [canaryPool]
   );
 
   const { data, isError } = useQuery({
