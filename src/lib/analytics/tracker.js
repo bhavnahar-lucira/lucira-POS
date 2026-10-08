@@ -85,8 +85,15 @@ function getOrCreateAnonymousId() {
   }
 }
 
+// Security audit finding (Low, 2026-10-05): `properties` here is whatever
+// raw object the call site passed in — across this codebase that's
+// sometimes a customer's name or mobile number, unmasked, unlike the
+// GA-bound copy (always maskMobile()'d) a few lines below. This dev
+// console trace has no business running in production at all, on a shared
+// POS terminal a customer could glance at.
 function logEvent(eventName, properties) {
   if (typeof window === 'undefined' || typeof console === 'undefined') return;
+  if (process.env.NODE_ENV === 'production') return;
   console.log(
     `%c[POS Analytics] ${eventName}`,
     'color:#7c3aed;font-weight:600',

@@ -28,6 +28,7 @@ const TOAST = {
     PROMO_NOT_APPLICABLE: (name) => `"${name}" doesn't apply to these items — no discount given.`,
     PROMO_NOT_READY: 'Still pricing your cart — try applying this again in a moment.',
     PROMO_NO_LONGER_APPLIES: (name) => `"${name}" no longer applies to your cart — removed.`,
+    PROMO_INVOICE_ONLY_REMOVED: (name) => `"${name}" only applies to in-stock items — removed since this cart moved to Made to Order.`,
     PROMO_FAILED:  'Failed to validate promo code. Please try again.',
     LOADED_FROM_ORDER: (orderNo) => `Loaded ${orderNo} into a new invoice.`,
   },

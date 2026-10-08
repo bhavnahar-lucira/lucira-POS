@@ -1,23 +1,49 @@
 import { NextResponse } from 'next/server';
+import { SESSION_COOKIE_PREFIX } from '@/lib/ornaverse/session';
+
+// (auth) routes — the only pages reachable with no session at all.
+const PUBLIC_PATHS = ['/login', '/store-selection'];
 
 /**
  * Next.js Middleware — Route Shape Protection
  *
- * Handles top-level routing rules:
- * - Redirects the root path to /login
- * - Allows all (auth) routes to pass through freely
- * - Allows all (pos) routes to pass through to client-side guards
+ * Security audit finding (Low, 2026-10-05): this previously only redirected
+ * `/` to `/login` — every (pos) route's real gating happened client-side
+ * (AuthGuard/StoreGuard), so a fully unauthenticated request still got the
+ * whole page shell back before any JS ran or any API call 401'd. The old
+ * comment here ("tokens in localStorage, inaccessible at the edge") is from
+ * BEFORE the 2026-09-15 auth rewire — the real session now lives in a real
+ * httpOnly cookie (see lib/ornaverse/session.js), which middleware CAN read.
  *
- * NOTE: Token validation cannot be done here because Redux Persist
- * stores tokens in localStorage, which is inaccessible at the edge.
- * Real auth enforcement is handled by AuthGuard and StoreGuard
- * client components inside the (pos) layout.
+ * This still isn't full request authorization — it only checks that the
+ * session cookie EXISTS, not that OrnaVerse still considers it valid (that
+ * requires an actual network round-trip, which is the API proxy's job on
+ * every real request, same as before). What this closes is the "zero
+ * session at all" case: no cookie → redirected before the page shell ever
+ * renders, instead of after a client-side flash.
+ *
+ * (Content-Security-Policy lives in next.config.mjs, not here — a
+ * hash-based CSP needs no per-request nonce, so it can stay a static header
+ * and every page keeps static prerendering. A nonce-based CSP was tried
+ * first and reverted: Next.js's own headers() API inside the root layout
+ * forces the ENTIRE app into dynamic rendering, which isn't worth the
+ * static-rendering/hosting-cost trade-off for this specific app.)
  */
 export function middleware(request) {
   const { pathname } = request.nextUrl;
 
   if (pathname === '/') {
     return NextResponse.redirect(new URL('/login', request.url));
+  }
+
+  const isPublicPath = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  if (!isPublicPath) {
+    const hasSession = request.cookies.has(`${SESSION_COOKIE_PREFIX}0`);
+    if (!hasSession) {
+      const url = new URL('/login', request.url);
+      url.searchParams.set('next', pathname);
+      return NextResponse.redirect(url);
+    }
   }
 
   return NextResponse.next();
@@ -27,11 +53,17 @@ export const config = {
   matcher: [
     /*
      * Match all paths except:
-     * - _next/static  (Next.js static files)
-     * - _next/image   (Next.js image optimization)
-     * - favicon.ico
-     * - public folder files
+     * - api            (handled by its own session check, see route.js)
+     * - _next/static   (Next.js static files)
+     * - _next/image    (Next.js image optimization)
+     * - anything with a file extension (public/ assets — manifest.json,
+     *   icon-*.png, images/*, favicon.ico, ... — found live (2026-10-05):
+     *   the route-gating redirect below was catching /manifest.json
+     *   itself, since only favicon.ico was excluded by name, not public/
+     *   assets generally. Page routes in this app never contain a literal
+     *   dot, so this is a safe, convention-based exclusion rather than
+     *   having to enumerate public/'s contents and keep that list in sync.
      */
-    '/((?!api|_next/static|_next/image|favicon.ico).*)',
+    '/((?!api|_next/static|_next/image|.*\\..*).*)',
   ],
 };

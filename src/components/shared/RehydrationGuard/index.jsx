@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useRouter } from 'next/navigation';
-import { selectIsAuthenticated } from '@/store/slices/authSlice';
+import { clearAuth, selectIsAuthenticated } from '@/store/slices/authSlice';
 import { detachCustomer, selectCartCustomerId } from '@/store/slices/cartSlice';
 import APP_CONFIG from '@/constants/appConfig';
 
@@ -48,6 +48,26 @@ export default function RehydrationGuard() {
       IDLE_EVENTS.forEach((evt) => window.removeEventListener(evt, resetTimer));
     };
   }, [isAuthenticated, cartCustomerId, resetTimer]);
+
+  // ── Reconcile persisted `isAuthenticated` against the real session cookie ──
+  // redux-persist keeps this flag in localStorage with no expiry of its own,
+  // so it can outlive the real cookie (idle timeout, manual clear, a logout
+  // in another tab) — stale-true was confirmed live to blank the login page
+  // in a redirect loop (LoginForm tries to leave /login, middleware bounces
+  // it back because the real cookie is gone). One real check on load, same
+  // as a server-rendered app re-deriving auth from the cookie every time,
+  // closes this for every route, not just /login.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    fetch('/api/auth/session')
+      .then((res) => {
+        if (!cancelled && !res.ok) dispatch(clearAuth());
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return null;
 }

@@ -5,15 +5,15 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Eye, EyeOff, User, Lock, ArrowRight, ShieldCheck } from 'lucide-react';
 import Diamond from '@/components/shared/icons/BrandDiamond';
-import { useRouter } from 'next/navigation';
-import { useSelector } from 'react-redux';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useSelector, useDispatch } from 'react-redux';
 import { toast } from 'sonner';
 import Image from 'next/image';
 
 import { loginSchema }           from '@/validators/loginSchema';
 import { useAuth }               from '@/hooks/auth/useAuth';
 import TOAST                     from '@/constants/toastMessages';
-import { selectIsAuthenticated } from '@/store/slices/authSlice';
+import { selectIsAuthenticated, clearAuth } from '@/store/slices/authSlice';
 import Logo                      from '@/components/shared/Logo';
 import { cn }                    from '@/lib/utils';
 
@@ -53,7 +53,15 @@ function AuthField({ icon: Icon, id, error, trailing, ...props }) {
 export default function LoginForm() {
   const { login }       = useAuth();
   const router          = useRouter();
+  const dispatch        = useDispatch();
+  const searchParams    = useSearchParams();
   const isAuthenticated = useSelector(selectIsAuthenticated);
+  // Middleware only sends us to /login (with a `next` param) when the real
+  // session cookie is already gone — so landing here with `next` set while
+  // Redux still says isAuthenticated is a stale/desynced flag, not a real
+  // session. Clear it instead of redirecting away, or this loops forever
+  // (redirect to next -> middleware bounces back to /login?next=... -> repeat).
+  const bouncedHere = !!searchParams.get('next');
 
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -72,8 +80,13 @@ export default function LoginForm() {
   });
 
   useEffect(() => {
-    if (isAuthenticated) router.replace('/dashboard');
-  }, [isAuthenticated, router]);
+    if (!isAuthenticated) return;
+    if (bouncedHere) {
+      dispatch(clearAuth());
+    } else {
+      router.replace('/dashboard');
+    }
+  }, [isAuthenticated, bouncedHere, router, dispatch]);
 
   useEffect(() => {
     if (!lockedUntil) return;
@@ -94,7 +107,7 @@ export default function LoginForm() {
     return () => clearInterval(id);
   }, [lockedUntil]);
 
-  if (isAuthenticated) return null;
+  if (isAuthenticated && !bouncedHere) return null;
   
   const isLockedOut = lockCountdown > 0;
 

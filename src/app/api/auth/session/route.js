@@ -3,9 +3,24 @@ import {
   buildSessionCookieHeaders,
   buildClearSessionCookieHeaders,
   getSessionFromRequest,
+  isSessionIdleExpired,
 } from '@/lib/ornaverse/session';
 import { UPSTREAM } from '@/lib/ornaverse/upstream';
 import { checkRateLimit, getClientIp } from '@/lib/security/rateLimit';
+import APP_CONFIG from '@/constants/appConfig';
+
+// Lets the client reconcile its own (persisted, can go stale — e.g. idle
+// timeout, cookie cleared, a cross-tab logout) `isAuthenticated` cache
+// against the one real source of truth: this cookie. Mirrors OrnaVerse's own
+// server-authoritative model instead of trusting a client-side flag that can
+// outlive the real session — see RehydrationGuard, the only caller.
+export async function GET(request) {
+  const session = await getSessionFromRequest(request);
+  if (!session || isSessionIdleExpired(session, APP_CONFIG.SESSION.STAFF_IDLE_TIMEOUT_MS)) {
+    return Response.json({ ok: false }, { status: 401 });
+  }
+  return Response.json({ ok: true, username: session.username, isSuperAdmin: !!session.isSuperAdmin });
+}
 
 export async function POST(request) {
   let payload;

@@ -149,7 +149,12 @@ export default function CartItemRow({
               <p className="text-sm font-bold text-foreground">
                 ₹{lineTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
               </p>
-              {priced?.discount > 0 && (
+              {/* A free-gift line (see cartSlice.js's freeGiftPromoCode) already
+                  reads ₹0 each / ₹0 above — OrnaVerse's own cart shows nothing
+                  more than that for one, no "off" annotation, so this matches
+                  rather than inventing an extra line their own client doesn't
+                  have (confirmed live 2026-10-07). */}
+              {priced?.discount > 0 && !item.freeGiftPromoCode && (
                 <p className="text-xs font-medium text-status-in-stock">
                   −₹{priced.discount.toLocaleString('en-IN', { maximumFractionDigits: 2 })} off
                 </p>

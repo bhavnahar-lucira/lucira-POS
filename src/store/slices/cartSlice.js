@@ -183,18 +183,57 @@ const cartSlice = createSlice({
     // exact same code being added twice. payload.discountAmount is ignored —
     // recalculateTotals derives it from promoDetails; it's kept on the action
     // only because analyticsMiddleware reports it.
+    //
+    // freeGiftItem (optional) — any promotion carrying a free_item_id (not
+    // just promotion_type 6 "Spend X Get Y Free" — type 2 "Free Product"
+    // promos use the same field). Confirmed live (2026-10-07): OrnaVerse's
+    // ApplyPromotions 400s with "Free gift items not found in the
+    // transaction" unless the free item is already its own line — it
+    // discounts an existing line to zero, it doesn't inject one. So the free
+    // item is added as a real (tagged) cart line here, priced/zeroed through
+    // the exact same pipeline as any other line — see usePromoValidation.js
+    // for where this gets resolved.
     applyPromo: (state, action) => {
-      const { promoCode, promoDetails, overrideAmount } = action.payload;
+      const { promoCode, promoDetails, overrideAmount, freeGiftItem } = action.payload;
       const alreadyApplied = state.appliedPromos.some((p) => p.promoCode === promoCode);
       if (alreadyApplied) return;
 
       state.appliedPromos.push({ promoCode, promoDetails, overrideAmount: overrideAmount ?? null, discountAmount: 0 });
+
+      if (freeGiftItem && !state.items.some(
+        (i) => i.itemId === freeGiftItem.itemId && i.freeGiftPromoCode === promoCode
+      )) {
+        state.items.push({
+          itemId:     freeGiftItem.itemId,
+          itemCode:   freeGiftItem.itemCode,
+          itemName:   freeGiftItem.itemName,
+          sku:        freeGiftItem.sku,
+          quantity:   1,
+          unitPrice:  0,
+          styleId:    null,
+          sizeId:     null,
+          sizeName:   null,
+          attributes: {},
+          image:      null,
+          productUrl: freeGiftItem.itemId != null ? `/products/${freeGiftItem.itemId}` : null,
+          hasStock:   null,
+          // Tag only — lets removePromo clean this line up symmetrically, and
+          // lets applyPromo (above) avoid adding it twice.
+          freeGiftPromoCode: promoCode,
+        });
+      }
+
       recalculateTotals(state);
     },
 
     removePromo: (state, action) => {
       const promoCode = action.payload;
       state.appliedPromos = state.appliedPromos.filter((p) => p.promoCode !== promoCode);
+      // Drop the free-gift line this promo added (see applyPromo above) — it
+      // has no reason to stay in the cart as a $0 paid item once its promo
+      // is gone, whether removed by hand or auto-cleaned (DiscountSection)
+      // after turning out not to qualify.
+      state.items = state.items.filter((item) => item.freeGiftPromoCode !== promoCode);
       recalculateTotals(state);
     },
 

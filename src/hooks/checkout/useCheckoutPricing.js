@@ -7,6 +7,7 @@ import {
 } from '@/services/checkoutPricingService';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import { useCart } from '@/hooks/cart/useCart';
+import { roundToNearestRupee } from '@/lib/priceUtils';
 import APP_CONFIG from '@/constants/appConfig';
 
 function summarizeGroup(lineItems) {
@@ -14,7 +15,7 @@ function summarizeGroup(lineItems) {
   return {
     lineItems,
     totals,
-    amountDue: Math.round(totals.netAmount),
+    amountDue: roundToNearestRupee(totals.netAmount),
   };
 }
 

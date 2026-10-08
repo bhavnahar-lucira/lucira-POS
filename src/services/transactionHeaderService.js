@@ -1,3 +1,5 @@
+import { roundToNearestRupee } from '@/lib/priceUtils';
+
 // Shared Order/Invoice Create header-field block, generalized for the other
 // POS transaction types (Return/Refund/CreditNote/Exchange/Buyback/URD
 // Purchase/Repair/SchemeReceipt), which share the same OrnaVerse.POS.*Row
@@ -46,7 +48,7 @@ export function buildTransactionHeaderFields({
   allowBackdatedEntry = false,
 }) {
   const discountedNet = +Math.max(0, netAmount - discount).toFixed(2);
-  const roundedNet = Math.round(discountedNet);
+  const roundedNet = roundToNearestRupee(discountedNet);
   const round_off  = +(roundedNet - discountedNet).toFixed(2);
 
   // RETURN variant — a Return header is NOT just an Order header with a

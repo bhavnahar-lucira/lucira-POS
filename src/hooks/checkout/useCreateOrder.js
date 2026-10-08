@@ -13,6 +13,7 @@ import { useCartTotals } from '@/hooks/cart/useCartTotals';
 import { useCustomerSession } from '@/hooks/customer/useCustomerSession';
 import { useExchangeRate } from '@/hooks/checkout/useExchangeRate';
 import { useOrderHeaderConfig } from '@/hooks/checkout/useOrderHeaderConfig';
+import { roundToNearestRupee } from '@/lib/priceUtils';
 import { selectActiveStoreId, selectActiveStoreCode, selectActiveStoreName } from '@/store/slices/storeSlice';
 import { selectCartCustomerAddress } from '@/store/slices/cartSlice';
 import APP_CONFIG from '@/constants/appConfig';
@@ -31,7 +32,7 @@ function buildOrderEntity({
     subTotal, discount, taxableAmount, taxAmount, netAmount,
     pieces, weight, netWeight,
   } = summarizeLineItems(lineItems);
-  const roundedNet = Math.round(netAmount);
+  const roundedNet = roundToNearestRupee(netAmount);
   const round_off  = +(roundedNet - netAmount).toFixed(2);
 
   const receipt_details = buildReceiptDetails({

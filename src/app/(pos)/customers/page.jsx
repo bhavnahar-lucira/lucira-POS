@@ -9,6 +9,7 @@ import { StaggerList } from '@/components/shared/StaggerList';
 import CustomerListItem from '@/components/features/customers/CustomerListItem';
 import CustomerDetailSheet from '@/components/features/customers/CustomerDetailSheet';
 import NewCustomerForm from '@/components/features/customers/NewCustomerForm';
+import ErrorState from '@/components/shared/ErrorState';
 import { useCustomerList } from '@/hooks/customer/useCustomerList';
 import { useCustomerLookup } from '@/hooks/customer/useCustomerLookup';
 import { useCustomerSearch } from '@/hooks/customer/useCustomerSearch';
@@ -26,19 +27,19 @@ export default function CustomersPage() {
 
   const debounceRef = useRef(null);
 
-  const { customers, totalCount, take, isLoading, isFetching } = useCustomerList({ skip });
+  const { customers, totalCount, take, isLoading, isFetching, isError: isListError, refetch: refetchList } = useCustomerList({ skip });
   const cart = useCart();
 
   const trimmed = searchQuery.trim();
   const isMobileSearch = MOBILE_REGEX.test(trimmed);
   const isNameSearch = !isMobileSearch && trimmed.length >= APP_CONFIG.SEARCH.MIN_QUERY_LENGTH;
 
-  const { customer: lookedUpCustomer, isLoading: isLookingUp, notFound } = useCustomerLookup(
+  const { customer: lookedUpCustomer, isLoading: isLookingUp, notFound, isError: isLookupError, refetch: refetchLookup } = useCustomerLookup(
     trimmed,
     { enabled: isMobileSearch }
   );
 
-  const { results: nameResults, isLoading: isNameSearching } = useCustomerSearch(trimmed, {
+  const { results: nameResults, isLoading: isNameSearching, isError: isNameSearchError } = useCustomerSearch(trimmed, {
     enabled: isNameSearch,
   });
 
@@ -88,6 +89,8 @@ export default function CustomersPage() {
   const isBusy = isLoading
     || (isMobileSearch && isLookingUp)
     || (isNameSearch && isNameSearching);
+  const isErrored = isMobileSearch ? isLookupError : isNameSearch ? isNameSearchError : isListError;
+  const errorRetry = isMobileSearch ? refetchLookup : isNameSearch ? undefined : refetchList;
 
   return (
     <div className="flex flex-col gap-4 w-full p-4 md:p-6">
@@ -128,6 +131,12 @@ export default function CustomersPage() {
             <Loader2 size={16} className="animate-spin" aria-hidden="true" />
             {isNameSearch ? 'Searching customers…' : 'Loading customers…'}
           </div>
+        ) : isErrored ? (
+          <ErrorState
+            className="col-span-full"
+            title="Couldn't load customers."
+            onRetry={errorRetry}
+          />
         ) : isMobileSearch && notFound ? (
           <div className="col-span-full flex flex-col items-center gap-3 py-10 text-center">
             <p className="text-sm text-muted-foreground">No customer found with this mobile number.</p>

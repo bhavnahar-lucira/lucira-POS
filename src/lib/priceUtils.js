@@ -59,3 +59,22 @@ export function formatAmountOrNull(amount) {
   if (amount == null) return null;
   return formatAmount(amount);
 }
+
+/**
+ * Rounds to the nearest rupee using round-half-to-even ("banker's
+ * rounding") — matches .NET's default Math.Round(double), which is what
+ * OrnaVerse's own server uses for the net/payable total it displays.
+ * JS's Math.round always rounds .50 up, which silently disagrees with
+ * OrnaVerse by ₹1 on an exact-half-rupee total — confirmed live 2026-10-07:
+ * a ₹79,192.50 net showed ₹79,193 here vs OrnaVerse's own ₹79,192.
+ * @param {number} amount
+ * @returns {number}
+ */
+export function roundToNearestRupee(amount) {
+  const value = +amount.toFixed(2); // settle float noise before the tie check
+  const floor = Math.floor(value);
+  const diff  = +(value - floor).toFixed(2);
+  if (diff < 0.5) return floor;
+  if (diff > 0.5) return floor + 1;
+  return floor % 2 === 0 ? floor : floor + 1;
+}

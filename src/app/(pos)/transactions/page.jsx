@@ -73,7 +73,7 @@ import { selectActiveStoreId }            from '@/store/slices/storeSlice';
 import { selectCartCustomerId, selectCartCustomerName, selectCartCustomerMobile } from '@/store/slices/cartSlice';
 import APP_CONFIG                         from '@/constants/appConfig';
 import { todayDateString, formatDatePadded, resolveDocumentDateTime } from '@/lib/dateUtils';
-import { formatAmountOrDash } from '@/lib/priceUtils';
+import { formatAmountOrDash, roundToNearestRupee } from '@/lib/priceUtils';
 
 import PageLoader                          from '@/components/shared/PageLoader';
 import PaymentModeSelect                   from '@/components/shared/PaymentModeSelect';
@@ -226,11 +226,11 @@ function SoldItemFlowForm({ flow, onDone }) {
     needsPricePreview ? (pricedByKey.get(soldItemKey(row))?.net_amount ?? row.net_amount) : row.net_amount;
 
   const createReturnDoc   = useCreateReturn({ onSuccess: () => {} });
-  const postReturnDoc     = usePostReturn({ onSuccess: () => onDone() });
+  const postReturnDoc     = usePostReturn();
   const createBuybackDoc  = useCreateBuyback({ onSuccess: () => {} });
-  const postBuybackDoc    = usePostBuyback({ onSuccess: () => onDone() });
+  const postBuybackDoc    = usePostBuyback();
   const createExchangeDoc = useCreateExchange({ onSuccess: () => {} });
-  const postExchangeDoc   = usePostExchange({ onSuccess: () => onDone() });
+  const postExchangeDoc   = usePostExchange();
   const byMode = {
     return:   { create: createReturnDoc,   post: postReturnDoc },
     buyback:  { create: createBuybackDoc,  post: postBuybackDoc },
@@ -330,7 +330,7 @@ function SoldItemFlowForm({ flow, onDone }) {
             activeStoreId: storeId,
             headerConfig,
             documentTypeId: config.documentTypeId,
-            receiptAmount: Math.round(netRaw),
+            receiptAmount: roundToNearestRupee(netRaw),
             documentDate: resolveDocumentDateTime(data.document_date).toISOString(),
             forReturn: true,
             allowBackdatedEntry: config.allowBackdatedEntry,
@@ -348,7 +348,7 @@ function SoldItemFlowForm({ flow, onDone }) {
       setIsPricing(false);
       reset();
       setPhotosByKey({});
-      if (sameStoreRows.length === 0) onDone();
+      onDone();
     } catch (err) {
       setIsPricing(false);
       toast.error(getErrorMessage(err));
@@ -571,7 +571,7 @@ function MetalLineItemForm({ type, onDone }) {
   const headerConfig = useOrderHeaderConfig(config.documentTypeId);
 
   const create = config.createHook({ onSuccess: () => {} });
-  const post   = config.postHook({ onSuccess: () => onDone() });
+  const post   = config.postHook();
 
   const schema = buildMetalFormSchema(config);
 
@@ -670,7 +670,7 @@ function MetalLineItemForm({ type, onDone }) {
         activeStoreId: storeId,
         headerConfig,
         documentTypeId: config.documentTypeId,
-        receiptAmount: Math.round(netRaw),
+        receiptAmount: roundToNearestRupee(netRaw),
         documentDate: resolveDocumentDateTime(data.document_date).toISOString(),
         forReturn: true,
         allowBackdatedEntry: false,
@@ -687,6 +687,7 @@ function MetalLineItemForm({ type, onDone }) {
         await post.mutateAsync(transactionId);
       }
       reset();
+      onDone();
     } catch (err) {
       toast.error(getErrorMessage(err));
     }

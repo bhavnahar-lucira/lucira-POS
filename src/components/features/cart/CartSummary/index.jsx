@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useCartTotals } from '@/hooks/cart/useCartTotals';
+import { roundToNearestRupee } from '@/lib/priceUtils';
 
 /**
  * @param {{
@@ -24,7 +25,7 @@ export default function CartSummary({
   const discount = totals ? (totals.discount ?? 0) : cart.discount;
   const namedDiscounts = discountBreakdown.filter((b) => b.hasEffect && b.amount > 0);
   const rawTotal   = totals ? totals.netAmount : cart.total;
-  const roundedTotal = Math.round(rawTotal);
+  const roundedTotal = roundToNearestRupee(rawTotal);
   const roundOff   = +(roundedTotal - rawTotal).toFixed(2);
   const total      = Math.max(0, roundedTotal - creditApplied);
   const gst = totals ? { cgst: totals.cgstAmount ?? 0, sgst: totals.sgstAmount ?? 0 } : null;

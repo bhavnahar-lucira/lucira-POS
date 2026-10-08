@@ -262,7 +262,49 @@ export async function createOrnaverseSession({ username, password }) {
     csrf: finalCsrf,
     username,
     isSuperAdmin: await checkIsSuperAdmin({ cookie: finalCookie, csrf: finalCsrf }, username),
+    lastActivityAt: Date.now(),
   };
+}
+
+// Security audit finding (High, 2026-10-05): the staff idle-logout timer
+// (SessionProvider's resetStaffIdleTimer) was PURE CLIENT-SIDE JS — a closed
+// tab, a sleeping device, or simply disabled JS meant the real OrnaVerse
+// session cookie stayed valid for its own full natural lifetime regardless,
+// no matter how long the operator had actually been idle. This is the
+// server-side backstop: every proxied request re-checks how long it's been
+// since the session last did anything, independent of whether the client's
+// own timer ever got to run.
+//
+// Only STAFF_IDLE_TIMEOUT_MS is enforced here — the separate, shorter
+// customer-idle timer only detaches the attached customer from the cart
+// (a UX convenience), it's not an authentication boundary and has no
+// server-side equivalent to enforce.
+/**
+ * @param {{ lastActivityAt?: number }} session
+ * @param {number} timeoutMs
+ */
+export function isSessionIdleExpired(session, timeoutMs) {
+  // A session encoded before this field existed (anyone already logged in
+  // when this ships) has no lastActivityAt yet — treat that as "just
+  // active", not "idle since the epoch", so this doesn't mass-log-out every
+  // existing session the instant it deploys. touchSessionActivity backfills
+  // a real timestamp on this same request either way.
+  if (session.lastActivityAt == null) return false;
+  return Date.now() - session.lastActivityAt > timeoutMs;
+}
+
+// Throttled like renewSessionFromUpstream — returns null (no cookie
+// rewrite needed) unless enough real time has passed, so a burst of
+// requests a few hundred ms apart doesn't reissue Set-Cookie on every one.
+const ACTIVITY_TOUCH_THROTTLE_MS = 60 * 1000;
+/**
+ * @param {{ lastActivityAt?: number }} session
+ * @returns {{ lastActivityAt: number }|null}
+ */
+export function touchSessionActivity(session) {
+  const now = Date.now();
+  if (now - (session.lastActivityAt ?? 0) < ACTIVITY_TOUCH_THROTTLE_MS) return null;
+  return { ...session, lastActivityAt: now };
 }
 
 // Customer editing is admin-only (2026-09-28, explicit direction) —
