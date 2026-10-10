@@ -27,8 +27,11 @@ export function useCreateCustomer() {
         if (existing) {
           return { _existing: true, customer: normalizeCustomer(existing) };
         }
-      } catch {
-        // Lookup failed — proceed to create (fail-open, not fail-closed)
+      } catch (err) {
+        // Lookup failed — proceed to create (fail-open, not fail-closed),
+        // but log it: this is the only duplicate-mobile guard, so a silent
+        // miss here right before a cashier retry is how duplicates happen.
+        console.warn('[useCreateCustomer] duplicate-mobile lookup failed, proceeding to create', err);
       }
 
       const entity = buildCustomerCreatePayload({

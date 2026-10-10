@@ -87,9 +87,11 @@ export function usePricingEpoch(storeIdOverride) {
     if (!epoch) return;
     queryClient.removeQueries({
       queryKey: ['catalog', 'price'],
-      predicate: (query) => query.queryKey[4] !== epoch,
+      // Must also match storeId (index 3) — otherwise one store's epoch
+      // change evicts every OTHER store's still-valid cached prices too.
+      predicate: (query) => query.queryKey[3] === storeId && query.queryKey[4] !== epoch,
     });
-  }, [epoch, queryClient]);
+  }, [epoch, queryClient, storeId]);
 
   return { epoch, isBlind: isBlindEpoch(epoch) };
 }

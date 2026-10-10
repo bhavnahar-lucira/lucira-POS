@@ -63,6 +63,24 @@ const nextConfig = {
             key: 'Permissions-Policy',
             value: 'camera=(self), microphone=(), geolocation=()',
           },
+          {
+            key: 'Content-Security-Policy',
+            value: [
+              "default-src 'self'",
+              // 'unsafe-eval' only outside production — React dev mode uses
+              // eval() for its debugging callstacks; it never does in a
+              // real production build (confirmed live in dev — see git log).
+              `script-src 'self' 'unsafe-inline' https://www.googletagmanager.com${process.env.NODE_ENV !== 'production' ? " 'unsafe-eval'" : ''}`,
+              "style-src 'self' 'unsafe-inline'",
+              "img-src 'self' data: https://lucira.live.ornaverse.in https://lucira.uat.ornaverse.in https://cdn.shopify.com https://luciraonline.myshopify.com https://www.lucirajewelry.com https://cdn.nector.io https://s3.amazonaws.com https://*.google-analytics.com https://www.googletagmanager.com",
+              "font-src 'self' https://cdn.shopify.com",
+              "connect-src 'self' https://*.google-analytics.com https://www.googletagmanager.com",
+              "frame-ancestors 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
+              "object-src 'none'",
+            ].join('; '),
+          },
         ],
       },
       {

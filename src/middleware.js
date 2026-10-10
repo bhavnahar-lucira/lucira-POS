@@ -60,14 +60,16 @@ export const config = {
      * - api            (handled by its own session check, see route.js)
      * - _next/static   (Next.js static files)
      * - _next/image    (Next.js image optimization)
-     * - anything with a file extension (public/ assets — manifest.json,
-     *   icon-*.png, images/*, favicon.ico, ... — found live (2026-10-05):
-     *   the route-gating redirect below was catching /manifest.json
-     *   itself, since only favicon.ico was excluded by name, not public/
-     *   assets generally. Page routes in this app never contain a literal
-     *   dot, so this is a safe, convention-based exclusion rather than
-     *   having to enumerate public/'s contents and keep that list in sync.
+     * - a real public/ static-asset extension at the END of the path —
+     *   found live (2026-10-05): the route-gating redirect was catching
+     *   /manifest.json itself, since only favicon.ico was excluded by
+     *   name. Originally excluded "any path with a dot anywhere," but that
+     *   also bypassed the edge auth check for this app's two dynamic
+     *   routes (/products/[itemId], /customers/[customerId]) whenever the
+     *   segment value itself contains a dot (e.g. /products/1.5) — fixed
+     *   (2026-10-10) by anchoring to a real extension at the path's end
+     *   instead. Add here if a new static type is added to public/.
      */
-    '/((?!api|_next/static|_next/image|.*\\..*).*)',
+    '/((?!api|_next/static|_next/image|.*\\.(?:ico|png|jpg|jpeg|svg|webp|json|js|css|woff2?)$).*)',
   ],
 };

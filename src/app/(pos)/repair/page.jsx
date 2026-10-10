@@ -480,10 +480,16 @@ function RepairInvoiceNewForm({ onDone }) {
     setAppliedBalances((prev) => {
       const exists = prev.find((b) => b.code === balance.code);
       if (exists) return prev.filter((b) => b.code !== balance.code);
+      // Cap against what's still UNCOVERED after balances already applied,
+      // not the full invoice amount each time — otherwise stacking two
+      // balances (e.g. Scheme + Credit Note) over-debits both past what the
+      // invoice actually needs.
+      const appliedSoFar = prev.reduce((s, b) => s + b.amount, 0);
+      const remaining = itemRateEntered ? Math.max(0, itemRateEntered - appliedSoFar) : balance.amount;
       return [...prev, {
         code: balance.code,
         label: balance.label,
-        amount: Math.min(balance.amount, itemRateEntered || balance.amount),
+        amount: Math.min(balance.amount, remaining),
       }];
     });
   };
@@ -537,6 +543,7 @@ function RepairInvoiceNewForm({ onDone }) {
     const item = selectedOut.lineItems?.[0];
     const itemRate = Number(data.item_rate);
     const selectedMode = data.mode_id ? paymentModes.find((m) => m.modeId === Number(data.mode_id)) : null;
+    let transactionId = null;
 
     try {
       const pieces = item.pieces ?? 1;
@@ -565,7 +572,7 @@ function RepairInvoiceNewForm({ onDone }) {
           net_amount: itemRate,
         }],
       });
-      const transactionId = createRes?.EntityId;
+      transactionId = createRes?.EntityId;
       if (!transactionId) throw new Error('Repair invoice failed — no EntityId returned.');
       if (!headerConfig.autoPosting) await post.mutateAsync(transactionId);
       for (const balance of appliedBalances) {
@@ -595,7 +602,17 @@ function RepairInvoiceNewForm({ onDone }) {
       setSelectedOut(null);
       setAppliedBalances([]);
     } catch (err) {
-      toast.error(getErrorMessage(err));
+      // The invoice itself (and posting) already succeeded if transactionId
+      // is set — only a later receipt call failed. Say so explicitly: a
+      // generic error here would invite a resubmit, billing the same job twice.
+      if (transactionId) {
+        toast.error(
+          `Repair invoice #${transactionId} was created, but recording payment failed: ${getErrorMessage(err)}. Don't resubmit — record the payment for this invoice from Transactions instead.`,
+          { duration: 10000 }
+        );
+      } else {
+        toast.error(getErrorMessage(err));
+      }
     }
   };
 

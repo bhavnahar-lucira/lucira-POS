@@ -46,11 +46,23 @@ export function buildReceiptDetails({
       const hasSplit = promo.credit_value != null || promo.coin_value != null;
       const rows = [];
       if (hasSplit) {
-        if (Number(promo.credit_value) > 0) {
-          rows.push({ ...base, mode_name: 'Nector credits', ref_no: NECTOR_REF_NO.credit, amount: Number(promo.credit_value) });
+        // promo.credit_value/coin_value come from a preview priced against
+        // the FULL order total, so they can exceed mode.amount — the
+        // capped, on-screen, cashier-approved figure — whenever Loyalty is
+        // combined with another tender/helper balance. Scale the split
+        // down to mode.amount so the receipt never redeems more of the
+        // customer's real wallet than what was actually shown.
+        const rawCredit = Number(promo.credit_value) || 0;
+        const rawCoin = Number(promo.coin_value) || 0;
+        const rawTotal = rawCredit + rawCoin;
+        const capped = Number(mode.amount) || 0;
+        const credit = rawTotal > 0 ? Math.round((rawCredit / rawTotal) * capped * 100) / 100 : 0;
+        const coin = Math.round((capped - credit) * 100) / 100;
+        if (credit > 0) {
+          rows.push({ ...base, mode_name: 'Nector credits', ref_no: NECTOR_REF_NO.credit, amount: credit });
         }
-        if (Number(promo.coin_value) > 0) {
-          rows.push({ ...base, mode_name: 'Nector coins', ref_no: NECTOR_REF_NO.coin, amount: Number(promo.coin_value) });
+        if (coin > 0) {
+          rows.push({ ...base, mode_name: 'Nector coins', ref_no: NECTOR_REF_NO.coin, amount: coin });
         }
       } else {
         rows.push({ ...base, mode_name: 'Nector credits', ref_no: NECTOR_REF_NO.credit, amount: mode.amount });

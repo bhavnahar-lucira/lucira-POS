@@ -184,14 +184,14 @@ function EditTab({ customer }) {
 
   const onSubmit = async (formChanges) => {
     if (!raw) return;
+    // Don't fall back to the old value on blank — react-hook-form hands back
+    // the full current form state here, so a falsy email/address can mean
+    // "the user intentionally cleared this," not "nothing changed." Falling
+    // back silently undid that clear.
     await updateCustomer.mutateAsync({
       partyId: customer.customerId,
       originalRaw: raw,
-      formChanges: {
-        ...formChanges,
-        email: formChanges.email || raw.email,
-        address: formChanges.address || raw.address,
-      },
+      formChanges,
     });
   };
 

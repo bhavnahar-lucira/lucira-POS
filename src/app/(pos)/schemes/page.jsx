@@ -334,7 +334,11 @@ function EnrollmentsTab() {
     useSchemeEnrollments(customerId ? { partyId: customerId } : {});
 
   const [receiptTarget, setReceiptTarget] = useState(null);
-  const [detailTarget,  setDetailTarget]  = useState(null);
+  const [detailTargetId, setDetailTargetId] = useState(null);
+  // Derived (not stored) — so after Mature/Redeem/Close invalidates the
+  // 'schemes' query, this sheet picks up the fresh status on the next
+  // render instead of keeping a stale snapshot from when it was opened.
+  const detailTarget = enrollments.find((e) => e.enrollmentId === detailTargetId) ?? null;
 
   if (isLoading) {
     return <InlineLoader className="py-16" label="Loading enrollments…" />;
@@ -413,7 +417,7 @@ function EnrollmentsTab() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setDetailTarget(enrollment)}
+                onClick={() => setDetailTargetId(enrollment.enrollmentId)}
               >
                 View Details
               </Button>
@@ -440,7 +444,7 @@ function EnrollmentsTab() {
       <EnrollmentDetailSheet
         enrollment={detailTarget}
         isOpen={!!detailTarget}
-        onClose={() => setDetailTarget(null)}
+        onClose={() => setDetailTargetId(null)}
       />
     </div>
   );

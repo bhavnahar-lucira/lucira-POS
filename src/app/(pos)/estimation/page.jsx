@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useSelector }        from 'react-redux';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver }        from '@hookform/resolvers/zod';
@@ -249,12 +249,12 @@ function EstimationList() {
 function EstimationScreen() {
   const storeId = useSelector((state) => state.store.activeStoreId);
   const searchParams = useSearchParams();
-  const [view, setView] = useState('list');
-
-  useEffect(() => {
-    const requestedView = searchParams.get('view');
-    if(requestedView === 'custom') { setView('custom'); }
-  }, [searchParams]);
+  // Only ever read once, at mount — this page is always freshly navigated to
+  // (e.g. the dashboard's "?view=custom" quick-action link), never given a
+  // changed ?view while already mounted, so a lazy initializer is correct
+  // here and avoids the extra render pass a mount-time setState-in-effect
+  // would otherwise trigger.
+  const [view, setView] = useState(() => (searchParams.get('view') === 'custom' ? 'custom' : 'list'));
 
   return (
     <div className="p-4 pb-8 flex flex-col gap-4">
