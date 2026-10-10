@@ -1,4 +1,4 @@
-import { formatWebEngageDateTime, formatWebEngageDateOnly, formatWebEngageTimeOnly } from './webengageDates';
+import { formatWebEngageDateTime, formatEventDate12h, formatEventTime12h, formatEventDateTime12h } from './webengageDates';
 import { toE164India } from './phoneFormat';
 
 const API_HOST      = process.env.WEBENGAGE_API_HOST;
@@ -118,9 +118,9 @@ export async function sendServerEventToWebEngage({
 
   const eventData = cleanDeep({
     event_type:     toEventType(eventName),
-    event_datetime: formatWebEngageDateTime(now),
-    event_date:     formatWebEngageDateOnly(now),
-    event_time:     formatWebEngageTimeOnly(now),
+    event_datetime: formatEventDateTime12h(now),
+    event_date:     formatEventDate12h(now),
+    event_time:     formatEventTime12h(now),
     ...topLevel,
     ...(Object.keys(nested).length ? { details: nested } : {}),
   });

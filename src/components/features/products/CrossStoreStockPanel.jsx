@@ -1,12 +1,14 @@
 'use client';
 
-import { Store } from 'lucide-react';
+import { useState } from 'react';
+import { Store, ChevronRight } from 'lucide-react';
 import { useSelector } from 'react-redux';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Accordion, AccordionItem, AccordionTrigger, AccordionContent,
 } from '@/components/ui/accordion';
 import { deriveStockStatus } from '@/components/shared/StockStatusBadge';
+import StoreProductDetailSheet from './StoreProductDetailSheet';
 
 const selectActiveStoreId = (state) => state.store.activeStoreId;
 
@@ -40,12 +42,15 @@ function StockQty({ qty }) {
  *   isError:     boolean,
  *   onRetry:     () => void,
  *   collapsible?: boolean,
+ *   itemId?:     number, — tapping a store row opens its full spec/price
+ *     detail sheet; omit to disable tapping (row stays a plain display row).
  * }} props
  */
 export default function CrossStoreStockPanel({
-  storeStocks = [], isLoading, isError = false, onRetry, collapsible = true,
+  storeStocks = [], isLoading, isError = false, onRetry, collapsible = true, itemId,
 }) {
   const activeStoreId = useSelector(selectActiveStoreId);
+  const [selectedStore, setSelectedStore] = useState(null);
 
   const storesInStock = storeStocks.filter((s) => parseFloat(s.pieces) > 0).length;
   const totalStores   = storeStocks.length;
@@ -92,12 +97,17 @@ export default function CrossStoreStockPanel({
         <div className="flex flex-col divide-y divide-border">
           {storeStocks.map((store) => {
             const isActive = store.company_id === activeStoreId;
+            const tappable = !!itemId;
             return (
-              <div
+              <button
                 key={store.company_id}
+                type="button"
+                disabled={!tappable}
+                onClick={() => setSelectedStore(store)}
                 className={`
-                  flex items-center justify-between gap-3 px-4 py-3
+                  flex items-center justify-between gap-3 px-4 py-3 text-left w-full
                   ${isActive ? 'bg-accent/5' : 'bg-card'}
+                  ${tappable ? 'hover:bg-muted/60 cursor-pointer' : 'cursor-default'}
                 `}
               >
                 <div className="flex min-w-0 items-center gap-2.5">
@@ -119,13 +129,29 @@ export default function CrossStoreStockPanel({
                     )}
                   </div>
                 </div>
-                <StockQty qty={store.pieces} />
-              </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <StockQty qty={store.pieces} />
+                  {tappable && <ChevronRight size={14} className="text-muted-foreground" aria-hidden="true" />}
+                </div>
+              </button>
             );
           })}
         </div>
       )}
     </>
+  );
+
+  // Only mounts (and so only fetches) once a store row is actually tapped —
+  // see StoreProductDetailSheet's own header for why nothing hits the API
+  // before that.
+  const sheet = selectedStore && (
+    <StoreProductDetailSheet
+      isOpen
+      onClose={() => setSelectedStore(null)}
+      itemId={itemId}
+      companyId={selectedStore.company_id}
+      companyName={selectedStore.companyname}
+    />
   );
 
   if (!collapsible) {
@@ -140,6 +166,7 @@ export default function CrossStoreStockPanel({
           </div>
         )}
         {content}
+        {sheet}
       </div>
     );
   }
@@ -173,6 +200,7 @@ export default function CrossStoreStockPanel({
           </AccordionContent>
         </AccordionItem>
       </Accordion>
+      {sheet}
     </div>
   );
 }

@@ -329,11 +329,17 @@ const GemstoneIcon = () => <SpecIcon src={ICON_URLS.gemstone} alt="Gemstone" />;
 /**
  * @param {{ product: object, pricedItem?: object|null }} props
  */
-export default function ProductSpecifications({ product, pricedItem = null }) {
-  const [infoTitle, setInfoTitle] = useState(null);
-
-  if (!product) return null;
-
+/**
+ * Every display-ready spec field this component renders, derived from a
+ * master item + (optional) live-priced piece — pulled out so a per-piece
+ * table (StoreProductDetailSheet) can derive the SAME fields for each row
+ * without duplicating this logic. pricedItem wins when present (a real
+ * piece's own measured values), falling back to the master's generic ones.
+ *
+ * @param {{ product: object, pricedItem?: object|null }} params
+ * @returns {object} flat map of every field used below
+ */
+export function deriveSpecFields({ product, pricedItem = null }) {
   const metalPurity = val(product.karat_name)
     ?? (product.purity && product.purity !== 0 ? String(product.purity) : null);
   const metalColor  = val(product.metal_color_name);
@@ -359,7 +365,7 @@ export default function ProductSpecifications({ product, pricedItem = null }) {
   const otherPieces      = otherPiecesRaw > 0 ? String(otherPiecesRaw) : null;
   const otherWeight      = formatWeight(pricedItem?.other_weight ?? product.other_weight);
 
-  // Gemstone/Diamond cards — see the JSDoc above for why pricedItem is preferred.
+  // Gemstone/Diamond cards — pricedItem preferred, see this function's own doc.
   const masterComponents = product.item_components ?? product.components ?? [];
   const shapeNameById     = buildShapeNameMap(masterComponents);
   const liveColorStones   = getColorStoneComponents(pricedItem?.item_components);
@@ -409,6 +415,30 @@ export default function ProductSpecifications({ product, pricedItem = null }) {
   const hsn         = val(product.hsn);
   const itemCode    = val(product.item_code)
   const sku         = val(pricedItem?.sku) ?? val(product.sku);
+
+  return {
+    metalPurity, metalColor, metalType, netWeight,
+    height, width, depth, length, grossWeight, stoneWeight, diamondWeight, pointerCt,
+    diamondPieces, diamondCarats, stonePieces, otherPieces, otherWeight,
+    diamondShape, diamondQuality,
+    gemstonePieces, gemstoneWeight, gemstoneType, gemstoneName, gemstoneShape, gemstoneColor, gemstoneSize,
+    itemGroup, category, subCategory, collection, brand, hsn, itemCode, sku,
+  };
+}
+
+export default function ProductSpecifications({ product, pricedItem = null }) {
+  const [infoTitle, setInfoTitle] = useState(null);
+
+  if (!product) return null;
+
+  const {
+    metalPurity, metalColor, metalType, netWeight,
+    height, width, depth, length, grossWeight, stoneWeight, diamondWeight, pointerCt,
+    diamondPieces, diamondCarats, stonePieces, otherPieces, otherWeight,
+    diamondShape, diamondQuality,
+    gemstonePieces, gemstoneWeight, gemstoneType, gemstoneName, gemstoneShape, gemstoneColor, gemstoneSize,
+    itemGroup, category, subCategory, collection, brand, hsn, itemCode, sku,
+  } = deriveSpecFields({ product, pricedItem });
 
   return (
     <>

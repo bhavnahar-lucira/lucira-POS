@@ -223,6 +223,7 @@ export default function CartItemRow({
               isError={stockError}
               onRetry={refetchStock}
               collapsible={false}
+              itemId={item.itemId}
             />
           )}
         </div>

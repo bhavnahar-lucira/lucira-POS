@@ -2,6 +2,23 @@ import tracker from './tracker';
 import EVENTS, { GA_ECOMMERCE_EVENTS } from './events';
 import APP_CONFIG from '@/constants/appConfig';
 
+// A promo can produce more than one row (e.g. once per qualifying line), so
+// this sums by code first — same aggregation checkoutPricingService.js's
+// getPromoBreakdown does for the on-screen discount tag, just working
+// straight off entity.promotion_details since appliedPromos (the cart's own
+// list) isn't available at this point in the flow.
+function summarizeAppliedPromotions(promotionDetails = []) {
+  const byCode = new Map();
+  for (const row of promotionDetails) {
+    if (!row?.promotion_code) continue;
+    const amount = Number(row.promotion_amount) || 0;
+    const existing = byCode.get(row.promotion_code);
+    if (existing) existing.amount += amount;
+    else byCode.set(row.promotion_code, { code: row.promotion_code, name: row.promotion_name || row.promotion_code, amount });
+  }
+  return Array.from(byCode.values());
+}
+
 function toOrderItems(lineItems = []) {
   return lineItems.map((row) => ({
     item_id:           row.item_id != null ? String(row.item_id) : undefined,
@@ -60,6 +77,17 @@ export function trackDocumentPlaced({
     .join(', ') || undefined;
   const paymentReference = receiptRows.length === 1 ? (receiptRows[0].ref_no || null) : null;
 
+  // Reported directly (2026-10-09): the pre-promotion vs. post-promotion
+  // amount (sub_total vs. net_amount below) is confusing without knowing
+  // WHICH promotions moved it there — `discount` alone is just one number.
+  // This breaks that number down by the individual promotions that made it
+  // up, so the final `value`/net_amount is fully explainable from the event
+  // alone, not something that needs cross-checking elsewhere.
+  const appliedPromotions = summarizeAppliedPromotions(entity?.promotion_details);
+  const appliedPromotionsSummary = appliedPromotions
+    .map((p) => `${p.name} (${p.code}): ₹${p.amount.toFixed(2)}`)
+    .join(', ') || undefined;
+
   tracker.trackEcommerce(GA_ECOMMERCE_EVENTS.PURCHASE, EVENTS.ORDER_PLACED, {
     document_type:  documentType,
     transaction_id: transactionId,
@@ -68,6 +96,8 @@ export function trackDocumentPlaced({
     tax:            entity.tax_amount,
     sub_total:      entity.sub_total,
     discount:       entity.discount,
+    applied_promotions:       appliedPromotionsSummary,
+    applied_promotions_count: appliedPromotions.length || undefined,
     taxable_amount: entity.taxable_amount,
     round_off:      entity.round_off,
     receipt_amount: entity.receipt_amount,

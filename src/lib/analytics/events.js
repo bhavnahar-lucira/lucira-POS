@@ -114,6 +114,16 @@ const RAW_EVENTS = {
   CLICK:                 'click',
   CUSTOMIZE_OPENED:      'customize_opened',
   CUSTOMIZE_CONFIRMED:   'customize_confirmed',
+
+  // event_type must stay the same ("offers") across every distinct
+  // promotion — the specific one is carried as the offer_name/offer_code
+  // PROPERTIES instead, so WebEngage can report on "offers" as one event
+  // type. Reported directly (2026-10-09): before this existed, offer taps
+  // were only ever picked up by the generic document-click tracker below,
+  // which slugifies the clicked button's own text into event_type — so
+  // every differently-named offer produced its OWN event_type, making a
+  // single cross-offer funnel/segment impossible.
+  OFFER_SELECTED:        'offers',
 };
 
 // Applies PREFIX once, centrally — nothing above ever types "POS_" by hand.

@@ -65,6 +65,17 @@ const nextConfig = {
           },
         ],
       },
+      {
+        // The browser re-checks a registered service worker's own script for
+        // byte-level changes on every navigation, but only once it decides
+        // the cached copy is stale — force that check to always hit the
+        // network so a deploy is detected as fast as possible, not delayed
+        // by an intermediate CDN/proxy cache holding an old copy of this file.
+        source: '/sw.js',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+        ],
+      },
     ];
   },
 };

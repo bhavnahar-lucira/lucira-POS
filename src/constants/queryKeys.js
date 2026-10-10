@@ -54,6 +54,7 @@ export const QUERY_KEYS = {
     URD_SEARCH:      (query, baseItemId) => ['items', 'urd-search', query, baseItemId],
     PRICING:         (itemId, companyId) => ['items', 'pricing', itemId, companyId],
     MASTER_PRICING:  (itemId) => ['items', 'master-pricing', itemId],
+    STORE_PIECES:    (itemId, companyId) => ['items', 'store-pieces', itemId, companyId],
     SEARCH: (params) => ['items', 'search', {
       q:    params.item_search,
       grp:  params.item_group_ids,

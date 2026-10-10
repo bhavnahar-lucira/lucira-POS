@@ -203,6 +203,11 @@ export default function SessionProvider({ children }) {
         'button, a, [role="button"], [role="menuitem"], [role="option"], [role="tab"]'
       );
       if (!target) return;
+      // Lets an element opt out when it already fires its own, properly-
+      // named tracked event (see PromoCodeSheet's offer tiles) — otherwise
+      // this generic slug-from-text tracker would ALSO fire for the same
+      // click, duplicating it under a second, differently-shaped event.
+      if (target.closest('[data-analytics-skip="true"]')) return;
 
       const text = (target.textContent ?? '').trim().slice(0, 50);
       const ariaLabel = target.getAttribute('aria-label') ?? null;

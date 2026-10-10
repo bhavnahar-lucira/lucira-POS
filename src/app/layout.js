@@ -2,6 +2,7 @@
 import Script from "next/script";
 import Providers from '@/components/shared/Providers';
 import RehydrationGuard from '@/components/shared/RehydrationGuard';
+import ServiceWorkerRegistration from '@/components/shared/ServiceWorkerRegistration';
 import "./globals.css";
 
 const GA_MEASUREMENT_ID = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
@@ -62,6 +63,7 @@ export default function RootLayout({ children }) {
         )}
         <Providers>
           <RehydrationGuard />
+          <ServiceWorkerRegistration />
           {children}
         </Providers>
       </body>

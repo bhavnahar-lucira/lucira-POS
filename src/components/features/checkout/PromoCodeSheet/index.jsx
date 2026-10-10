@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import EmptyState from '@/components/shared/EmptyState';
 import InlineLoader from '@/components/shared/InlineLoader';
 import { useActivePromotions } from '@/hooks/checkout/useActivePromotions';
+import tracker from '@/lib/analytics/tracker';
+import EVENTS from '@/lib/analytics/events';
 import { cn } from '@/lib/utils';
 import { formatDateCompact as formatDate } from '@/lib/dateUtils';
 import {
@@ -51,7 +53,14 @@ function OfferTicket({ promo, isApplied, isSelected, isExpanded, onToggleSelect,
       <button
         type="button"
         disabled={isApplied}
-        onClick={() => onToggleSelect(promo.promotion_code)}
+        data-analytics-skip="true"
+        onClick={() => {
+          tracker.track(EVENTS.OFFER_SELECTED, {
+            offer_name: promo.promotion_name,
+            offer_code: promo.promotion_code,
+          });
+          onToggleSelect(promo.promotion_code);
+        }}
         className="flex w-full items-center gap-3 p-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
       >
         <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent">

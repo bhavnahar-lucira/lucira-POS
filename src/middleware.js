@@ -2,7 +2,11 @@ import { NextResponse } from 'next/server';
 import { SESSION_COOKIE_PREFIX } from '@/lib/ornaverse/session';
 
 // (auth) routes — the only pages reachable with no session at all.
-const PUBLIC_PATHS = ['/login', '/store-selection'];
+// /offline is here too: the service worker precaches it at install time
+// (see public/sw.js), and that precache fetch must never get redirected to
+// /login, or an unauthenticated install would cache the login page under
+// the offline fallback's cache key instead of the real offline message.
+const PUBLIC_PATHS = ['/login', '/store-selection', '/offline'];
 
 /**
  * Next.js Middleware — Route Shape Protection

@@ -176,19 +176,22 @@ const tracker = {
       ...properties,
     }));
     
-    sendToWebEngageServer(eventName, omitUndefined({
-      timestamp,
-      session_id:      session?.sessionId,
-      customer_id:     session?.customerId ?? GUEST_ID,
-      customer_mobile: session?.customerMobile,
-      store_id:        session?.storeId,
-      ...SOURCE_PROPS,
-      ...properties,
-      ...omitNullish(webengageExtra),
-    }), {
-      userId:      session?.webengageUserId ?? undefined,
-      anonymousId: session?.webengageUserId ? undefined : getOrCreateAnonymousId(),
-    });
+    // Guest (no customer attached) → skip WebEngage entirely, don't send
+    // anonymous-id-tagged events for someone we can't identify.
+    if (session?.customerId) {
+      sendToWebEngageServer(eventName, omitUndefined({
+        timestamp,
+        session_id:      session.sessionId,
+        customer_id:     session.customerId,
+        customer_mobile: session.customerMobile,
+        store_id:        session.storeId,
+        ...SOURCE_PROPS,
+        ...properties,
+        ...omitNullish(webengageExtra),
+      }), {
+        userId: session.webengageUserId,
+      });
+    }
   },
 
   trackAgent(eventName, properties = {}) {

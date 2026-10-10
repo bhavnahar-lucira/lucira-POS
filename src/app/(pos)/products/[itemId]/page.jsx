@@ -472,6 +472,7 @@ function ProductDetailScreen() {
                 isLoading={storeStocksLoading}
                 isError={storeStocksError}
                 onRetry={refetchStoreStocks}
+                itemId={activeItem?.item_id}
               />
             )}
             
