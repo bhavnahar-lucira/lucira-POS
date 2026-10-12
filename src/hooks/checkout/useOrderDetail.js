@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { getOrderDetail } from '@/services/orderService';
 import { QUERY_KEYS } from '@/constants/queryKeys';
-import APP_CONFIG from '@/constants/appConfig';
 
 export function useOrderDetail(orderId) {
   const query = useQuery({
@@ -11,7 +10,10 @@ export function useOrderDetail(orderId) {
       return data?.Entity ?? null;
     },
     enabled:   !!orderId,
-    staleTime: APP_CONFIG.STALE_TIME.ORDERS,
+    // Also used by OrderConfirmationScreen right after placing an order —
+    // checkout data must always reflect live state (see
+    // useCheckoutPricing/useActivePromotions/useRetrieveCustomer).
+    staleTime: 0,
   });
 
   return {

@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { getBankPosAccounts } from '@/services/settingsService';
 import { QUERY_KEYS } from '@/constants/queryKeys';
-import APP_CONFIG from '@/constants/appConfig';
 
 function normalizeAccount(entity) {
   return {
@@ -21,7 +20,9 @@ export function useBankPosAccounts() {
       const entities = data?.Entities ?? [];
       return entities.map(normalizeAccount);
     },
-    staleTime: APP_CONFIG.STALE_TIME.STATIC,
+    // Checkout data must always reflect live state — see
+    // useCheckoutPricing/useActivePromotions/useRetrieveCustomer.
+    staleTime: 0,
   });
 
   return {

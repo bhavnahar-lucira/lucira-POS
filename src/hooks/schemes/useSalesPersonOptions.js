@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@/constants/queryKeys';
-import APP_CONFIG from '@/constants/appConfig';
 import { getEmployeesByCompany } from '@/services/hrService';
 
 export function useSalesPersonOptions(companyId) {
@@ -11,7 +10,10 @@ export function useSalesPersonOptions(companyId) {
       return response?.Entities ?? [];
     },
     enabled: !!companyId,
-    staleTime: APP_CONFIG.STALE_TIME.STATIC,
+    // Used directly at checkout for sales_person_id — must always reflect
+    // live state (see useCheckoutPricing/useActivePromotions/
+    // useRetrieveCustomer for the same reasoning elsewhere in checkout).
+    staleTime: 0,
   });
 
   return {

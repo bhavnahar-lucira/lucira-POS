@@ -111,10 +111,31 @@ export async function applyPromotionsToLines({
     const items = response?.data?.items;
     const rows  = response?.data?.invoice_promotions ?? [];
 
+    // OrnaVerse's own ApplyPromotions schema carries a top-level `warning`
+    // string we'd never read otherwise — confirmed live (2026-10-12) it's
+    // simply absent (not even null) on an ordinary clean success, so it's
+    // only ever sent when there's something worth flagging (a capped
+    // quantity, a partial match). Logged rather than silently dropped, so a
+    // future occurrence is at least visible instead of invisible.
+    if (response?.data?.warning) {
+      console.warn(`[checkoutPricingService] promotion "${promo.promoCode}" warning`, response.data.warning);
+    }
+
     // A promotion the server declines to price (not applicable to anything in
     // the basket) comes back with no items. Leave the lines as they were
     // rather than dropping the basket on the floor.
-    if (!Array.isArray(items) || items.length !== lines.length) continue;
+    if (!Array.isArray(items) || items.length !== lines.length) {
+      if (Array.isArray(items)) {
+        // items WAS an array, just the wrong length — a genuine 200 that
+        // this silently discards with zero trace. Logged so a real instance
+        // of this (vs. the documented "declined, no items" case) is visible
+        // instead of reading as "nothing happened" with a 200 in the network tab.
+        console.warn(
+          `[checkoutPricingService] promotion "${promo.promoCode}" returned ${items.length} priced rows, expected ${lines.length} — discarding this promotion's effect`,
+        );
+      }
+      continue;
+    }
 
     lines = items;
     promotionDetails = [...promotionDetails, ...rows];
@@ -541,8 +562,15 @@ export function mapPricedLinesToCart(items, lineItems) {
 // different quantity), so it's what buildCartDisplayRows below matches on
 // instead of object reference (a split line's two portions are never the
 // same object as the original cart item, or as each other).
+//
+// freeGiftPromoCode included (2026-10-12, a real React "duplicate key"
+// warning led straight to this): a promo's free-gift line and a genuinely
+// separate real purchase of the SAME item/size/style share every other
+// field, so without this they produced identical keys here — React warned,
+// and worse, the findIndex lookups below could resolve to the wrong one of
+// the two, mispricing either row.
 function cartLineKey(item) {
-  return `${item.itemId}-${item.sizeId}-${item.styleId}`;
+  return `${item.itemId}-${item.sizeId}-${item.styleId}-${item.freeGiftPromoCode ?? ''}`;
 }
 
 /**

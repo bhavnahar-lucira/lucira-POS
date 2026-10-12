@@ -8,7 +8,6 @@ import {
 } from '@/services/documentConfigService';
 import { selectActiveStoreId, selectActiveStoreCode } from '@/store/slices/storeSlice';
 import { QUERY_KEYS } from '@/constants/queryKeys';
-import APP_CONFIG from '@/constants/appConfig';
 
 /**
  * @param {number} documentId — the document TYPE constant for this flow
@@ -18,16 +17,19 @@ export function useOrderHeaderConfig(documentId) {
   const companyId = useSelector(selectActiveStoreId);
   const storeCode = useSelector(selectActiveStoreCode);
 
+  // Drives ledger_id/financial_year_id/auto_posting etc. directly on the
+  // Invoice/Order Create entity — checkout data must always reflect live
+  // state (see useCheckoutPricing/useActivePromotions/useRetrieveCustomer).
   const finYearQuery = useQuery({
     queryKey: QUERY_KEYS.DOCUMENT_CONFIG.FINANCIAL_YEARS(),
     queryFn:  getFinancialYears,
-    staleTime: APP_CONFIG.STALE_TIME.STATIC,
+    staleTime: 0,
   });
 
   const docNumQuery = useQuery({
     queryKey: QUERY_KEYS.DOCUMENT_CONFIG.DOCUMENT_NUMBERING(),
     queryFn:  getDocumentNumberingList,
-    staleTime: APP_CONFIG.STALE_TIME.STATIC,
+    staleTime: 0,
   });
 
   const now = new Date();

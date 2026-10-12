@@ -140,17 +140,23 @@ export default function DiscountSection({ compact = false, onViewCart }) {
       ?? activePromotions.find((p) => p.promotion_type === 6 && p.free_item_id === GOLD_COIN_FREE_ITEM_ID)
       ?? goldCoinApplied.promoDetails;
 
+    // Every priced row already carries its own item_id (confirmed live
+    // 2026-10-12, straight off a real ApplyPromotions response) — matching
+    // rows directly by that, instead of correlating cartItems' quantities to
+    // lineItems via a cumulative-quantity cursor (as this used to), means
+    // this can never drift out of alignment. The cursor approach assumed
+    // cartItems' `quantity` always exactly matched how many rows got priced
+    // for that line — true at rest, but NOT the instant after this same
+    // promo just applied: the free-gift line's quantity is still settling
+    // (fresh apply starts at 1, then the discovery effect below corrects it),
+    // so a cursor built from the CURRENT cartItems could walk straight past
+    // where the bracelet's own rows actually are, reading "ineligible" for a
+    // cart that plainly qualifies — removing the promo this same effect is
+    // supposed to be protecting, moments after it was applied.
     const eligibleGroupIds = (livePromo?.promotion_details ?? []).map((d) => d.item_group_id);
-    let cursor = 0;
-    let hasEligibleLine = eligibleGroupIds.length === 0;
-    for (const ci of invoice.cartItems) {
-      const qty = ci.quantity ?? 1;
-      if (!hasEligibleLine && ci.freeGiftPromoCode == null) {
-        const rows = invoice.lineItems.slice(cursor, cursor + qty);
-        if (rows.some((r) => eligibleGroupIds.includes(r.item_group_id))) hasEligibleLine = true;
-      }
-      cursor += qty;
-    }
+    const hasEligibleLine = eligibleGroupIds.length === 0 || invoice.lineItems.some(
+      (r) => r.item_id !== GOLD_COIN_FREE_ITEM_ID && eligibleGroupIds.includes(r.item_group_id)
+    );
 
     const minSpend = Number(livePromo?.minimum_sales_amount) || 0;
     const meetsMinSpend = minSpend <= 0 || invoice.totals.netAmount >= minSpend;
@@ -180,7 +186,7 @@ export default function DiscountSection({ compact = false, onViewCart }) {
     // (2026-10-07): without this, going Invoice → Order → back to the exact
     // same stock pieces never re-applied, since the ref still remembered
     // that cart composition as "already attempted" from before it left.
-    if (!invoice?.lineItems?.length) {
+    if (!invoice?.lineItems?.length || isEmpty) {
       autoAppliedCartKeyRef.current = null;
       return;
     }
@@ -206,7 +212,7 @@ export default function DiscountSection({ compact = false, onViewCart }) {
 
     validatePromo(goldCoinPromo.promotion_code);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPricing, invoice, activePromotions, appliedPromos]);
+  }, [isPricing, invoice, isEmpty, activePromotions, appliedPromos]);
 
   // Auto-aligns the gold coin free-gift line's QUANTITY to what the customer
   // is actually entitled to, instead of leaving it at applyPromo's starting

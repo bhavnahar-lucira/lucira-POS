@@ -21,6 +21,7 @@ export default function InvoiceReportButton({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [html, setHtml] = useState(null);
+  const [reportId, setReportId] = useState(null);
   const [renderError, setRenderError] = useState(null);
   const [isRendering, setIsRendering] = useState(false);
   const frameRef = useRef(null);
@@ -67,7 +68,9 @@ export default function InvoiceReportButton({
         throw new Error(body?.error ?? `Could not render this report (HTTP ${response.status}).`);
       }
 
-      setHtml(await response.text());
+      const renderedHtml = await response.text();
+      setHtml(renderedHtml);
+      setReportId(renderedHtml.match(/reportId=([0-9a-f]+)/)?.[1] ?? null);
     } catch (err) {
       setRenderError(err.message);
     } finally {
@@ -91,12 +94,16 @@ export default function InvoiceReportButton({
     }
   };
 
+  // The live preview iframe shows ONE page at a time (FastReport's viewer
+  // swaps the whole page on navigation, never holds every page in the DOM
+  // at once) — contentWindow.print() on it would only ever print whatever
+  // page happens to be loaded. FastReport's own printReport endpoint
+  // (same one its toolbar's "Print from browser" link uses) renders every
+  // page as one standalone document and prints itself on load, so that's
+  // what actually gets every page, regardless of which page is on screen.
   const printReport = () => {
-    const frame = frameRef.current;
-    if (frame?.contentWindow) {
-      frame.contentWindow.focus();
-      frame.contentWindow.print();
-    }
+    if (!reportId) return;
+    window.open(`/_fr/preview.printReport?reportId=${reportId}&printMode=html`, '_blank');
   };
   
   if (!isLoading && reports.length === 0) return null;
@@ -183,13 +190,13 @@ export default function InvoiceReportButton({
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <h2 className="text-sm font-bold text-foreground">{documentLabel} preview</h2>
               <div className="flex items-center gap-2">
-                <Button type="button" onClick={printReport} className="h-9 gap-2">
+                <Button type="button" onClick={printReport} disabled={!reportId} className="h-9 gap-2">
                   <Printer size={16} aria-hidden="true" /> Print
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setHtml(null)}
+                  onClick={() => { setHtml(null); setReportId(null); }}
                   className="h-9 w-9 p-0"
                   aria-label="Close preview"
                 >

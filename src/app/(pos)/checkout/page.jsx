@@ -167,10 +167,12 @@ function CheckoutScreen() {
         ? await placeInvoice({
             paymentModes: payments, salesPersonId, salesPersonName,
             pricedLineItems: invoice.lineItems, promotionDetails: invoice.promotionDetails,
+            panNumber,
           })
         : await placeOrder({
             paymentModes: payments, salesPersonId, salesPersonName,
             pricedLineItems: order.lineItems, promotionDetails: order.promotionDetails,
+            panNumber,
           });
 
       dispatch(setCheckoutInProgress(false));

@@ -48,6 +48,7 @@ function buildInvoiceEntity({
   salesPersonId, exchangeRate,
   headerConfig,
   fulfillmentOrderNo,
+  panNumber,
 }) {
   const today = localDocumentDate();
   const {
@@ -68,6 +69,7 @@ function buildInvoiceEntity({
     party_id:      customerId,
     party_name:    customerName ?? undefined,
     mobile:        customerMobile ?? undefined,
+    pan_no:        panNumber ?? undefined,
     user_id:       null,
     company_id:    activeStoreId,
     document_date: today,
@@ -128,7 +130,7 @@ export function useCreateInvoice() {
      */
     mutationFn: async ({
       paymentModes, narration, salesPersonId, pricedLineItems,
-      promotionDetails: promotionDetailsArg,
+      promotionDetails: promotionDetailsArg, panNumber,
     }) => {
       if (!headerConfig.isReady) {
         if (headerConfig.isError) headerConfig.refetch();
@@ -168,6 +170,7 @@ export function useCreateInvoice() {
         salesPersonId, exchangeRate,
         headerConfig,
         fulfillmentOrderNo,
+        panNumber,
       });
 
       // Step 1: Create draft invoice.

@@ -15,7 +15,10 @@ export function useExchangeRate(currencyId = APP_CONFIG.CURRENCY.INR_ID) {
       return response?.Entity?.exchange_rate ?? 1;
     },
     enabled:   !!companyId,
-    staleTime: APP_CONFIG.STALE_TIME.STATIC,
+    // Feeds directly into Invoice/Order Create's own exchange_rate field —
+    // nothing in checkout's own data should ever be served stale (same
+    // reasoning as useCheckoutPricing/useActivePromotions/useRetrieveCustomer).
+    staleTime: 0,
   });
 
   return {

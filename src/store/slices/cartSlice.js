@@ -62,11 +62,20 @@ const cartSlice = createSlice({
 
     addItem: (state, action) => {
       const incoming = action.payload;
+      // Reported directly (2026-10-12, a React "duplicate key" warning
+      // pointed straight at it): without excluding a free-gift line here,
+      // adding the SAME item a promo is currently handing out for free
+      // (same itemId/sizeId/styleId — nothing else distinguishes them)
+      // matched the gift line and merged the new quantity straight into
+      // it — which still carries unitPrice 0 and freeGiftPromoCode set, so
+      // the merged quantity stayed free. A free-gift line is never a valid
+      // merge target for a real add; it always gets its own, separate line.
       const existing = state.items.find(
         (item) =>
           item.itemId  === incoming.itemId &&
           item.sizeId  === incoming.sizeId &&
-          item.styleId === incoming.styleId
+          item.styleId === incoming.styleId &&
+          item.freeGiftPromoCode == null
       );
       if (existing) {
         existing.quantity += incoming.quantity ?? 1;
@@ -107,12 +116,17 @@ const cartSlice = createSlice({
     // never a separate entry to begin with. Omitting `quantity` (every
     // pre-existing caller) keeps deleting the whole line, unchanged.
     removeItem: (state, action) => {
-      const { itemId, sizeId, styleId, quantity } = action.payload;
+      const { itemId, sizeId, styleId, quantity, freeGiftPromoCode = null } = action.payload;
+      // Matching on freeGiftPromoCode too (not just itemId/sizeId/styleId) —
+      // same reasoning as addItem above: a real paid line and a promo's
+      // free-gift line can genuinely share every other field, and without
+      // this, removing one could silently act on the other instead.
       const match = state.items.find(
         (item) =>
           item.itemId  === itemId &&
           item.sizeId  === sizeId &&
-          item.styleId === styleId
+          item.styleId === styleId &&
+          (item.freeGiftPromoCode ?? null) === freeGiftPromoCode
       );
       if (!match) return;
 
@@ -125,12 +139,14 @@ const cartSlice = createSlice({
     },
 
     updateQuantity: (state, action) => {
-      const { itemId, sizeId, styleId, quantity } = action.payload;
+      const { itemId, sizeId, styleId, quantity, freeGiftPromoCode = null } = action.payload;
+      // Matching on freeGiftPromoCode too — see removeItem's identical note.
       // Defensive: redirect a non-positive quantity to a remove, rather than
       // trusting every caller to pre-validate (not all of them do).
       if (quantity <= 0) {
         state.items = state.items.filter(
-          (i) => !(i.itemId === itemId && i.sizeId === sizeId && i.styleId === styleId)
+          (i) => !(i.itemId === itemId && i.sizeId === sizeId && i.styleId === styleId
+            && (i.freeGiftPromoCode ?? null) === freeGiftPromoCode)
         );
         recalculateTotals(state);
         return;
@@ -140,7 +156,8 @@ const cartSlice = createSlice({
         (i) =>
           i.itemId  === itemId &&
           i.sizeId  === sizeId &&
-          i.styleId === styleId
+          i.styleId === styleId &&
+          (i.freeGiftPromoCode ?? null) === freeGiftPromoCode
       );
       if (item) {
         item.quantity = quantity;

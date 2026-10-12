@@ -663,7 +663,16 @@ export default function CustomerDetailPage() {
   const partyId      = Number(params?.customerId);
   const fallbackCustomerName = searchParams.get('name');
   const isSuperAdmin = useSelector(selectIsSuperAdmin);
-  const visibleTabs = isSuperAdmin ? TABS : TABS.filter((t) => t !== 'edit' && t !== '360');
+  // 'edit' no longer admin-only (2026-10-12) — same reasoning, and the same
+  // live confirmation on OrnaVerse's own non-admin operator session, as the
+  // CustomerDetailSheet/proxy gates already removed: editing a customer
+  // (including PAN, a compliance-mandatory field above a sale threshold)
+  // works there with no permission error. This page's own 'edit' tab had an
+  // independent gate those earlier fixes never touched, blocking the exact
+  // same routine action through this entry point only. '360' stays
+  // admin-only — a separate analytics view, no evidence OrnaVerse treats it
+  // the same way.
+  const visibleTabs = isSuperAdmin ? TABS : TABS.filter((t) => t !== '360');
   const [activeTab, setActiveTab] = useState(() => {
     const requested = searchParams.get('tab');
     if (requested && visibleTabs.includes(requested)) return requested;
@@ -732,7 +741,7 @@ export default function CustomerDetailPage() {
           />
           <div className={TEXT_TABS.includes(activeTab) ? 'max-w-full w-full' : 'w-full'}>
             {activeTab === 'profile' && <ProfileTab customer={customer} />}
-            {activeTab === 'edit'    && isSuperAdmin && <EditTab customer={customer} onSaved={handleSaved} />}
+            {activeTab === 'edit'    && <EditTab customer={customer} onSaved={handleSaved} />}
             {activeTab === 'schemes' && <SchemesTab customerId={customer.customerId} />}
             {activeTab === 'points'  && <PointsTab customerMobile={customer.customerMobile} customerId={customer.customerId} />}
             {activeTab === '360'     && isSuperAdmin && <Customer360Tab customerId={customer.customerId} />}

@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { getInvoiceDetail } from '@/services/orderService';
 import { QUERY_KEYS } from '@/constants/queryKeys';
-import APP_CONFIG from '@/constants/appConfig';
 
 export function useInvoiceDetail(invoiceId) {
   const query = useQuery({
@@ -11,7 +10,10 @@ export function useInvoiceDetail(invoiceId) {
       return data?.Entity ?? null;
     },
     enabled:   !!invoiceId,
-    staleTime: APP_CONFIG.STALE_TIME.ORDERS,
+    // Also used by OrderConfirmationScreen right after placing an invoice —
+    // checkout data must always reflect live state (see
+    // useCheckoutPricing/useActivePromotions/useRetrieveCustomer).
+    staleTime: 0,
   });
 
   return {

@@ -89,7 +89,13 @@ export async function POST(request) {
     
     const csp = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'",
+      // 'unsafe-eval' required (2026-10-12, confirmed live on LIVE via a
+      // real multi-page invoice): FastReport's own viewer script re-runs
+      // <script> tags it injects via outerHTML through eval() in its
+      // _execScripts — without this, that throws and permanently wedges its
+      // internal fetch queue, silently breaking every later pagination
+      // click (and printing, since the next page never actually loads).
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data:",
       "connect-src 'self'",

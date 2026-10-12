@@ -79,9 +79,21 @@ let saveTimer = null;
 // abandoned cart held — real, unsaved-yet items the operator had just
 // added were silently gone. This is what closes that — both item lists
 // survive, combined, instead of one winning outright.
+// Free-gift lines (see cartSlice's applyPromo/removePromo) are a promo's
+// own transient output, never a real saved selection — and the promo that
+// added one isn't saved/restored alongside it (appliedPromos isn't part of
+// this record at all). Reported directly (2026-10-12): merging one in let
+// it survive as an orphan with no promo to ever match it again, so no
+// cleanup path could remove it and DiscountSection's own de-dupe check
+// (matches on itemId + promoCode) never recognized it as "already applied,"
+// letting a fresh correctly-tagged line stack on top of it instead.
+function dropFreeGiftLines(items) {
+  return items.filter((item) => item.freeGiftPromoCode == null);
+}
+
 function mergeCartItems(existingItems, incomingItems) {
-  const merged = existingItems.map((item) => ({ ...item }));
-  for (const incoming of incomingItems) {
+  const merged = dropFreeGiftLines(existingItems).map((item) => ({ ...item }));
+  for (const incoming of dropFreeGiftLines(incomingItems)) {
     const match = merged.find((item) =>
       item.itemId  === incoming.itemId &&
       item.sizeId  === incoming.sizeId &&
@@ -163,7 +175,7 @@ function saveAbandonedCart(partyId, cart, companyId) {
       party_id:       partyId,
       customerName:   cart.customerName,
       customerMobile: cart.customerMobile,
-      items:          cart.items,
+      items:          dropFreeGiftLines(cart.items),
       subtotal:       cart.subtotal,
       taxAmount:      cart.taxAmount,
       total:          cart.total,
@@ -274,7 +286,7 @@ export const abandonedCartMiddleware = (store) => (next) => (action) => {
           // DIFFERENT customer attaches).
           saveAbandonedCart(customerId, freshCart, store.getState().store?.activeStoreId);
         } else if (hasSaved) {
-          store.dispatch(restoreCart({ items: record.items }));
+          store.dispatch(restoreCart({ items: dropFreeGiftLines(record.items) }));
           toast.success(
             `Restored ${record.items.length} item${record.items.length === 1 ? '' : 's'} from a previous cart`
           );

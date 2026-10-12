@@ -84,9 +84,20 @@ export default function ServiceWorkerRegistration() {
     };
     document.addEventListener('visibilitychange', onVisible);
 
+    // Backstop for a terminal that's never backgrounded at all (a counter
+    // screen just left open, foreground the whole shift) — the visibility
+    // check above would never fire for it either. An operator has no way to
+    // "clear the cache" themselves, so this can't depend on them noticing
+    // anything is stale; it has to find out on its own. 20 min is frequent
+    // enough that a deploy is picked up well within the same shift, cheap
+    // enough (one small network request) to not matter running in the
+    // background indefinitely.
+    const intervalId = setInterval(() => registrationRef?.update(), 20 * 60 * 1000);
+
     return () => {
       navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
       document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(intervalId);
     };
   }, []);
 

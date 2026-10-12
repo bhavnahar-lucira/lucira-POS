@@ -26,6 +26,7 @@ function buildOrderEntity({
   activeStoreId, paymentModes, narration,
   salesPersonId, exchangeRate, headerConfig,
   fulfillmentOrderNo,
+  panNumber,
 }) {
   const today = localDocumentDate();
   const {
@@ -46,6 +47,9 @@ function buildOrderEntity({
     party_id:      customerId,
     party_name:    customerName ?? undefined,
     mobile:        customerMobile ?? undefined,
+    // See useCreateInvoice.js's identical field — same OrnaVerse requirement,
+    // same checkout-level gate (checkoutSchema.js), same missing-field bug.
+    pan_no:        panNumber ?? undefined,
     user_id:       null,
     company_id:    activeStoreId,
     document_date: today,
@@ -106,7 +110,7 @@ export function useCreateOrder() {
      */
     mutationFn: async ({
       paymentModes, salesPersonId, pricedLineItems,
-      promotionDetails: promotionDetailsArg, narration,
+      promotionDetails: promotionDetailsArg, narration, panNumber,
     }) => {
       if (!headerConfig.isReady) {
         if (headerConfig.isError) headerConfig.refetch();
@@ -144,6 +148,7 @@ export function useCreateOrder() {
         activeStoreId, paymentModes, narration,
         salesPersonId, exchangeRate, headerConfig,
         fulfillmentOrderNo,
+        panNumber,
       });
 
       // Step 1: Create draft order. `stage` is stamped on the error so the

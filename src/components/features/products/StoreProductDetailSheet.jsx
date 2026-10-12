@@ -14,17 +14,35 @@ import { getStockPieces } from '@/services/inventoryService';
 import { priceStockPiecesForSale } from '@/services/pricingService';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 import APP_CONFIG from '@/constants/appConfig';
-import { formatPrice } from '@/lib/priceUtils';
+import { formatPrice, formatAmountOrNull } from '@/lib/priceUtils';
 
-// Every column deriveSpecFields can produce, in display order — "price" is
-// the one extra field (per physical piece, from its own priced row, not
-// part of deriveSpecFields since that's shared with the single-item PDP
-// view which shows price separately via PriceBreakdown). A column only
-// renders if at least one row actually has a value for it (see
-// visibleColumns below) — most items won't have gemstone fields, for one.
-const COLUMN_DEFS = [
-  { key: 'sku',            label: 'SKU' },
-  { key: 'price',          label: 'Price' },
+// Every row deriveSpecFields can produce, in display order — the price
+// breakup fields are the extra ones (per physical piece, from its own
+// priced row, not part of deriveSpecFields since that's shared with the
+// single-item PDP view, which shows price separately via PriceBreakdown —
+// same field names/grouping as that component, so the two stay consistent).
+// A row only renders if at least one piece actually has a value for it (see
+// visibleRows below) — most items won't have gemstone fields, for one.
+//
+// TRANSPOSED layout (rows = attributes, columns = pieces) — reported
+// directly (2026-10-12): the original piece-per-row/spec-per-column table
+// needed heavy horizontal scrolling to read a single piece's full spec
+// (34+ possible columns). Flipping the axes means each attribute reads
+// top-to-bottom in one place, and horizontal scroll only ever applies
+// across PIECES (typically a handful), not across every possible spec.
+const ROW_DEFS = [
+  // 'sku' deliberately not a row — it's already each piece's own column
+  // header below.
+  { key: 'metalAmount',     label: 'Metal Amount' },
+  { key: 'diamondAmount',   label: 'Diamond Amount' },
+  { key: 'stoneAmount',     label: 'Stone Amount' },
+  { key: 'colorStoneAmount', label: 'Colour Stone Amount' },
+  { key: 'otherAmount',     label: 'Other Amount' },
+  { key: 'makingCharges',   label: 'Making Charges' },
+  { key: 'subtotal',        label: 'Subtotal' },
+  { key: 'taxableAmount',   label: 'Taxable Amount' },
+  { key: 'taxAmount',       label: 'Tax (GST)' },
+  { key: 'price',           label: 'Total Price' },
   { key: 'metalPurity',    label: 'Purity' },
   { key: 'metalColor',     label: 'Metal Color' },
   { key: 'metalType',      label: 'Metal Type' },
@@ -95,10 +113,24 @@ export default function StoreProductDetailSheet({ isOpen, onClose, itemId, compa
   const rows = (product && pieces)
     ? pieces.map((piece) => ({
         ...deriveSpecFields({ product, pricedItem: piece }),
+        // Material segments: only shown when actually present on this piece
+        // (most pieces won't have every component) — same >0 gating
+        // PriceBreakdown itself uses for these same fields.
+        metalAmount:      piece.metal_amount > 0       ? formatAmountOrNull(piece.metal_amount)       : null,
+        diamondAmount:    piece.diamond_amount > 0      ? formatAmountOrNull(piece.diamond_amount)      : null,
+        stoneAmount:       piece.stone_amount > 0        ? formatAmountOrNull(piece.stone_amount)        : null,
+        colorStoneAmount: piece.color_stone_amount > 0  ? formatAmountOrNull(piece.color_stone_amount)  : null,
+        otherAmount:       piece.other_amount > 0        ? formatAmountOrNull(piece.other_amount)        : null,
+        makingCharges:     piece.item_labour > 0         ? formatAmountOrNull(piece.item_labour)         : null,
+        // Running totals: always shown once a piece is priced at all, same
+        // as PriceBreakdown's own Subtotal/Taxable/Tax segments.
+        subtotal:      formatAmountOrNull(piece.sub_total),
+        taxableAmount: formatAmountOrNull(piece.taxable_amount),
+        taxAmount:     formatAmountOrNull(piece.tax_amount),
         price: piece.net_amount > 0 ? formatPrice(piece.net_amount) : null,
       }))
     : [];
-  const visibleColumns = COLUMN_DEFS.filter((col) => rows.some((r) => r[col.key] != null));
+  const visibleRows = ROW_DEFS.filter((def) => rows.some((r) => r[def.key] != null));
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -135,16 +167,20 @@ export default function StoreProductDetailSheet({ isOpen, onClose, itemId, compa
             <Table>
               <TableHeader>
                 <TableRow>
-                  {visibleColumns.map((col) => (
-                    <TableHead key={col.key}>{col.label}</TableHead>
+                  <TableHead className="sticky left-0 z-10 bg-background">Spec</TableHead>
+                  {rows.map((row, i) => (
+                    <TableHead key={row.sku ?? i}>{row.sku ?? `Piece ${i + 1}`}</TableHead>
                   ))}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((row, i) => (
-                  <TableRow key={row.sku ?? i}>
-                    {visibleColumns.map((col) => (
-                      <TableCell key={col.key}>{row[col.key] ?? '—'}</TableCell>
+                {visibleRows.map((def) => (
+                  <TableRow key={def.key}>
+                    <TableCell className="sticky left-0 z-10 bg-background font-semibold text-muted-foreground">
+                      {def.label}
+                    </TableCell>
+                    {rows.map((row, i) => (
+                      <TableCell key={row.sku ?? i}>{row[def.key] ?? '—'}</TableCell>
                     ))}
                   </TableRow>
                 ))}

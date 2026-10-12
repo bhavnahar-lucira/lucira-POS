@@ -37,11 +37,14 @@ function sumBalance(rows) {
 export function useInvoiceHelpers({ partyId, companyId }) {
   const enabled = !!partyId && !!companyId;
 
+  // Available credit-note/exchange/scheme/advance balances a cashier can
+  // apply toward this sale — checkout data must always reflect live state
+  // (see useCheckoutPricing/useActivePromotions/useRetrieveCustomer).
   const receiptsQuery = useQuery({
     queryKey:  QUERY_KEYS.INVOICE_HELPERS.RECEIPTS(partyId),
     queryFn:   () => getPartyReceipts({ party_id: partyId }),
     enabled:   !!partyId,
-    staleTime: APP_CONFIG.STALE_TIME.CUSTOMER,
+    staleTime: 0,
     retry:     false,
   });
 
@@ -49,7 +52,7 @@ export function useInvoiceHelpers({ partyId, companyId }) {
     queryKey:  QUERY_KEYS.INVOICE_HELPERS.PARTY_DAILY_CASH(partyId, companyId),
     queryFn:   () => getPartyDailyCash({ party_id: partyId, company_id: companyId }),
     enabled,
-    staleTime: APP_CONFIG.STALE_TIME.CUSTOMER,
+    staleTime: 0,
     retry:     false,
   });
 

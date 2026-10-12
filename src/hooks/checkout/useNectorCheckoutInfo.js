@@ -26,7 +26,11 @@ export function useNectorCheckoutInfo(
     queryKey: QUERY_KEYS.NECTOR.LOYALTY_CHECKOUT_SETTINGS(companyId),
     queryFn: () => getLoyaltyCheckoutSettings(companyId),
     enabled: enabled && !!companyId,
-    staleTime: 5 * 60 * 1000, // near-static, same as payment modes/document config
+    // Drives loyalty eligibility (min invoice value, item groups) at
+    // checkout — must always reflect live state, same as this hook's own
+    // preview query below (see useCheckoutPricing/useActivePromotions/
+    // useRetrieveCustomer for the same reasoning elsewhere in checkout).
+    staleTime: 0,
   });
 
   const settings = settingsQuery.data;
