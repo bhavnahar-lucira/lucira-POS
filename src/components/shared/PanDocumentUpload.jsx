@@ -1,8 +1,9 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { Paperclip, CheckCircle2, ExternalLink } from 'lucide-react';
+import { Paperclip, CheckCircle2, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { uploadTemporaryFile } from '@/services/fileUploadService';
 import { useUpdateCustomer } from '@/hooks/customer/useUpdateCustomer';
 import { resolveImageSrc } from '@/lib/resolveImageSrc';
@@ -29,8 +30,10 @@ export default function PanDocumentUpload({
   const [error, setError] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
 
   const viewUrl = resolveImageSrc(savedPath);
+  const isPdf = /\.pdf$/i.test(savedPath ?? '');
 
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
@@ -83,15 +86,14 @@ export default function PanDocumentUpload({
           </span>
           <div className="flex items-center gap-3 shrink-0">
             {viewUrl && (
-              <a
-                href={viewUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={() => setIsViewerOpen(true)}
                 className="flex items-center gap-1 text-xs font-semibold text-accent hover:underline"
               >
                 View
-                <ExternalLink size={12} aria-hidden="true" />
-              </a>
+                <Eye size={12} aria-hidden="true" />
+              </button>
             )}
             <button
               type="button"
@@ -116,6 +118,21 @@ export default function PanDocumentUpload({
         </Button>
       )}
       {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
+      {viewUrl && (
+        <Dialog open={isViewerOpen} onOpenChange={setIsViewerOpen}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>PAN document</DialogTitle>
+            </DialogHeader>
+            {isPdf ? (
+              <iframe src={viewUrl} title="PAN document" className="h-[70vh] w-full rounded-lg border border-border" />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element -- arbitrary uploaded file, not a next/image-optimizable asset
+              <img src={viewUrl} alt="PAN document" className="max-h-[70vh] w-full rounded-lg border border-border object-contain" />
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

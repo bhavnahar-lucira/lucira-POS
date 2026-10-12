@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Eye, EyeOff, User, Lock, ArrowRight, ShieldCheck } from 'lucide-react';
@@ -62,6 +62,17 @@ export default function LoginForm() {
   // session. Clear it instead of redirecting away, or this loops forever
   // (redirect to next -> middleware bounces back to /login?next=... -> repeat).
   const bouncedHere = !!searchParams.get('next');
+  // Captured ONCE, at mount — only tells us whether Redux already said
+  // "authenticated" before any login attempt on this page happened. A fresh,
+  // real login turning isAuthenticated true AFTER that is never stale,
+  // regardless of whether the URL still carries `next` from the original
+  // bounce (it doesn't clear itself just because login succeeded). Without
+  // this, the effect below couldn't tell "stale leftover state" apart from
+  // "login on this exact bounced URL just genuinely succeeded" — and wiped
+  // out the real one right after it happened (reported directly, 2026-10-12:
+  // credentials accepted server-side, session created, but the UI looped
+  // back to the login form instead of ever reaching the dashboard).
+  const wasAuthenticatedOnMount = useRef(isAuthenticated);
 
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -81,7 +92,7 @@ export default function LoginForm() {
 
   useEffect(() => {
     if (!isAuthenticated) return;
-    if (bouncedHere) {
+    if (bouncedHere && wasAuthenticatedOnMount.current) {
       dispatch(clearAuth());
     } else {
       router.replace('/dashboard');

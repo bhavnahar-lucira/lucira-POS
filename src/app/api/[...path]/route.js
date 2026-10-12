@@ -8,7 +8,6 @@ import { checkRateLimit } from '@/lib/security/rateLimit';
 import APP_CONFIG from '@/constants/appConfig';
 
 const PUBLIC_PATH_PREFIXES = ['upload/'];
-const ADMIN_ONLY_PATHS = ['Services/POS/Customer/Update'];
 
 // Security audit finding (Medium, 2026-10-05): this proxy forwarded ANY
 // request body of ANY size/type to OrnaVerse with zero validation,
@@ -75,12 +74,14 @@ async function proxy(request, { params }) {
       for (const header of buildClearSessionCookieHeaders()) res.headers.append('Set-Cookie', header);
       return res;
     }
-    if (ADMIN_ONLY_PATHS.includes(resolvedPath) && !session.isSuperAdmin) {
-      return new Response(
-        JSON.stringify({ error: 'admin_only', error_description: 'Only an admin can edit customer details.' }),
-        { status: 403, headers: { 'Content-Type': 'application/json' } },
-      );
-    }
+    // Admin-only gate on Customer/Update REMOVED (2026-10-12, confirmed live
+    // on OrnaVerse UAT's own native client, logged in as a regular non-admin
+    // store operator): editing a customer — including PAN number and
+    // PAN/Other Document upload — works there with no permission error for
+    // a non-admin. The old gate here (2026-09-28) didn't match OrnaVerse's
+    // own real authorization model; it blocked a routine, compliance-
+    // mandatory billing action (PAN is legally required above a sale
+    // threshold) that OrnaVerse itself lets any authorized operator do.
     const proxyLimit = checkRateLimit(`proxy:${session.cookie}`, PROXY_RATE_LIMIT);
     if (!proxyLimit.allowed) {
       return new Response(

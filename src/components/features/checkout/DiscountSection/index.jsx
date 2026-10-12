@@ -111,6 +111,17 @@ export default function DiscountSection({ compact = false, onViewCart }) {
   // own hasEffect check never goes false and never catches this. The
   // free-gift line is excluded from its own eligibility check below (it's
   // the promo's OWN output, never what qualifies a cart for it).
+  //
+  // Checks against the LIVE promotion definition (activePromotions), not the
+  // snapshot captured in appliedPromos.promoDetails at apply time — cart
+  // state (including that snapshot) is persisted across reloads/sessions per
+  // device (see persistConfig's 'cart' whitelist), and this promo's own
+  // rules are documented as having rotated 5+ times already. Reported
+  // directly (2026-10-10): the exact same product applied cleanly on one
+  // device and got removed immediately on another — the only difference was
+  // which device still had an older promoDetails snapshot sitting in its
+  // persisted cart from before. Falls back to the snapshot only when the
+  // live list doesn't have a match yet (e.g. activePromotions still loading).
   useEffect(() => {
     if (isPricing || !invoice?.lineItems?.length) return;
 
@@ -119,7 +130,17 @@ export default function DiscountSection({ compact = false, onViewCart }) {
     );
     if (!goldCoinApplied) return;
 
-    const eligibleGroupIds = (goldCoinApplied.promoDetails?.promotion_details ?? []).map((d) => d.item_group_id);
+    // Match the EXACT applied promo by its own code first — matching only by
+    // type+free_item_id (as this originally did) can silently pick a
+    // DIFFERENT gold-coin promo if more than one is active at once (e.g. a
+    // rotation window, or a regional/tiered variant), applying the wrong
+    // one's eligibility rules to a cart that actually qualifies under the
+    // one that's really applied. This was a real regression (2026-10-10).
+    const livePromo = activePromotions.find((p) => p.promotion_code === goldCoinApplied.promoCode)
+      ?? activePromotions.find((p) => p.promotion_type === 6 && p.free_item_id === GOLD_COIN_FREE_ITEM_ID)
+      ?? goldCoinApplied.promoDetails;
+
+    const eligibleGroupIds = (livePromo?.promotion_details ?? []).map((d) => d.item_group_id);
     let cursor = 0;
     let hasEligibleLine = eligibleGroupIds.length === 0;
     for (const ci of invoice.cartItems) {
@@ -131,13 +152,13 @@ export default function DiscountSection({ compact = false, onViewCart }) {
       cursor += qty;
     }
 
-    const minSpend = Number(goldCoinApplied.promoDetails?.minimum_sales_amount) || 0;
+    const minSpend = Number(livePromo?.minimum_sales_amount) || 0;
     const meetsMinSpend = minSpend <= 0 || invoice.totals.netAmount >= minSpend;
     if (hasEligibleLine && meetsMinSpend) return;
 
     dispatch(removePromoAction(goldCoinApplied.promoCode));
-    toast.error(TOAST.CART.PROMO_NO_LONGER_APPLIES(goldCoinApplied.promoDetails?.promotion_name ?? goldCoinApplied.promoCode));
-  }, [isPricing, invoice, appliedPromos, dispatch]);
+    toast.error(TOAST.CART.PROMO_NO_LONGER_APPLIES(livePromo?.promotion_name ?? goldCoinApplied.promoCode));
+  }, [isPricing, invoice, appliedPromos, activePromotions, dispatch]);
 
   // Auto-apply the gold coin promotion — Invoice (real stock) only, never
   // for an Order (Made to Order): confirmed live stock isn't in hand yet for
@@ -282,6 +303,20 @@ export default function DiscountSection({ compact = false, onViewCart }) {
       // quantity-1 (or previous composition's) number.
       freeGiftDiscoveryRef.current = { key: dedupeKey, phase: 'probing', probedQty: null };
       dispatch(setFreeGiftDiscoveryPromoCode(goldCoinApplied.promoCode));
+      // Reset to a safe baseline of 1 BEFORE the async probe below even
+      // starts — not after. Reported directly (2026-10-10): swapping the
+      // qualifying product left the line at the PREVIOUS composition's
+      // settled quantity (e.g. 12) while this composition's real stock was
+      // still unknown; the very next pricing pass (which fires immediately,
+      // not after this probe resolves) tried to claim 12 pieces, failed,
+      // and tipped the WHOLE cart to Order — removing the promo before the
+      // probe ever got a chance to discover the correct number. Quantity 1
+      // can essentially always be claimed if the promo has any stock at
+      // all, so this keeps every composition change safe to price
+      // immediately, the same way a brand-new apply always starts at 1.
+      if (currentQty !== 1) {
+        dispatch(setFreeGiftQuantity({ promoCode: goldCoinApplied.promoCode, quantity: 1 }));
+      }
       (async () => {
         try {
           // No explicit `take` — the default (50) is deliberately identical

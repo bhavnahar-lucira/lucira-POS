@@ -57,7 +57,7 @@ export default function PromoCodeInput({
         variant="outline"
         onClick={() => setOpen(true)}
         disabled={isDisabled}
-        className="h-auto min-h-9 w-full justify-center gap-2 whitespace-normal py-2 text-center text-xs font-semibold leading-tight border-accent/40 bg-accent/5 hover:border-accent hover:bg-accent/10 sm:text-sm"
+        className="h-auto min-h-9 w-full justify-center gap-2 whitespace-normal py-2 text-center text-xs font-semibold leading-tight border-accent/40 bg-accent/5 hover:border-accent hover:bg-accent/10 disabled:opacity-100 sm:text-sm"
       >
         <Tag className="size-4 shrink-0 text-accent" aria-hidden="true" />
         Enter Promo

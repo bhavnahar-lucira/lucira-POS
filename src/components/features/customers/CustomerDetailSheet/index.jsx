@@ -1,8 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSelector } from 'react-redux';
-import { selectIsSuperAdmin } from '@/store/slices/authSlice';
 import {
   Phone, Mail, MapPin, CreditCard, UserCircle, History,
   Loader2,
@@ -345,7 +343,6 @@ function EditTab({ customer }) {
 }
 
 export default function CustomerDetailSheet({ customer, isOpen, onClose, onAttach, isAttached }) {
-  const isSuperAdmin = useSelector(selectIsSuperAdmin);
   const [activeTab, setActiveTab] = useState('profile');
   const [lastOpenKey, setLastOpenKey] = useState(null);
   const openKey = isOpen ? (customer?.customerId ?? 'guest') : null;
@@ -353,7 +350,15 @@ export default function CustomerDetailSheet({ customer, isOpen, onClose, onAttac
     setLastOpenKey(openKey);
     if (isOpen) setActiveTab('profile');
   }
-  const canEdit = isAttached && isSuperAdmin;
+  // No longer admin-only (2026-10-12, confirmed live on OrnaVerse UAT's own
+  // native client, logged in as a regular non-admin store operator): Edit
+  // Customer — including PAN number and PAN/Other Document upload — opens
+  // with no permission error there at all. The previous isSuperAdmin gate
+  // here (2026-09-28) didn't match OrnaVerse's own real authorization model;
+  // it blocked every operator from a routine, compliance-mandatory billing
+  // action (PAN is legally required above a sale threshold) that OrnaVerse
+  // itself lets any authorized operator perform.
+  const canEdit = isAttached;
   const tabs = canEdit ? ['profile', 'edit'] : ['profile'];
   if (activeTab === 'edit' && !canEdit) {
     setActiveTab('profile');
