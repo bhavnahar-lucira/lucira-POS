@@ -109,6 +109,11 @@ export const QUERY_KEYS = {
     LIST: (companyId, fromDate, toDate) => ['walkins', 'list', companyId, fromDate, toDate],
   },
 
+  BUYERS: {
+    LIST:    (companyId) => ['buyers', 'list', companyId],
+    HISTORY: (customerId) => ['buyers', 'history', customerId],
+  },
+
   ORDERS: {
     LIST:            (params)     => ['orders', 'list', params],
     CUSTOMER_ORDERS: (customerId, storeId) => ['orders', 'customer', customerId, storeId],

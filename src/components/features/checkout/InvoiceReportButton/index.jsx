@@ -12,13 +12,25 @@ import { selectAuthUser } from '@/store/slices/authSlice';
 import APP_CONFIG from '@/constants/appConfig';
 
 /**
- * @param {{ transactionId: number, documentId?: number, documentLabel?: string }} props
+ * @param {{
+ *   transactionId?: number,
+ *   resolveTransactionId?: () => Promise<number|null>, — alternative to a
+ *     static transactionId: called once, lazily, the moment the button is
+ *     clicked (e.g. Custom Estimate's temp voucher, which must be created
+ *     fresh per print so it reflects the current, possibly-just-edited line).
+ *   documentId?: number,
+ *   documentLabel?: string,
+ * }} props
  */
 export default function InvoiceReportButton({
   transactionId,
+  resolveTransactionId,
   documentId = APP_CONFIG.DOCUMENT_TYPES.POS_INVOICE,
   documentLabel = 'Invoice',
 }) {
+  const [resolvedTransactionId, setResolvedTransactionId] = useState(transactionId);
+  const [isResolving, setIsResolving] = useState(false);
+  const [resolveError, setResolveError] = useState(null);
   const [isOpen, setIsOpen] = useState(false);
   const [html, setHtml] = useState(null);
   const [reportId, setReportId] = useState(null);
@@ -51,7 +63,7 @@ export default function InvoiceReportButton({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reportKey:       report.report_key,
-          opt:             { transaction_id: transactionId },
+          opt:             { transaction_id: resolvedTransactionId },
           reportFile:      report.report_file,
           reportFolder:    report.report_folder,
           reportSubFolder: report.report_sub_folder ?? '',
@@ -105,7 +117,24 @@ export default function InvoiceReportButton({
     if (!reportId) return;
     window.open(`/_fr/preview.printReport?reportId=${reportId}&printMode=html`, '_blank');
   };
-  
+
+  const handleToggleOpen = async () => {
+    if (isOpen) { setIsOpen(false); return; }
+    if (!resolveTransactionId) { setIsOpen(true); return; }
+    setIsResolving(true);
+    setResolveError(null);
+    try {
+      const id = await resolveTransactionId();
+      if (!id) throw new Error(`Could not prepare this ${documentLabel.toLowerCase()} for printing.`);
+      setResolvedTransactionId(id);
+      setIsOpen(true);
+    } catch (err) {
+      setResolveError(err?.message ?? 'Something went wrong.');
+    } finally {
+      setIsResolving(false);
+    }
+  };
+
   if (!isLoading && reports.length === 0) return null;
 
   return (
@@ -114,17 +143,25 @@ export default function InvoiceReportButton({
         type="button"
         variant="outline"
         className="h-12 w-full gap-2"
-        disabled={isLoading || isRendering || !transactionId}
-        onClick={() => setIsOpen((v) => !v)}
+        disabled={isLoading || isRendering || isResolving || (!resolveTransactionId && !resolvedTransactionId)}
+        onClick={handleToggleOpen}
       >
         {isLoading ? (
           <><Loader2 size={18} className="animate-spin" aria-hidden="true" /> Loading formats…</>
+        ) : isResolving ? (
+          <><Loader2 size={18} className="animate-spin" aria-hidden="true" /> Preparing {documentLabel.toLowerCase()}…</>
         ) : isRendering ? (
           <><Loader2 size={18} className="animate-spin" aria-hidden="true" /> Preparing {documentLabel.toLowerCase()}…</>
         ) : (
           <><Printer size={18} aria-hidden="true" /> Print {documentLabel}</>
         )}
       </Button>
+
+      {resolveError && (
+        <p className="rounded-lg border border-status-error/30 bg-status-error/10 px-3 py-2 text-xs text-status-error">
+          {resolveError}
+        </p>
+      )}
 
       {isOpen && reports.length > 0 && (
         <div className="flex flex-col gap-1 rounded-xl border border-border bg-card p-2">

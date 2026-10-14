@@ -7,7 +7,7 @@ import APP_CONFIG from '@/constants/appConfig';
 // getPromoBreakdown does for the on-screen discount tag, just working
 // straight off entity.promotion_details since appliedPromos (the cart's own
 // list) isn't available at this point in the flow.
-function summarizeAppliedPromotions(promotionDetails = []) {
+export function summarizeAppliedPromotions(promotionDetails = []) {
   const byCode = new Map();
   for (const row of promotionDetails) {
     if (!row?.promotion_code) continue;
@@ -19,7 +19,7 @@ function summarizeAppliedPromotions(promotionDetails = []) {
   return Array.from(byCode.values());
 }
 
-function toOrderItems(lineItems = []) {
+export function toOrderItems(lineItems = []) {
   return lineItems.map((row) => ({
     item_id:           row.item_id != null ? String(row.item_id) : undefined,
     item_name:         row.item_name ?? undefined,

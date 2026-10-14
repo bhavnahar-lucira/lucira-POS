@@ -285,12 +285,21 @@ function CatalogScreen() {
     [mergedEntries]
   );
   const visibleDisplayProducts = useMemo(() => {
-    let result = showOutOfStock ? pricedDisplayProducts : pricedDisplayProducts.filter((p) => p.has_stock === true);
+    // searchShowOutOfStock (not the raw showOutOfStock toggle) — confirmed
+    // live 2026-10-14: a SKU search's own count (via searchResults, which
+    // already uses this same override) found a real Made to Order item
+    // while this filter — using the raw toggle — silently dropped it from
+    // the rendered grid, producing "1 result" alongside "No products
+    // match your filters". OrnaVerse's own Order-tab catalog search never
+    // filters by stock at all (an Order is explicitly for items that may
+    // not be in stock yet), so a found-by-search item should always render
+    // here too, matching that behavior instead of the plain browse default.
+    let result = searchShowOutOfStock ? pricedDisplayProducts : pricedDisplayProducts.filter((p) => p.has_stock === true);
     if (facets.priceMin != null || facets.priceMax != null) {
       result = applyPriceFilter(result, { priceMin: facets.priceMin, priceMax: facets.priceMax });
     }
     return result;
-  }, [pricedDisplayProducts, showOutOfStock, facets.priceMin, facets.priceMax]);
+  }, [pricedDisplayProducts, searchShowOutOfStock, facets.priceMin, facets.priceMax]);
   const priceBounds = useMemo(() => getPriceBounds(pricedDisplayProducts), [pricedDisplayProducts]);
   let mergeCacheChanged = nextMergeCache.size !== mergeCache.size;
   if (!mergeCacheChanged) {

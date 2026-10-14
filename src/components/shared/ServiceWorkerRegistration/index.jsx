@@ -24,6 +24,15 @@ export default function ServiceWorkerRegistration() {
   useEffect(() => { checkoutInProgressRef.current = checkoutInProgress; }, [checkoutInProgress]);
 
   useEffect(() => {
+    // Dev-only skip: sw.js's own static-asset strategy is cache-first,
+    // correct for production where chunk filenames are content-hashed (a
+    // stale cache entry is impossible — the URL itself changes). `next dev`
+    // doesn't hash the same way, so a registered worker can keep serving an
+    // old JS bundle from a previous run straight through a server restart
+    // AND a hard reload, which looks exactly like "my change isn't showing
+    // up" — confirmed live (2026-10-13) as the actual cause of two separate
+    // "stale UI" reports during this same session, neither a real bug.
+    if (process.env.NODE_ENV !== 'production') return;
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
 
     let reloading = false;

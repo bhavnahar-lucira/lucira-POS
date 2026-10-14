@@ -266,7 +266,21 @@ export default function DiscountSection({ compact = false, onViewCart }) {
       .filter((ci) => ci.freeGiftPromoCode == null)
       .map((ci) => `${ci.itemId}x${ci.quantity}`)
       .join('|');
-    const dedupeKey = `${goldCoinApplied.promoCode}::${qualifyingKey}`;
+    // Other applied promo codes are part of this too — reported directly
+    // (2026-10-12): adding a SECOND promotion after the coin had already
+    // settled lowers the cart's priced amount without changing which items
+    // are in it, so qualifyingKey alone stayed identical and the 'settled'
+    // gate below never re-opened — the coin count kept reflecting the
+    // pre-discount amount until the operator manually removed and re-applied
+    // it. Any OTHER promo being added/removed changes what amount the real
+    // entitlement is computed against, so it has to invalidate the settled
+    // state the same way a composition change does.
+    const otherPromoCodes = appliedPromos
+      .filter((p) => p.promoCode !== goldCoinApplied.promoCode)
+      .map((p) => p.promoCode)
+      .sort()
+      .join(',');
+    const dedupeKey = `${goldCoinApplied.promoCode}::${qualifyingKey}::${otherPromoCodes}`;
 
     // A transient ApplyPromotions failure this pass (confirmed live
     // 2026-10-08, same upstream flakiness as elsewhere this session) leaves

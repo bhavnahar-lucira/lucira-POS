@@ -33,14 +33,28 @@
 // (confirmed: no network call fires) — same "server supplies the rate once,
 // client recomputes weight-dependent fields" pattern as URD Purchase's
 // Metal category (see returnItemsService.js's calculateURDItems header).
+//
+// KARAT/COLOR ARE DROPDOWNS, NOT FIXED (confirmed live 2026-10-14 against
+// OrnaVerse's own Estimation > Custom tab, same tenant): changing Karat
+// fires exactly ONE new Services/Helpers/GetMetalRate call (NOT a fresh
+// SetSalesItems) — Purity never comes from that call; it's `std_purity` on
+// the already-fetched Karat attribute row (Services/Master/Attributes/List,
+// attribute_type_id 17), confirmed by the std_purity field reconciling
+// exactly against the on-screen Purity for every karat tested (22KT:
+// std_purity 0.916 == Purity 0.916). Changing Color fired an identical
+// (same karat_id, same rate) GetMetalRate call — proving color never
+// affects purity/rate at all; this app skips that redundant call and
+// updates metal_color_id/name client-side only. See getMetalRateForItem.
 
 import axiosInstance from '@/lib/axios/axiosInstance';
 import API from '@/constants/apiEndpoints';
+import APP_CONFIG from '@/constants/appConfig';
 
 /**
  * Catalog items eligible for Custom Estimate — gated by `allow_custom_estimation`
- * on the item master, not a free search. CONFIRMED LIVE: on this tenant,
- * exactly one such item exists ("Custom 18KT Ring", item_id 125282).
+ * on the item master, not a free search. CONFIRMED LIVE 2026-10-14: 5 such
+ * items exist on this tenant (Customised Order, Customized Bracelets,
+ * Customized Necklaces, Customized Pendant, Test Order 2).
  * @returns {Promise<object[]>} full item master rows (incl. item_components)
  */
 export async function getCustomEstimateItems() {
@@ -50,6 +64,44 @@ export async function getCustomEstimateItems() {
     Sort: ['item_name'],
   });
   return response.data?.Entities ?? [];
+}
+
+/**
+ * Re-fetches the gold-rate half of the Metal line (Rate only — Purity comes
+ * from the Karat attribute row's own std_purity, see useKaratOptions) after
+ * the operator switches the Karat dropdown on a priced custom-estimate item.
+ * CONFIRMED LIVE 2026-10-14: exact field set/shapes captured from OrnaVerse's
+ * own Estimation > Custom tab — every field here is the SAME item_components
+ * row already carries (base_item_id/type_id/sub_type_id/metal_id/
+ * item_group_id/sales_costing_id/purchase_costing_id), just with karat_id
+ * swapped to the newly selected one. `weight: 0` — confirmed live, the rate
+ * returned is per-gram and doesn't vary with the line's own weight.
+ * @param {{
+ *   baseItemId: number, typeId: number, subTypeId: number, karatId: number,
+ *   metalId: number, itemGroupId: number, salesCostingId: number, purchaseCostingId: number,
+ * }} params
+ * @returns {Promise<{ rate: number }>}
+ */
+export async function getMetalRateForItem({
+  baseItemId, typeId, subTypeId, karatId, metalId, itemGroupId,
+  salesCostingId, purchaseCostingId,
+}) {
+  const today = new Date().toDateString();
+  const response = await axiosInstance.post(API.HELPERS.GET_METAL_RATE, {
+    base_item_id:        baseItemId,
+    type_id:             typeId,
+    sub_type_id:         subTypeId,
+    karat_id:            karatId,
+    metal_id:            metalId,
+    item_group_id:       itemGroupId,
+    weight:              0,
+    from_date:           today,
+    to_date:             today,
+    sales_costing_id:    salesCostingId,
+    purchase_costing_id: purchaseCostingId,
+    is_purchase:         false,
+  });
+  return response.data ?? { rate: 0 };
 }
 
 /**
@@ -184,6 +236,27 @@ export async function getLabourRate({
  * @returns {Promise<object[]>} re-priced line — use for its rate/amount
  *   fields only; item_operations/item_taxes are unreliable, see above.
  */
+/**
+ * Creates an ephemeral, unsaved "voucher" for the current custom-estimate
+ * line — CONFIRMED LIVE 2026-10-14 against OrnaVerse's own Estimation >
+ * Custom tab: this is exactly what its "Print Estimate" button calls before
+ * opening the report picker. It does NOT create a real, listed Estimation
+ * document (nothing shows up in Estimation/List afterward) — its only
+ * purpose is to hand the report engine a transaction_id to render against.
+ * The line's own document_id is forced to ESTIMATION here regardless of
+ * what it was priced under (Custom Estimate items are always priced via
+ * POS_ORDER — see this file's own header), matching the real captured
+ * payload exactly.
+ * @param {object} lineItem — same shape handleSubmit already builds
+ * @returns {Promise<number|null>} the temp voucher's transaction id
+ */
+export async function createEstimationTempVoucher(lineItem) {
+  const response = await axiosInstance.post(API.CUSTOM.CREATE_TEMP_VOUCHER, {
+    Entity: { ...lineItem, document_id: APP_CONFIG.DOCUMENT_TYPES.ESTIMATION },
+  });
+  return response.data?.EntityId ?? null;
+}
+
 export async function applyLabourToLine({ item, operations, documentDate = new Date(), documentId }) {
   const response = await axiosInstance.post(API.HELPERS.SET_SALES_ITEMS, {
     selected_products: [{ ...item, item_operations: operations }],

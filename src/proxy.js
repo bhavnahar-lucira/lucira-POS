@@ -9,7 +9,7 @@ import { SESSION_COOKIE_PREFIX } from '@/lib/ornaverse/session';
 const PUBLIC_PATHS = ['/login', '/store-selection', '/offline'];
 
 /**
- * Next.js Middleware — Route Shape Protection
+ * Next.js Proxy (renamed from Middleware in Next 16) — Route Shape Protection
  *
  * Security audit finding (Low, 2026-10-05): this previously only redirected
  * `/` to `/login` — every (pos) route's real gating happened client-side
@@ -17,7 +17,7 @@ const PUBLIC_PATHS = ['/login', '/store-selection', '/offline'];
  * whole page shell back before any JS ran or any API call 401'd. The old
  * comment here ("tokens in localStorage, inaccessible at the edge") is from
  * BEFORE the 2026-09-15 auth rewire — the real session now lives in a real
- * httpOnly cookie (see lib/ornaverse/session.js), which middleware CAN read.
+ * httpOnly cookie (see lib/ornaverse/session.js), which proxy CAN read.
  *
  * This still isn't full request authorization — it only checks that the
  * session cookie EXISTS, not that OrnaVerse still considers it valid (that
@@ -33,7 +33,7 @@ const PUBLIC_PATHS = ['/login', '/store-selection', '/offline'];
  * forces the ENTIRE app into dynamic rendering, which isn't worth the
  * static-rendering/hosting-cost trade-off for this specific app.)
  */
-export function middleware(request) {
+export function proxy(request) {
   const { pathname } = request.nextUrl;
 
   if (pathname === '/') {

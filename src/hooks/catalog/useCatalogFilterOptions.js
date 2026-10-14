@@ -48,6 +48,27 @@ export function useAttributeOptions(attributeTypeId) {
   return { options: query.data ?? [], isLoading: query.isLoading };
 }
 
+/**
+ * Karat options carrying std_purity alongside each one — the Custom
+ * Estimate Karat dropdown needs Purity client-side on every change (see
+ * customEstimateService.js's getMetalRateForItem header for why Purity
+ * never comes from a network call). Same Attributes/List endpoint/attribute_
+ * type_id as useAttributeOptions(KARAT); kept separate since no other
+ * caller needs std_purity.
+ */
+export function useKaratOptions() {
+  const query = useQuery({
+    queryKey:  QUERY_KEYS.ITEMS.ATTRIBUTES(APP_CONFIG.ATTRIBUTE_TYPES.KARAT),
+    queryFn:   () => getItemAttributes(APP_CONFIG.ATTRIBUTE_TYPES.KARAT),
+    staleTime: APP_CONFIG.STALE_TIME.STATIC,
+    select:    (res) => (res?.data?.Entities ?? [])
+      .filter((a) => a.attribute_id > 0)
+      .map((a) => ({ value: a.attribute_id, label: a.attribute_name || a.attribute_code, purity: a.std_purity ?? 0 }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+  });
+  return { options: query.data ?? [], isLoading: query.isLoading };
+}
+
 export function useItemSizeOptions() {
   const query = useQuery({
     queryKey:  QUERY_KEYS.ITEMS.SIZES(),

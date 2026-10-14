@@ -1,6 +1,7 @@
 'use client';
 
 import PhoneInput from 'react-phone-number-input';
+import flags from 'react-phone-number-input/flags';
 import 'react-phone-number-input/style.css';
 import { Input } from '@/components/ui/input';
 
@@ -26,6 +27,12 @@ export default function PhoneNumberField({ value, onChange, onBlur, id, placehol
       onBlur={onBlur}
       defaultCountry="IN"
       international
+      // Without this, the flag component fetches each SVG from
+      // purecatamphetamine.github.io at render time — blocked by our CSP's
+      // img-src allowlist (confirmed live 2026-10-14) and a needless
+      // external dependency even where it isn't. The library ships the same
+      // flags as local React components.
+      flags={flags}
       // Without this, a locally-typed number whose leading digits happen to
       // match another country's calling code (e.g. a mobile starting "81")
       // gets silently reparsed as that country instead of India — CONFIRMED

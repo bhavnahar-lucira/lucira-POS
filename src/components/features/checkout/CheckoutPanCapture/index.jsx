@@ -36,20 +36,23 @@ export default function CheckoutPanCapture({ totalAmount, onPanResolved, onPanDo
   const documentOnFile = justSavedDocument ?? customer?.customerPanDocument ?? null;
 
   // useUpdateCustomer only INVALIDATES the customer query on success, it
-  // doesn't patch the cache — so saving the PAN number then immediately
-  // uploading the document (or vice versa) can fire the second Customer/
-  // Update from a still-stale customer.raw that doesn't have the first
-  // save yet. buildCustomerUpdatePayload does a full-entity merge, so that
-  // second save silently writes the first field back to its old value on
-  // OrnaVerse's side even though both show as "on file" here — confirmed
-  // 2026-10-12: Invoice/Create then rejects with "Please upload PAN & its
-  // number" despite the operator having just seen both saved. Overlaying
-  // what THIS session just saved onto the raw record closes that race for
-  // whichever of the two saves fires second.
+  // doesn't patch the cache — so saving the PAN number immediately after
+  // uploading the document can fire from a still-stale customer.raw that
+  // doesn't have the just-saved PAN number yet. buildCustomerUpdatePayload
+  // does a full-entity merge, so that second save would silently write
+  // pan_no back to its old value. Overlaying justSavedPan (the exact,
+  // still-correct literal value we already sent) closes that race.
+  //
+  // pan_document does NOT get the same treatment: justSavedDocument is only
+  // the ephemeral TEMP upload path, not the permanent "Documents/..." path
+  // OrnaVerse relocates it to server-side. Resending that temp path in a
+  // later, unrelated save (e.g. the PAN number Save button) 500s — the temp
+  // file was already consumed by the first save. Confirmed live 2026-10-14.
+  // The brief window before the invalidated query refetches is an accepted
+  // tradeoff against a guaranteed 500 on every subsequent save.
   const effectiveRaw = customer?.raw ? {
     ...customer.raw,
     ...(justSavedPan ? { pan_no: justSavedPan } : null),
-    ...(justSavedDocument ? { pan_document: justSavedDocument } : null),
   } : customer?.raw;
 
   useEffect(() => {

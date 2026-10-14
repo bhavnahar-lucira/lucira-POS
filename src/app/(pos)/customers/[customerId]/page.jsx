@@ -29,8 +29,8 @@ import EmptyState from '@/components/shared/EmptyState';
 import ErrorState from '@/components/shared/ErrorState';
 import InlineLoader from '@/components/shared/InlineLoader';
 
-import { updateCustomerSchema }   from '@/validators/customerSchema';
-import { storedValueToPhone }     from '@/lib/normalizers/customer';
+import { buildUpdateCustomerSchema } from '@/validators/customerSchema';
+import { storedValueToPhone, isMaskedValue } from '@/lib/normalizers/customer';
 import { useRetrieveCustomer }    from '@/hooks/customer/useRetrieveCustomer';
 import { useUpdateCustomer }      from '@/hooks/customer/useUpdateCustomer';
 import { useCustomerEnrollments } from '@/hooks/customer/useCustomerEnrollments';
@@ -149,12 +149,13 @@ function ProfileTab({ customer }) {
 function EditTab({ customer, onSaved }) {
   const updateCustomer = useUpdateCustomer();
   const raw = customer.raw;
+  const schema = useMemo(() => buildUpdateCustomerSchema(raw), [raw]);
 
   const {
     register, handleSubmit, control, watch, setValue, reset,
     formState: { errors, isDirty },
   } = useForm({
-    resolver: zodResolver(updateCustomerSchema),
+    resolver: zodResolver(schema),
     defaultValues: {
       party_name:  raw?.party_name  ?? '',
       mobile:      storedValueToPhone(raw?.mobile),
@@ -235,25 +236,33 @@ function EditTab({ customer, onSaved }) {
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ep_mobile">Mobile <span className="text-destructive">*</span></Label>
-          <Controller
-            name="mobile"
-            control={control}
-            render={({ field }) => (
-              <PhoneNumberField id="ep_mobile" value={field.value} onChange={field.onChange} />
-            )}
-          />
+          {isMaskedValue(raw?.mobile) ? (
+            <Input id="ep_mobile" value={raw.mobile} disabled className="h-11" />
+          ) : (
+            <Controller
+              name="mobile"
+              control={control}
+              render={({ field }) => (
+                <PhoneNumberField id="ep_mobile" value={field.value} onChange={field.onChange} />
+              )}
+            />
+          )}
           {errors.mobile && <p className="text-sm text-destructive">{errors.mobile.message}</p>}
         </div>
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ep_phone">Phone <span className="text-muted-foreground text-xs">(optional)</span></Label>
-          <Controller
-            name="phone"
-            control={control}
-            render={({ field }) => (
-              <PhoneNumberField id="ep_phone" value={field.value} onChange={field.onChange} />
-            )}
-          />
+          {isMaskedValue(raw?.phone) ? (
+            <Input id="ep_phone" value={raw.phone} disabled className="h-11" />
+          ) : (
+            <Controller
+              name="phone"
+              control={control}
+              render={({ field }) => (
+                <PhoneNumberField id="ep_phone" value={field.value} onChange={field.onChange} />
+              )}
+            />
+          )}
           {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
         </div>
 
@@ -265,13 +274,13 @@ function EditTab({ customer, onSaved }) {
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ep_pan">PAN</Label>
-          <Input id="ep_pan" {...register('pan_no')} className="h-11" style={{ textTransform: 'uppercase' }} />
+          <Input id="ep_pan" {...register('pan_no')} disabled={isMaskedValue(raw?.pan_no)} className="h-11" style={{ textTransform: 'uppercase' }} />
           {errors.pan_no && <p className="text-sm text-destructive">{errors.pan_no.message}</p>}
         </div>
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ep_tax_no">GSTIN <span className="text-muted-foreground text-xs">(optional)</span></Label>
-          <Input id="ep_tax_no" {...register('tax_no')} className="h-11" style={{ textTransform: 'uppercase' }} />
+          <Input id="ep_tax_no" {...register('tax_no')} disabled={isMaskedValue(raw?.tax_no)} className="h-11" style={{ textTransform: 'uppercase' }} />
           {errors.tax_no && <p className="text-sm text-destructive">{errors.tax_no.message}</p>}
         </div>
 
@@ -283,7 +292,7 @@ function EditTab({ customer, onSaved }) {
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ep_aadhaar_number">Aadhaar No <span className="text-muted-foreground text-xs">(optional)</span></Label>
-          <Input id="ep_aadhaar_number" type="text" inputMode="numeric" maxLength={12} {...register('aadhaar_number')} className="h-11" />
+          <Input id="ep_aadhaar_number" type="text" inputMode="numeric" maxLength={12} {...register('aadhaar_number')} disabled={isMaskedValue(raw?.aadhaar_number ? String(raw.aadhaar_number) : '')} className="h-11" />
           {errors.aadhaar_number && <p className="text-sm text-destructive">{errors.aadhaar_number.message}</p>}
         </div>
 

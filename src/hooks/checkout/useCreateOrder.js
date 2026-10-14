@@ -19,6 +19,7 @@ import { selectCartCustomerAddress } from '@/store/slices/cartSlice';
 import APP_CONFIG from '@/constants/appConfig';
 import TOAST from '@/constants/toastMessages';
 import { trackDocumentPlaced, trackDocumentFailed } from '@/lib/analytics/orderTracking';
+import { recordBuyerPurchase } from '@/lib/checkout/recordBuyerPurchase';
 
 function buildOrderEntity({
   lineItems, promotionDetails,
@@ -197,6 +198,16 @@ export function useCreateOrder() {
         transactionId, entity, lineItems,
         customerId, customerName, customerMobile, customerAddress,
         activeStoreId, activeStoreCode, activeStoreName,
+        paymentModes:    variables?.paymentModes,
+        salesPersonId:   variables?.salesPersonId,
+        salesPersonName: variables?.salesPersonName,
+      });
+
+      recordBuyerPurchase({
+        documentType: 'order',
+        transactionId, entity, lineItems,
+        customerId, customerName, customerMobile, customerEmail: null, customerAddress,
+        activeStoreId, activeStoreName,
         paymentModes:    variables?.paymentModes,
         salesPersonId:   variables?.salesPersonId,
         salesPersonName: variables?.salesPersonName,

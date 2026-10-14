@@ -43,6 +43,7 @@ export default function OrderConfirmationScreen({
   const discountAmt = invoice?.discount || null;
   const gst         = sumRealGst(invoice?.line_items);
   const roundOffAmt = invoice?.round_off ?? null;
+  const payments    = invoice?.receipt_details ?? [];
 
   const handleNewSale = () => {
     router.push('/catalog');
@@ -123,6 +124,33 @@ export default function OrderConfirmationScreen({
               <div className="flex justify-between">
                 <span className="text-muted-foreground">{isOrder ? 'Advance paid' : 'Paid'}</span>
                 <span className="text-status-in-stock font-medium">{fmt(receiptAmt)}</span>
+              </div>
+            )}
+            {/* How that payment was actually made — reported directly
+                (2026-10-12): a credit-card sale with a real bank + reference
+                number entered at checkout showed only the total "Paid"
+                figure here, nothing about mode/bank/reference. Same fields
+                InvoiceDetailSheet now shows, same reasoning: already saved
+                on every real tender (documentFields.js's buildReceiptDetails),
+                just never surfaced here before. */}
+            {payments.length > 0 && (
+              <div className="flex flex-col gap-1 border-t border-border pt-2 mt-1">
+                <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+                  Payment Details
+                </span>
+                {payments.map((p) => (
+                  <div key={p.receipt_id} className="flex justify-between gap-2">
+                    <span className="text-foreground/80">
+                      {p.mode_name}
+                      {(p.ledger_name || p.ref_no) && (
+                        <span className="block text-xs text-muted-foreground">
+                          {[p.ledger_name, p.ref_no ? `Ref: ${p.ref_no}` : null].filter(Boolean).join(' · ')}
+                        </span>
+                      )}
+                    </span>
+                    <span className="font-medium text-foreground">{fmt(p.amount)}</span>
+                  </div>
+                ))}
               </div>
             )}
             {balanceAmt != null && balanceAmt > 0 && (

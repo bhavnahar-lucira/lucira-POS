@@ -110,7 +110,21 @@ function InvoiceContent({ raw }) {
           <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">Payments</span>
           {payments.map((p) => (
             <div key={p.receipt_id} className="flex justify-between gap-2">
-              <span className="text-foreground/80">{p.mode_name}</span>
+              <span className="text-foreground/80">
+                {p.mode_name}
+                {/* Reference number + settling bank/ledger — already saved
+                    on every real tender (see documentFields.js's
+                    buildReceiptDetails: ref_no, bank_pos) but never shown
+                    here before. ledger_name is OrnaVerse's own resolved
+                    name for the bank/ledger this settled to, same
+                    convention as item_group_name alongside item_group_id
+                    elsewhere — no extra lookup needed. */}
+                {(p.ledger_name || p.ref_no) && (
+                  <span className="block text-xs text-muted-foreground">
+                    {[p.ledger_name, p.ref_no ? `Ref: ${p.ref_no}` : null].filter(Boolean).join(' · ')}
+                  </span>
+                )}
+              </span>
               <span className="font-medium text-foreground">{formatCurrency(p.amount)}</span>
             </div>
           ))}

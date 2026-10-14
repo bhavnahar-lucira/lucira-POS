@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Phone, Mail, MapPin, CreditCard, UserCircle, History,
   Loader2,
 } from 'lucide-react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useSelector } from 'react-redux';
 import Link from 'next/link';
 
 import BottomSheet from '@/components/shared/BottomSheet';
@@ -17,17 +18,21 @@ import LocationSelect from '@/components/shared/LocationSelect';
 import PhoneNumberField from '@/components/shared/PhoneNumberField';
 import PillTabs from '@/components/shared/PillTabs';
 
-import { updateCustomerSchema } from '@/validators/customerSchema';
-import { storedValueToPhone } from '@/lib/normalizers/customer';
+import { buildUpdateCustomerSchema } from '@/validators/customerSchema';
+import { storedValueToPhone, isMaskedValue } from '@/lib/normalizers/customer';
 import { useRetrieveCustomer } from '@/hooks/customer/useRetrieveCustomer';
 import { useUpdateCustomer } from '@/hooks/customer/useUpdateCustomer';
 import { useCountries, useStates, useCities } from '@/hooks/settings/useLocation';
+import { selectIsSuperAdmin } from '@/store/slices/authSlice';
 
 const TAB_LABELS = { profile: 'Profile', edit: 'Edit' };
 function ProfileTab({ customer, onAttach, isAttached, onClose }) {
   const { customerName, customerMobile, customerPhone, customerEmail, customerAddress, customerPan, taxNo, raw } = customer;
   const partyCode = raw?.party_code && raw.party_code !== 'NA' ? raw.party_code : null;
   const nameParam = customerName ? `name=${encodeURIComponent(customerName)}` : '';
+  // Same admin-only gate as the full profile page's own '360' tab — not
+  // applicable for a non-admin.
+  const isSuperAdmin = useSelector(selectIsSuperAdmin);
 
   return (
     <div className="flex flex-col gap-4">
@@ -92,12 +97,14 @@ function ProfileTab({ customer, onAttach, isAttached, onClose }) {
               View Full Profile
             </Link>
           </Button>
-          <Button asChild type="button" variant="outline" className="h-11 w-full gap-2">
-            <Link href={`/customers/${customer.customerId}?tab=360${nameParam ? `&${nameParam}` : ''}`} onClick={onClose}>
-              <History size={16} />
-              Customer 360
-            </Link>
-          </Button>
+          {isSuperAdmin && (
+            <Button asChild type="button" variant="outline" className="h-11 w-full gap-2">
+              <Link href={`/customers/${customer.customerId}?tab=360${nameParam ? `&${nameParam}` : ''}`} onClick={onClose}>
+                <History size={16} />
+                Customer 360
+              </Link>
+            </Button>
+          )}
         </>
       )}
     </div>
@@ -109,12 +116,13 @@ function EditTab({ customer }) {
   const updateCustomer = useUpdateCustomer();
 
   const raw = fullCustomer?.raw ?? customer.raw;
+  const schema = useMemo(() => buildUpdateCustomerSchema(raw), [raw]);
 
   const {
     register, handleSubmit, control, watch, setValue, reset,
     formState: { errors, isDirty },
   } = useForm({
-    resolver: zodResolver(updateCustomerSchema),
+    resolver: zodResolver(schema),
     defaultValues: {
       party_name: customer.customerName ?? '',
       mobile: storedValueToPhone(customer.customerMobile),
@@ -211,25 +219,33 @@ function EditTab({ customer }) {
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ds_mobile">Mobile <span className="text-destructive">*</span></Label>
-          <Controller
-            name="mobile"
-            control={control}
-            render={({ field }) => (
-              <PhoneNumberField id="ds_mobile" value={field.value} onChange={field.onChange} />
-            )}
-          />
+          {isMaskedValue(raw?.mobile) ? (
+            <Input id="ds_mobile" value={raw.mobile} disabled className="h-11" />
+          ) : (
+            <Controller
+              name="mobile"
+              control={control}
+              render={({ field }) => (
+                <PhoneNumberField id="ds_mobile" value={field.value} onChange={field.onChange} />
+              )}
+            />
+          )}
           {errors.mobile && <p className="text-sm text-destructive">{errors.mobile.message}</p>}
         </div>
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ds_phone">Phone <span className="text-muted-foreground text-xs">(optional)</span></Label>
-          <Controller
-            name="phone"
-            control={control}
-            render={({ field }) => (
-              <PhoneNumberField id="ds_phone" value={field.value} onChange={field.onChange} />
-            )}
-          />
+          {isMaskedValue(raw?.phone) ? (
+            <Input id="ds_phone" value={raw.phone} disabled className="h-11" />
+          ) : (
+            <Controller
+              name="phone"
+              control={control}
+              render={({ field }) => (
+                <PhoneNumberField id="ds_phone" value={field.value} onChange={field.onChange} />
+              )}
+            />
+          )}
           {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
         </div>
 
@@ -243,13 +259,13 @@ function EditTab({ customer }) {
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ds_pan_no">PAN</Label>
-          <Input id="ds_pan_no" {...register('pan_no')} className="h-11" style={{ textTransform: 'uppercase' }} />
+          <Input id="ds_pan_no" {...register('pan_no')} disabled={isMaskedValue(raw?.pan_no)} className="h-11" style={{ textTransform: 'uppercase' }} />
           {errors.pan_no && <p className="text-sm text-destructive">{errors.pan_no.message}</p>}
         </div>
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ds_tax_no">GSTIN <span className="text-muted-foreground text-xs">(optional)</span></Label>
-          <Input id="ds_tax_no" {...register('tax_no')} className="h-11" style={{ textTransform: 'uppercase' }} />
+          <Input id="ds_tax_no" {...register('tax_no')} disabled={isMaskedValue(raw?.tax_no)} className="h-11" style={{ textTransform: 'uppercase' }} />
           {errors.tax_no && <p className="text-sm text-destructive">{errors.tax_no.message}</p>}
         </div>
 

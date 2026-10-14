@@ -176,6 +176,17 @@ export function storedValueToPhone(raw) {
   return /^[6-9]\d{9}$/.test(value) ? `+91${value}` : value;
 }
 
+// OrnaVerse masks some compliance fields for a non-admin session — confirmed
+// live 2026-10-14 — even though the real value is genuinely on file. The
+// masking isn't consistent: pan_no comes back fully masked ("**********"),
+// mobile only partially ("******5670", last 4 digits real). Either way, a
+// real OrnaVerse field value never legitimately contains '*', so its mere
+// presence is a reliable signal this is a placeholder, not a re-sendable
+// value — shared so every caller treats a masked field the same way.
+export function isMaskedValue(value) {
+  return typeof value === 'string' && value.includes('*');
+}
+
 export function buildCustomerCreatePayload(formValues) {
   return {
     party_name:      formValues.party_name,

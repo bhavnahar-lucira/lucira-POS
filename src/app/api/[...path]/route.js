@@ -36,6 +36,27 @@ const MAX_REQUEST_BYTES =  5 * 1024 * 1024; //  5MB — no JSON call here is rem
 // catches genuine runaway abuse, not normal usage.
 const PROXY_RATE_LIMIT = { limit: 600, windowMs: 60 * 1000 };
 
+// A burst of concurrent calls to OrnaVerse (a full-catalog sweep, several
+// parallel attribute-list lookups, etc. — all routine on a single page
+// load) occasionally trips a connect-level stall confirmed live 2026-10-14:
+// undici's ConnectTimeoutError (UND_ERR_CONNECT_TIMEOUT) — the TCP/TLS
+// handshake itself never completes, as opposed to OrnaVerse responding
+// slowly or with a real error. One retry is always safe here specifically
+// BECAUSE the connection never completed: the request body was never
+// transmitted, so OrnaVerse never saw it — no risk of double-processing a
+// Create/Post call, unlike retrying after a response timeout would be.
+const CONNECT_RETRY_DELAY_MS = 500;
+
+async function fetchWithConnectRetry(url, options) {
+  try {
+    return await fetch(url, options);
+  } catch (err) {
+    if (err.cause?.code !== 'UND_ERR_CONNECT_TIMEOUT') throw err;
+    await new Promise((resolve) => setTimeout(resolve, CONNECT_RETRY_DELAY_MS));
+    return fetch(url, options);
+  }
+}
+
 function tooLarge(limitBytes) {
   return new Response(
     JSON.stringify({ error: 'payload_too_large', error_description: `Request body exceeds the ${Math.round(limitBytes / 1024 / 1024)}MB limit.` }),
@@ -132,7 +153,7 @@ async function proxy(request, { params }) {
 
   let upstreamRes;
   try {
-    upstreamRes = await fetch(targetUrl, {
+    upstreamRes = await fetchWithConnectRetry(targetUrl, {
       method: request.method,
       headers,
       body,
