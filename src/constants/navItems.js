@@ -14,6 +14,7 @@ import {
   Wrench,
   Footprints,
   HeartHandshake,
+  BarChart3,
 
 } from 'lucide-react';
 
@@ -28,12 +29,10 @@ export const NAV_ITEMS = [
   { label: 'Transfers',    href: '/transfers',    icon: Repeat          },
   { label: 'Estimation',   href: '/estimation',   icon: FileSpreadsheet },
   { label: 'Customers',    href: '/customers',    icon: Users           },
-  // Custom, independent of OrnaVerse — past-buyer retargeting data (see
-  // src/lib/mongo/buyerPurchases.js's own header for why this lives in our
-  // own Mongo collection rather than as an OrnaVerse view).
   { label: 'Buyers',       href: '/buyers',       icon: HeartHandshake  },
   { label: 'Schemes',      href: '/schemes',      icon: BookOpen        },
   { label: 'Walk-ins',     href: '/walkins',      icon: Footprints      },
+  { label: 'Reports',      href: '/reports',      icon: BarChart3       },
 ];
 
 export const BOTTOM_ITEMS = [

@@ -1,6 +1,7 @@
 import { recordPurchaseSchema } from '@/validators/buyerPurchaseSchema';
 import { upsertPurchase } from '@/lib/mongo/buyerPurchases';
 import { getSessionFromRequest } from '@/lib/ornaverse/session';
+import { ACTIVE_ENV } from '@/lib/ornaverse/environment';
 
 // Called from two places: the live checkout hook (useCreateInvoice.js/
 // useCreateOrder.js, cookie session) right after a real sale, and the
@@ -27,7 +28,13 @@ export async function POST(request) {
   }
 
   try {
-    await upsertPurchase(parsed.data);
+    // Confirmed live 2026-10-15: a UAT test order showed up under /buyers
+    // while running LIVE — MongoDB is one shared database across both
+    // OrnaVerse environments, and a purchase record carried nothing saying
+    // which one it came from. ACTIVE_ENV is server-only config (see
+    // lib/ornaverse/environment.js) — stamped here, never accepted from the
+    // client, so a UAT session can never claim to be a LIVE purchase.
+    await upsertPurchase({ ...parsed.data, environment: ACTIVE_ENV });
     return Response.json({ ok: true });
   } catch (err) {
     console.error('[api/buyers/record-purchase] POST', err);

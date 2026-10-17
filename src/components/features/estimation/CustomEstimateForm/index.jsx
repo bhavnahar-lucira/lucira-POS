@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
-import { Plus, X, PauseCircle, History, Share2 } from 'lucide-react';
+import { Plus, X, PauseCircle, History, Share2, ImagePlus } from 'lucide-react';
 
 import { useCustomEstimateItems, useItemSizesByType, useStoneTypeDetails } from '@/hooks/estimation/useCustomEstimate';
 import { useItemGroups } from '@/hooks/catalog/useCategoryFilters';
@@ -17,6 +17,8 @@ import { useOrderHeaderConfig } from '@/hooks/checkout/useOrderHeaderConfig';
 import { buildTransactionHeaderFields } from '@/services/transactionHeaderService';
 import { listHeldEstimates, holdEstimate, removeHeldEstimate } from '@/lib/estimation/heldEstimates';
 import { isMaskedValue } from '@/lib/normalizers/customer';
+import { uploadTemporaryFile } from '@/services/fileUploadService';
+import { resolveImageSrc } from '@/lib/resolveImageSrc';
 import SalesPersonSelect from '@/components/features/checkout/SalesPersonSelect';
 import CustomerAttachedBanner from '@/components/shared/CustomerAttachedBanner';
 import InlineLoader from '@/components/shared/InlineLoader';
@@ -111,6 +113,15 @@ export default function CustomEstimateForm({ onDone }) {
   const [isPricingItem, setIsPricingItem] = useState(false);
   const { sizes } = useItemSizesByType(selectedItem?.type_id);
 
+  // Reference image — CONFIRMED LIVE 2026-10-15 against OrnaVerse's own
+  // Estimation > Custom tab: a simple "Image" field right after Item/Item
+  // size, using the SAME two-step File/TemporaryUpload contract as PAN
+  // document upload (see fileUploadService.js), then a top-level `image`
+  // key on the Entity (sibling of document_id, not inside item_components).
+  const [imagePath, setImagePath]       = useState(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const imageInputRef = useRef(null);
+
   const [stoneDraft, setStoneDraft]   = useState(emptyStoneDraft());
   const [stones, setStones]           = useState([]);
   const [isAddingStone, setIsAddingStone] = useState(false);
@@ -143,6 +154,7 @@ export default function CustomEstimateForm({ onDone }) {
     setAppliedLabour(null);
     setBaseRow(null);
     setTaxTemplate(null);
+    setImagePath(null);
     setIsPricingItem(true);
     try {
       const [priced] = await calculateItemRates([item], APP_CONFIG.DOCUMENT_TYPES.POS_ORDER);
@@ -156,7 +168,23 @@ export default function CustomEstimateForm({ onDone }) {
       setIsPricingItem(false);
     }
   };
-  
+
+  const handleImageChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file after an error
+    if (!file) return;
+    setIsUploadingImage(true);
+    try {
+      const path = await uploadTemporaryFile(file);
+      if (!path) throw new Error('Upload did not return a file path.');
+      setImagePath(path);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
   const metalComponent = baseRow?.item_components?.[0] ?? null;
   const purity    = metalComponent?.purity ?? 0;
   const metalRate = metalComponent?.rate ?? 0;
@@ -360,6 +388,11 @@ export default function CustomEstimateForm({ onDone }) {
       stone_pieces: stonePieces,
       stone_weight: stoneWeight,
       item_labour: labourAmount,
+      // Top-level, sibling of document_id — NOT inside item_components.
+      // Confirmed live 2026-10-15 from OrnaVerse's own Custom Estimate
+      // CreateTempVoucher call. Included here (not just the temp-voucher
+      // path) so a real Order carries the same reference photo.
+      ...(imagePath ? { image: imagePath } : {}),
     };
   };
 
@@ -401,7 +434,7 @@ export default function CustomEstimateForm({ onDone }) {
         await postOrder(transactionId);
       }
       toast.success('Custom order placed.');
-      onDone();
+      onDone(transactionId);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -416,7 +449,7 @@ export default function CustomEstimateForm({ onDone }) {
       reason: holdReason.trim(),
       heldBy: authUser?.username ?? null,
       selectedItem, sizeId, weight, baseRow, taxTemplate, stones, labourProposal, appliedLabour, salesPersonId,
-      netAmount,
+      imagePath, netAmount,
     });
     // Confirmed live 2026-10-14 against OrnaVerse's own Estimation > Custom
     // tab: holding does NOT clear the working item — it stays fully
@@ -443,6 +476,7 @@ export default function CustomEstimateForm({ onDone }) {
     setLabourProposal(record.labourProposal);
     setAppliedLabour(record.appliedLabour);
     setSalesPersonId(record.salesPersonId);
+    setImagePath(record.imagePath ?? null);
     removeHeldEstimate(storeId, record.id);
     setIsRetrieveOpen(false);
   };
@@ -507,7 +541,7 @@ export default function CustomEstimateForm({ onDone }) {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <FormField label="Item" required>
           {itemsLoading ? (
             <InlineLoader label="Loading…" />
@@ -532,6 +566,57 @@ export default function CustomEstimateForm({ onDone }) {
             getLabel={(s) => s.item_size_name}
             disabled={!selectedItem || !sizes.length}
           />
+        </FormField>
+
+        <FormField label="Image">
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleImageChange}
+            className="hidden"
+            aria-label="Reference image"
+          />
+          {imagePath ? (
+            <div className="flex items-center gap-2">
+              {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary uploaded file, not a next/image-optimizable asset */}
+              <img
+                src={resolveImageSrc(imagePath)}
+                alt="Reference"
+                className="h-10 w-10 shrink-0 rounded-lg border border-border object-cover"
+              />
+              <div className="flex flex-col gap-1 min-w-0">
+                <a
+                  href={resolveImageSrc(imagePath)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sm text-accent hover:underline truncate"
+                >
+                  View image
+                </a>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setImagePath(null)}
+                  className="h-auto w-fit justify-start p-0 text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
+                >
+                  Remove
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isUploadingImage}
+              onClick={() => imageInputRef.current?.click()}
+              className="w-full gap-1.5"
+            >
+              <ImagePlus size={14} /> {isUploadingImage ? 'Uploading…' : 'Upload'}
+            </Button>
+          )}
         </FormField>
       </div>
 
@@ -692,6 +777,7 @@ export default function CustomEstimateForm({ onDone }) {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
             <InvoiceReportButton
               resolveTransactionId={resolvePrintTransactionId}
+              optKey="transaction_item_id"
               documentId={APP_CONFIG.DOCUMENT_TYPES.ESTIMATION}
               documentLabel="Estimate"
             />

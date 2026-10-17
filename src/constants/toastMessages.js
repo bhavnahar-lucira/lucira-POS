@@ -123,6 +123,14 @@ const TOAST = {
     LOAD_FAILED:  'Failed to load credit notes. Please try again.',
   },
 
+  ADVANCE_RECEIPT: {
+    CREATED:      'Advance receipt recorded successfully.',
+    CREATE_FAILED:'Failed to record advance receipt. Please try again.',
+    CANCELLED:    'Advance receipt cancelled.',
+    CANCEL_FAILED:'Failed to cancel advance receipt. Please try again.',
+    LOAD_FAILED:  'Failed to load advance receipts. Please try again.',
+  },
+
   EXCHANGE: {
     CREATED:      'Exchange created successfully.',
     CREATE_FAILED:'Failed to create exchange. Please try again.',

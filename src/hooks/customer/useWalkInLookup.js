@@ -1,10 +1,11 @@
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { walkInLookup } from '@/services/customerService';
 import { normalizeWalkInCustomer } from '@/lib/normalizers/customer';
 import { selectActiveStoreId, selectActiveStoreName, selectActiveStoreCode } from '@/store/slices/storeSlice';
 import tracker from '@/lib/analytics/tracker';
 import EVENTS from '@/lib/analytics/events';
+import { QUERY_KEYS } from '@/constants/queryKeys';
 
 function maskMobile(mobile) {
   if (!mobile) return null;
@@ -33,6 +34,7 @@ function logWalkIn({ mobile, customer, companyId, companyName, companyCode }) {
 }
 
 export function useWalkInLookup() {
+  const queryClient   = useQueryClient();
   const companyId    = useSelector(selectActiveStoreId);
   const companyName  = useSelector(selectActiveStoreName);
   const companyCode  = useSelector(selectActiveStoreCode);
@@ -51,11 +53,25 @@ export function useWalkInLookup() {
         // instead of always claiming "visit recorded".
         walkInRecorded: !!data?.WalkInRecorded,
         message:        data?.Message ?? null,
+        partyId:        data?.Customer?.party_id ?? null,
       };
     },
     onSuccess: (result, mobile) => {
-      if (result.walkInRecorded && result.customer) {
+      if (!result.walkInRecorded) return;
+      if (result.customer) {
         logWalkIn({ mobile, customer: result.customer, companyId, companyName, companyCode });
+      }
+      // This records a real visit server-side (and sometimes a new
+      // unregistered lead) EVERY time a customer is searched/attached
+      // anywhere in the app, not just from the Walk-ins page — confirmed
+      // 2026-10-16: without this, the Walk-ins page's Visit Log/Leads tabs
+      // only picked up the new row once their 5-min staleTime happened to
+      // expire, which read as "stuck until a hard refresh" to anyone using
+      // the app normally (no manual way to force React Query to drop its
+      // in-memory cache short of reloading the page).
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CRM.VISITS(companyId) });
+      if (!result.partyId) {
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CRM.LEADS() });
       }
     },
     onError: (error) => {

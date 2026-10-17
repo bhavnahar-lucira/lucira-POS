@@ -156,8 +156,8 @@ async function stampRefDocumentNo(transactionId) {
  *   partyId: number, partyName: string, activeStoreId: number,
  *   financialYearId: number, documentDate?: string,
  *   credits: { credit: object, amount: number }[],  // what's being settled
- *   payout: { modeId: number, ledgerId: number, amount: number, refNo?: string,
- *             chequeNo?: string, chequeDate?: string },
+ *   payout: { modeId: number, ledgerId: number, amount: number, bankPos?: number,
+ *             refNo?: string, chequeNo?: string, chequeDate?: string },
  * }} params
  * @returns {Promise<object>} SaveResponse { EntityId }
  */
@@ -198,6 +198,7 @@ export async function createRefund({
       ledger_id:     payout.ledgerId,
       amount:        payout.amount,
       exchange_rate: 1,
+      bank_pos:      payout.bankPos ?? '',
       cheque_no:     payout.chequeNo ?? '',
       cheque_date:   payout.chequeDate ?? null,
       ref_no:        payout.refNo ?? '',

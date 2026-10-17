@@ -221,6 +221,23 @@ const API = {
   },
 
   // ─────────────────────────────────────────────────────────────────────────
+  // ADVANCE RECEIPT — a pure prepayment (no items, no linked invoice yet),
+  // confirmed live 2026-10-16 by capturing OrnaVerse's own POS "Advance F8"
+  // tab. Genuinely a different document from Credit Note (which is an
+  // item-level Return, document_id 55) — this is document_id 57 ("PRC",
+  // the same as APP_CONFIG.DOCUMENT_TYPES.POS_RECEIPT), flagged with
+  // is_advance:true. One Create call fully commits it — no separate Post
+  // step, confirmed live (the created receipt's document_status was already
+  // 1/Completed with no Post call made).
+  // ─────────────────────────────────────────────────────────────────────────
+  ADVANCE_RECEIPT: {
+    CREATE:   'Services/POS/Receipt/Create',
+    CANCEL:   'Services/POS/Receipt/Cancel',
+    RETRIEVE: 'Services/POS/Receipt/Retrieve',
+    LIST:     'Services/POS/Receipt/List',
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
   // EXCHANGE
   // ─────────────────────────────────────────────────────────────────────────
   EXCHANGE: {
@@ -392,6 +409,30 @@ const API = {
   REPORT_RENDER: {
     RENDER:       'Print/Render',
     PRINT_RENDER: 'Print/PrintRender',
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // REPORTS — curated reports from OrnaVerse's own Reporting module, each
+  // confirmed live 2026-10-16 by capturing its real network call. Every one
+  // here is its own dedicated, purpose-built endpoint — NOT the generic
+  // Ad-hoc Report engine (a separate query-builder system, Services/
+  // Reporting/AdhocReport/Run, wired separately when that's prioritized).
+  // ─────────────────────────────────────────────────────────────────────────
+  REPORTS: {
+    POS_DASHBOARD:           'Services/Reports/POSDashbaord/List', // sic — real upstream typo, confirmed live
+    CATEGORY_WISE_SALES:     'Services/Reports/CategoryWiseSalesReport/List',
+    SALES_PERSON_WISE_SALES: 'Services/POS/SalesPersonWiseSales/List',
+    SKU_VELOCITY:            'Services/Analytics/SKUVelocity', // no /List suffix — confirmed live; /List 404s
+    OPEN_POS_ORDERS:         'Services/Reports/OpenPOSOrdersReport/List',
+  },
+
+  // Generic ad-hoc report engine — confirmed live 2026-10-16. 111 user-built
+  // reports behind one self-describing Run call ({Table: {Columns,
+  // ColumnInfos, Rows}}); no company/date scoping built in (FilterOverrides
+  // is empty on OrnaVerse's own default view too).
+  ADHOC_REPORTS: {
+    LIST: 'Services/Reporting/AdhocReport/List',
+    RUN:  'Services/Reporting/AdhocReport/Run',
   },
 
   // ─────────────────────────────────────────────────────────────────────────

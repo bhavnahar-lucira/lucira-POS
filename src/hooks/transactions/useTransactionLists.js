@@ -8,6 +8,7 @@ import {
   getBuybacks,
   getURDPurchases,
 }                        from '@/services/transactionService';
+import { getAdvanceReceipts } from '@/services/advanceReceiptService';
 import { QUERY_KEYS }    from '@/constants/queryKeys';
 import APP_CONFIG        from '@/constants/appConfig';
 import { mapTransactionStatus } from '@/components/shared/PaymentStatusBadge';
@@ -92,6 +93,15 @@ export const useCreditNotes = makeTransactionListHook({
   queryKeyFn: ({ storeId, skip, take }) =>
     QUERY_KEYS.CREDIT_NOTES.LIST({ storeId, skip, take }),
   fetchFn: getCreditNotes,
+});
+
+/**
+ * @param {{ skip?: number, enabled?: boolean }} [options]
+ */
+export const useAdvanceReceipts = makeTransactionListHook({
+  queryKeyFn: ({ storeId, skip, take }) =>
+    QUERY_KEYS.ADVANCE_RECEIPT.LIST({ storeId, skip, take }),
+  fetchFn: getAdvanceReceipts,
 });
 
 /**

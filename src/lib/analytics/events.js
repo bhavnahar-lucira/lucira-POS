@@ -64,6 +64,10 @@ const RAW_EVENTS = {
   CREDIT_NOTE_CANCELLED:  'credit_note_cancelled',
   CREDIT_NOTE_FAILED:     'credit_note_failed',
 
+  ADVANCE_RECEIPT_CREATED:   'advance_receipt_created',
+  ADVANCE_RECEIPT_CANCELLED: 'advance_receipt_cancelled',
+  ADVANCE_RECEIPT_FAILED:    'advance_receipt_failed',
+
   EXCHANGE_CREATED:       'exchange_created',
   EXCHANGE_POSTED:        'exchange_posted',
   EXCHANGE_CANCELLED:     'exchange_cancelled',

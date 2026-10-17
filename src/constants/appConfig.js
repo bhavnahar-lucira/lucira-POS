@@ -46,7 +46,14 @@ const APP_CONFIG = {
     POS_INVOICE:     54,  // prefix "LJ"
     POS_ORDER:       53,  // prefix "RPO"
     RETURN:          55,  // prefix "PSR"
-    CREDIT_NOTE:     123, // prefix "CRN"
+    CREDIT_NOTE:     55,  // prefix "PSR" — confirmed live 2026-10-16: OrnaVerse
+                           // has no separate Credit Note document series on this
+                           // tenant; Credit Notes are issued as Return (PSR)
+                           // documents. The old value (123, "CRN") matched zero
+                           // real DocumentNumbering rows for any store, which
+                           // made useOrderHeaderConfig's isConfigMissing guard
+                           // correctly but silently block every Credit Note
+                           // submission — the actual major bug reported.
     REFUND:          126, // prefix "RFD"
     POS_RECEIPT:     57,  // prefix "PRC"
     EXCHANGE:        56,  // prefix "EXC"

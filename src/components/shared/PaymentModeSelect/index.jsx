@@ -22,8 +22,7 @@ import { paymentRequiresBank } from '@/lib/checkout/paymentModeRules';
  *     uses: not Cash, not a helper/credit row, not Nector Loyalty).
  *   refFieldName?:  string, — RHF field name for the reference number.
  *     Same gating as bankFieldName; the two are independent so a caller
- *     whose own payload has no bank_pos field (e.g. Refund payout) can pass
- *     only refFieldName.
+ *     whose own payload has no bank_pos field can pass only refFieldName.
  * }} props
  */
 export default function PaymentModeSelect({

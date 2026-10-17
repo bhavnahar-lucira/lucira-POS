@@ -27,12 +27,14 @@ import {
   Check,
   Ban,
   Repeat,
+  Wallet,
 }                                          from 'lucide-react';
 
 import {
   useReturns,
   useRefunds,
   useCreditNotes,
+  useAdvanceReceipts,
   useExchanges,
   useBuybacks,
   useURDPurchases,
@@ -41,6 +43,7 @@ import {
   useCreateReturn,     usePostReturn,     useCancelReturn,
   useCreateRefund,                        useDeleteRefund,
   useCreateCreditNote, usePostCreditNote, useCancelCreditNote,
+  useCreateAdvanceReceipt,                useCancelAdvanceReceipt,
   useCreateExchange,   usePostExchange,   useCancelExchange,
   useCreateBuyback,    usePostBuyback,    useCancelBuyback,
   useCreateURDPurchase,usePostURDPurchase,useCancelURDPurchase,
@@ -126,6 +129,31 @@ const SOLD_ITEM_FLOWS = {
     busyLabel:      'Processing Return…',
     allowBackdatedEntry: false,
   },
+  // Confirmed live 2026-10-16: this tenant has no separate Credit Note
+  // document type in OrnaVerse — CreditNote/Retrieve on a real existing
+  // "credit note" returns a full POS Return entity (document_id 55, same as
+  // Return's own documentTypeId), complete with real line_items/item BOM. A
+  // flat amount-only form sent to CreditNote/Create 500s because the
+  // endpoint expects exactly the same item-level shape Return/Create does —
+  // so Credit Note is wired as a sibling of Return here (same item picker,
+  // same pricing — a credit note is a 1:1 reversal just like a return),
+  // only swapping in the Credit Note Create/Post mutations and endpoint.
+  creditNote: {
+    documentTypeId: APP_CONFIG.DOCUMENT_TYPES.CREDIT_NOTE,
+    transactionType: SOLD_ITEM_TRANSACTION_TYPE.RETURN,
+    interstoreTransactionType: APP_CONFIG.INTERSTORE_RETURN_TRANSACTION_TYPE.RETURN,
+    priceItems:     calculateReturnItems,
+    modeLabel:      'Issue Credit Note',
+    modeHint:       'Credit the customer for a previous purchase, no refund paid out',
+    modeIcon:       FileText,
+    itemsLabel:     'Items Being Credited',
+    emptyTitle:     'No purchases found for this customer.',
+    emptyHint:      'Only previously sold items can be credited.',
+    totalLabel:     'Total Credit Amount',
+    submitLabel:    'Issue Credit Note',
+    busyLabel:      'Processing Credit Note…',
+    allowBackdatedEntry: false,
+  },
   buyback: {
     documentTypeId: APP_CONFIG.DOCUMENT_TYPES.BUYBACK,
     transactionType: SOLD_ITEM_TRANSACTION_TYPE.BUYBACK,
@@ -197,7 +225,7 @@ function SoldItemFlowForm({ flow, onDone }) {
     const daysSinceSale = (now - soldAt) / (24 * 60 * 60 * 1000);
     return daysSinceSale < salesReturnDays;
   };
-  const soldItems = mode === 'return' ? allSoldItems : allSoldItems.filter((r) => !withinReturnWindow(r));
+  const soldItems = (mode === 'return' || mode === 'creditNote') ? allSoldItems : allSoldItems.filter((r) => !withinReturnWindow(r));
   const hiddenForWindowCount = allSoldItems.length - soldItems.length;
 
   // PRICE PREVIEW (2026-10-05, reported live: "buyback and exchange price in
@@ -214,7 +242,7 @@ function SoldItemFlowForm({ flow, onDone }) {
   // net_amount, which doesn't match what actually gets charged/credited.
   // Return needs no such preview — confirmed live its priced net_amount
   // always equals the raw sale net_amount (a return reverses the sale 1:1).
-  const needsPricePreview = mode !== 'return';
+  const needsPricePreview = mode !== 'return' && mode !== 'creditNote';
   const pricePreview = useQuery({
     queryKey: ['transactions', 'sold-items-price-preview', mode, storeId, soldItems.map(soldItemKey)],
     queryFn: () => config.priceItems({ items: soldItems, documentDate: resolveDocumentDateTime(todayDateString()) }),
@@ -225,16 +253,19 @@ function SoldItemFlowForm({ flow, onDone }) {
   const displayAmountFor = (row) =>
     needsPricePreview ? (pricedByKey.get(soldItemKey(row))?.net_amount ?? row.net_amount) : row.net_amount;
 
-  const createReturnDoc   = useCreateReturn({ onSuccess: () => {} });
-  const postReturnDoc     = usePostReturn();
-  const createBuybackDoc  = useCreateBuyback({ onSuccess: () => {} });
-  const postBuybackDoc    = usePostBuyback();
-  const createExchangeDoc = useCreateExchange({ onSuccess: () => {} });
-  const postExchangeDoc   = usePostExchange();
+  const createReturnDoc     = useCreateReturn({ onSuccess: () => {} });
+  const postReturnDoc       = usePostReturn();
+  const createBuybackDoc    = useCreateBuyback({ onSuccess: () => {} });
+  const postBuybackDoc      = usePostBuyback();
+  const createExchangeDoc   = useCreateExchange({ onSuccess: () => {} });
+  const postExchangeDoc     = usePostExchange();
+  const createCreditNoteDoc = useCreateCreditNote({ onSuccess: () => {} });
+  const postCreditNoteDoc   = usePostCreditNote();
   const byMode = {
-    return:   { create: createReturnDoc,   post: postReturnDoc },
-    buyback:  { create: createBuybackDoc,  post: postBuybackDoc },
-    exchange: { create: createExchangeDoc, post: postExchangeDoc },
+    return:     { create: createReturnDoc,     post: postReturnDoc },
+    buyback:    { create: createBuybackDoc,    post: postBuybackDoc },
+    exchange:   { create: createExchangeDoc,   post: postExchangeDoc },
+    creditNote: { create: createCreditNoteDoc, post: postCreditNoteDoc },
   };
   const createDoc = byMode[mode].create;
   const postDoc   = byMode[mode].post;
@@ -815,93 +846,11 @@ function MetalLineItemForm({ type, onDone }) {
   );
 }
 
-const creditNoteSchema = z.object({
-  document_date:      z.string().min(1, 'Required'),
-  net_amount:         z.coerce.number().min(1, 'Enter an amount'),
-  ref_transaction_id: z.coerce.number().optional(),
-  narration:          z.string().optional(),
-});
-
-function CreditNoteNewForm({ onDone }) {
-  const storeId       = useSelector(selectActiveStoreId);
-  const customerId    = useSelector(selectCartCustomerId);
-  const customerName  = useSelector(selectCartCustomerName);
-  const customerMobile = useSelector(selectCartCustomerMobile);
-  const headerConfig = useOrderHeaderConfig(APP_CONFIG.DOCUMENT_TYPES.CREDIT_NOTE);
-
-  const create = useCreateCreditNote({ onSuccess: () => {} });
-  const post   = usePostCreditNote({ onSuccess: () => onDone() });
-
-  const { register, handleSubmit, reset, formState: { errors } } = useForm({
-    resolver: zodResolver(creditNoteSchema),
-    defaultValues: { document_date: todayDateString(), net_amount: '', ref_transaction_id: '', narration: '' },
-  });
-
-  const onSubmit = async (data) => {
-    if (!customerId) return toast.error('Assign a customer to the session before submitting.');
-    if (!headerConfig.isReady) {
-      if (headerConfig.isError) headerConfig.refetch();
-      return toast.error(
-        headerConfig.isConfigMissing
-          ? "This document type isn't set up for your store yet — contact OrnaVerse support."
-          : headerConfig.isError
-            ? 'Store configuration failed to load — retrying now, try again in a moment.'
-            : 'Store configuration is still loading — try again in a moment.'
-      );
-    }
-    try {
-      const amount = Number(data.net_amount);
-      const createRes = await create.mutateAsync({
-        ...buildTransactionHeaderFields({
-          subTotal: amount, taxableAmount: amount, taxAmount: 0, netAmount: amount,
-          customerId, customerName, customerMobile,
-          activeStoreId: storeId,
-          headerConfig,
-          documentTypeId: APP_CONFIG.DOCUMENT_TYPES.CREDIT_NOTE,
-          documentDate: resolveDocumentDateTime(data.document_date).toISOString(),
-        }),
-        ref_transaction_id: data.ref_transaction_id ? Number(data.ref_transaction_id) : undefined,
-        narration: data.narration || undefined,
-      });
-      const transactionId = createRes?.EntityId;
-      if (!transactionId) throw new Error('Credit note creation failed — no EntityId returned.');
-      if (!headerConfig.autoPosting) await post.mutateAsync(transactionId);
-      onDone();
-      reset();
-    } catch (err) {
-      toast.error(getErrorMessage(err));
-    }
-  };
-
-  const isSubmitting = create.isPending || post.isPending;
-
-  return (
-    <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
-      <CustomerAttachedBanner customerId={customerId} customerName={customerName} />
-
-      <FormField label="Credit Amount (₹)" required error={errors.net_amount}>
-        <Input type="number" inputMode="decimal" placeholder="0.00" {...register('net_amount')} className="h-11" />
-      </FormField>
-
-      <FormField label="Linked Invoice ID (optional)">
-        <Input type="number" inputMode="numeric" placeholder="transaction_id, if related to a specific invoice" {...register('ref_transaction_id')} className="h-11" />
-      </FormField>
-
-      <FormField label="Narration (optional)">
-        <Input placeholder="Reason for issuing credit" {...register('narration')} className="h-11" />
-      </FormField>
-
-      <Button type="submit" disabled={isSubmitting || !customerId} className="h-12 mt-1">
-        {isSubmitting ? 'Processing Credit Note…' : 'Issue Credit Note'}
-      </Button>
-    </form>
-  );
-}
-
 const refundSchema = z.object({
   document_date: z.string().min(1, 'Required'),
   mode_id:       z.coerce.number().min(1, 'Select how the money is paid out'),
   credit_keys:   z.array(z.number()).min(1, 'Select at least one credit to refund'),
+  bank_pos_id:   z.coerce.number().optional().or(z.literal('')),
   ref_no: z.string().optional(),
 });
 
@@ -918,7 +867,7 @@ function RefundNewForm({ onDone }) {
 
   const { register, handleSubmit, control, watch, setValue, reset, formState: { errors } } = useForm({
     resolver: zodResolver(refundSchema),
-    defaultValues: { document_date: todayDateString(), mode_id: '', credit_keys: [], ref_no: '' },
+    defaultValues: { document_date: todayDateString(), mode_id: '', credit_keys: [], bank_pos_id: '', ref_no: '' },
   });
 
   const creditKeys = watch('credit_keys');
@@ -948,8 +897,9 @@ function RefundNewForm({ onDone }) {
     }
     try {
       const mode = paymentModes.find((m) => m.modeId === Number(data.mode_id));
-      if (mode && paymentRequiresBank(mode) && !data.ref_no?.trim()) {
-        return toast.error('Enter a reference number for this payout.');
+      if (mode && paymentRequiresBank(mode)) {
+        if (!data.bank_pos_id) return toast.error('Select the bank account this payout settles from.');
+        if (!data.ref_no?.trim()) return toast.error('Enter a reference number for this payout.');
       }
       await create.mutateAsync({
         partyId: customerId,
@@ -962,6 +912,7 @@ function RefundNewForm({ onDone }) {
           modeId:   Number(data.mode_id),
           ledgerId: mode?.ledgerId,
           amount:   total,
+          bankPos:  data.bank_pos_id || undefined,
           refNo:    data.ref_no?.trim() || undefined,
         },
       });
@@ -1047,6 +998,7 @@ function RefundNewForm({ onDone }) {
           name="mode_id"
           paymentModes={paymentModes}
           modesLoading={modesLoading}
+          bankFieldName="bank_pos_id"
           refFieldName="ref_no"
         />
       </FormField>
@@ -1069,13 +1021,112 @@ function RefundNewForm({ onDone }) {
   );
 }
 
+const advanceReceiptSchema = z.object({
+  document_date: z.string().min(1, 'Required'),
+  amount:        z.coerce.number().min(1, 'Enter an amount'),
+  mode_id:       z.coerce.number().min(1, 'Select how the advance is paid'),
+  narration:     z.string().optional(),
+  bank_pos_id:   z.coerce.number().optional().or(z.literal('')),
+  ref_no:        z.string().optional(),
+});
+
+function AdvanceReceiptNewForm({ onDone }) {
+  const storeId      = useSelector(selectActiveStoreId);
+  const customerId   = useSelector(selectCartCustomerId);
+  const customerName = useSelector(selectCartCustomerName);
+  const { paymentModes, isLoading: modesLoading } = usePaymentModes();
+  const headerConfig = useOrderHeaderConfig(APP_CONFIG.DOCUMENT_TYPES.POS_RECEIPT);
+
+  const create = useCreateAdvanceReceipt({ onSuccess: () => onDone() });
+
+  const { register, handleSubmit, control, reset, formState: { errors } } = useForm({
+    resolver: zodResolver(advanceReceiptSchema),
+    defaultValues: { document_date: todayDateString(), amount: '', mode_id: '', narration: '', bank_pos_id: '', ref_no: '' },
+  });
+
+  const onSubmit = async (data) => {
+    if (!customerId) return toast.error('Assign a customer to the session before submitting.');
+    if (!headerConfig.isReady) {
+      if (headerConfig.isError) headerConfig.refetch();
+      return toast.error(
+        headerConfig.isConfigMissing
+          ? "This document type isn't set up for your store yet — contact OrnaVerse support."
+          : headerConfig.isError
+            ? 'Store configuration failed to load — retrying now, try again in a moment.'
+            : 'Store configuration is still loading — try again in a moment.'
+      );
+    }
+    try {
+      const mode = paymentModes.find((m) => m.modeId === Number(data.mode_id));
+      if (mode && paymentRequiresBank(mode)) {
+        if (!data.bank_pos_id) return toast.error('Select the bank account this payment settles to.');
+        if (!data.ref_no?.trim()) return toast.error('Enter a reference number for this payment.');
+      }
+      await create.mutateAsync({
+        partyId: customerId,
+        activeStoreId: storeId,
+        financialYearId: headerConfig.financialYearId,
+        ledgerId: headerConfig.ledgerId,
+        numberOfBackdatedDays: headerConfig.numberOfBackdatedDays,
+        documentDate: resolveDocumentDateTime(data.document_date).toISOString(),
+        narration: data.narration?.trim(),
+        payout: {
+          modeId:   Number(data.mode_id),
+          ledgerId: mode?.ledgerId,
+          amount:   data.amount,
+          bankPos:  data.bank_pos_id || undefined,
+          refNo:    data.ref_no?.trim() || undefined,
+        },
+      });
+      reset();
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  };
+
+  const isSubmitting = create.isPending;
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
+      <CustomerAttachedBanner customerId={customerId} customerName={customerName} />
+      <p className="text-xs text-muted-foreground -mt-3">
+        Book a customer prepayment here. It&apos;s available as credit on their next invoice or order.
+      </p>
+
+      <FormField label="Advance Amount" required error={errors.amount}>
+        <Input type="number" step="0.01" min="0" className="h-11" {...register('amount')} />
+      </FormField>
+
+      <FormField label="Paid By" required error={errors.mode_id}>
+        <PaymentModeSelect
+          control={control}
+          name="mode_id"
+          paymentModes={paymentModes}
+          modesLoading={modesLoading}
+          bankFieldName="bank_pos_id"
+          refFieldName="ref_no"
+        />
+      </FormField>
+
+      <FormField label="Narration">
+        <Input className="h-11" placeholder="Optional note" {...register('narration')} />
+      </FormField>
+
+      <Button type="submit" disabled={isSubmitting || !customerId} className="h-12 mt-1">
+        {isSubmitting ? 'Processing Advance Receipt…' : 'Submit Advance Receipt'}
+      </Button>
+    </form>
+  );
+}
+
 const CANCEL_LABEL_BY_TYPE = {
-  returns:        'Cancel Return',
-  refunds:        'Delete Refund',
-  'credit-notes': 'Cancel Credit Note',
-  exchange:       'Cancel Exchange',
-  buyback:        'Cancel Buyback',
-  urd:            'Cancel URD Purchase',
+  returns:          'Cancel Return',
+  refunds:          'Delete Refund',
+  'credit-notes':   'Cancel Credit Note',
+  'advance-receipt':'Cancel Advance Receipt',
+  exchange:         'Cancel Exchange',
+  buyback:          'Cancel Buyback',
+  urd:              'Cancel URD Purchase',
 };
 
 // Print — reuses the exact same report-picker/printer checkout already uses
@@ -1085,12 +1136,13 @@ const CANCEL_LABEL_BY_TYPE = {
 // `reports.length === 0` check), so adding it here is zero-risk even for a
 // type that turns out to have none.
 const PRINT_CONFIG_BY_TYPE = {
-  returns:        { documentId: APP_CONFIG.DOCUMENT_TYPES.RETURN,       label: 'Return' },
-  refunds:        { documentId: APP_CONFIG.DOCUMENT_TYPES.REFUND,       label: 'Refund' },
-  'credit-notes': { documentId: APP_CONFIG.DOCUMENT_TYPES.CREDIT_NOTE,  label: 'Credit Note' },
-  exchange:       { documentId: APP_CONFIG.DOCUMENT_TYPES.EXCHANGE,     label: 'Exchange' },
-  buyback:        { documentId: APP_CONFIG.DOCUMENT_TYPES.BUYBACK,      label: 'Buy Back' },
-  urd:            { documentId: APP_CONFIG.DOCUMENT_TYPES.URD_PURCHASE, label: 'URD Purchase' },
+  returns:          { documentId: APP_CONFIG.DOCUMENT_TYPES.RETURN,       label: 'Return' },
+  refunds:          { documentId: APP_CONFIG.DOCUMENT_TYPES.REFUND,       label: 'Refund' },
+  'credit-notes':   { documentId: APP_CONFIG.DOCUMENT_TYPES.CREDIT_NOTE,  label: 'Credit Note' },
+  'advance-receipt':{ documentId: APP_CONFIG.DOCUMENT_TYPES.POS_RECEIPT,  label: 'Advance Receipt' },
+  exchange:         { documentId: APP_CONFIG.DOCUMENT_TYPES.EXCHANGE,     label: 'Exchange' },
+  buyback:          { documentId: APP_CONFIG.DOCUMENT_TYPES.BUYBACK,      label: 'Buy Back' },
+  urd:              { documentId: APP_CONFIG.DOCUMENT_TYPES.URD_PURCHASE, label: 'URD Purchase' },
 };
 
 function TransactionDetailSheet({ transaction, type, onClose }) {
@@ -1098,12 +1150,14 @@ function TransactionDetailSheet({ transaction, type, onClose }) {
   const cancelReturn     = useCancelReturn({ onSuccess: onClose });
   const deleteRefund     = useDeleteRefund({ onSuccess: onClose });
   const cancelCreditNote = useCancelCreditNote({ onSuccess: onClose });
+  const cancelAdvanceReceipt = useCancelAdvanceReceipt({ onSuccess: onClose });
   const cancelExchange   = useCancelExchange({ onSuccess: onClose });
   const cancelBuyback    = useCancelBuyback({ onSuccess: onClose });
   const cancelURDPurchase = useCancelURDPurchase({ onSuccess: onClose });
 
   const mutationByType = {
     returns: cancelReturn, refunds: deleteRefund, 'credit-notes': cancelCreditNote,
+    'advance-receipt': cancelAdvanceReceipt,
     exchange: cancelExchange, buyback: cancelBuyback, urd: cancelURDPurchase,
   };
 
@@ -1310,7 +1364,8 @@ function TransactionList({ hook: useHook, emptyMessage, type }) {
 const TABS = [
   { id: 'returns',      label: 'Returns',      icon: RotateCcw,      hook: useReturns,      emptyMessage: 'No return transactions found.',      NewForm: (props) => <SoldItemFlowForm flow="return" {...props} /> },
   { id: 'refunds',      label: 'Refunds',      icon: CreditCard,     hook: useRefunds,      emptyMessage: 'No refund transactions found.',      NewForm: (props) => <RefundNewForm {...props} /> },
-  { id: 'credit-notes', label: 'Credit Notes', icon: FileText,       hook: useCreditNotes,  emptyMessage: 'No credit notes found.',             NewForm: (props) => <CreditNoteNewForm {...props} /> },
+  { id: 'credit-notes', label: 'Credit Notes', icon: FileText,       hook: useCreditNotes,  emptyMessage: 'No credit notes found.',             NewForm: (props) => <SoldItemFlowForm flow="creditNote" {...props} /> },
+  { id: 'advance-receipt', label: 'Advance Receipt', icon: Wallet,   hook: useAdvanceReceipts, emptyMessage: 'No advance receipts found.',      NewForm: (props) => <AdvanceReceiptNewForm {...props} /> },
   { id: 'exchange',     label: 'Exchange',     icon: ArrowLeftRight, hook: useExchanges,    emptyMessage: 'No exchange transactions found.',    NewForm: (props) => <SoldItemFlowForm flow="exchange" {...props} /> },
   { id: 'buyback',      label: 'Buyback',      icon: ShoppingBag,    hook: useBuybacks,     emptyMessage: 'No buyback transactions found.',     NewForm: (props) => <SoldItemFlowForm flow="buyback" {...props} /> },
   { id: 'urd',          label: 'URD Purchase', icon: Coins,          hook: useURDPurchases, emptyMessage: 'No URD purchase transactions found.',NewForm: (props) => <MetalLineItemForm type="urd" {...props} /> },

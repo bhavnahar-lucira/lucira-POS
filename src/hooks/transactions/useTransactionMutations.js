@@ -9,6 +9,7 @@ import {
   createURDPurchase, postURDPurchase, cancelURDPurchase,
 }                                      from '@/services/transactionService';
 import { createRefund }                from '@/services/refundService';
+import { createAdvanceReceipt, cancelAdvanceReceipt } from '@/services/advanceReceiptService';
 import { useSessionTrackingContext }   from '@/hooks/analytics/useSessionTrackingContext';
 import TOAST                           from '@/constants/toastMessages';
 import tracker                         from '@/lib/analytics/tracker';
@@ -212,6 +213,51 @@ export function useCancelCreditNote({ onSuccess } = {}) {
       const message = getErrorMessage(error, TOAST.CREDIT_NOTES.CANCEL_FAILED);
       toast.error(message);
       tracker.track(EVENTS.CREDIT_NOTE_FAILED, { stage: 'cancel', transactionId, error: message, ...sessionCtx });
+    },
+  });
+}
+
+export function useCreateAdvanceReceipt({ onSuccess } = {}) {
+  const queryClient = useQueryClient();
+  const sessionCtx = useSessionTrackingContext();
+
+  return useMutation({
+    mutationFn: (payload) => createAdvanceReceipt(payload),
+    onSuccess: (data, payload) => {
+      queryClient.invalidateQueries({ queryKey: ['advance-receipt'] });
+      toast.success(TOAST.ADVANCE_RECEIPT.CREATED);
+      tracker.track(EVENTS.ADVANCE_RECEIPT_CREATED, {
+        transactionId: data?.EntityId, ...sessionCtx,
+        party_id: payload?.partyId, amount: payload?.payout?.amount,
+      });
+      onSuccess?.(data);
+    },
+    onError: (error, payload) => {
+      const message = getErrorMessage(error, TOAST.ADVANCE_RECEIPT.CREATE_FAILED);
+      toast.error(message);
+      tracker.track(EVENTS.ADVANCE_RECEIPT_FAILED, {
+        stage: 'create', error: message, ...sessionCtx, party_id: payload?.partyId,
+      });
+    },
+  });
+}
+
+export function useCancelAdvanceReceipt({ onSuccess } = {}) {
+  const queryClient = useQueryClient();
+  const sessionCtx = useSessionTrackingContext();
+
+  return useMutation({
+    mutationFn: (transactionId) => cancelAdvanceReceipt(transactionId),
+    onSuccess: (data, transactionId) => {
+      queryClient.invalidateQueries({ queryKey: ['advance-receipt'] });
+      toast.success(TOAST.ADVANCE_RECEIPT.CANCELLED);
+      tracker.track(EVENTS.ADVANCE_RECEIPT_CANCELLED, { transactionId, ...sessionCtx });
+      onSuccess?.(data);
+    },
+    onError: (error, transactionId) => {
+      const message = getErrorMessage(error, TOAST.ADVANCE_RECEIPT.CANCEL_FAILED);
+      toast.error(message);
+      tracker.track(EVENTS.ADVANCE_RECEIPT_FAILED, { stage: 'cancel', transactionId, error: message, ...sessionCtx });
     },
   });
 }

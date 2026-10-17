@@ -18,8 +18,23 @@
 // own Mongo mirror. Not needed for retargeting, reduces exposure.
 
 import { getDb } from './client';
+import { ACTIVE_ENV } from '@/lib/ornaverse/environment';
 
 const COLLECTION = 'buyerPurchases_POS';
+
+// Confirmed live 2026-10-15: a UAT test order appeared under /buyers while
+// running LIVE — this collection is one shared Mongo database across both
+// OrnaVerse environments. Every record now carries which one it came from
+// (stamped server-side by the route, never client-supplied), and every read
+// here scopes to the CURRENT environment only. Records written before this
+// fix have no `environment` field at all — those predate UAT/LIVE mixing
+// ever being recorded, so they're treated as LIVE (the overwhelmingly
+// likely case: real historical sales, not test data) rather than hidden.
+function environmentMatch() {
+  return ACTIVE_ENV === 'LIVE'
+    ? { $or: [{ environment: 'LIVE' }, { environment: { $exists: false } }] }
+    : { environment: 'UAT' };
+}
 
 function buildId({ documentType, transactionId }) {
   return `${documentType}-${transactionId}`;
@@ -56,6 +71,7 @@ export async function upsertPurchase(record) {
         documentNo:      record.documentNo ?? null,
         documentDate,
         companyId:       record.companyId,
+        environment:     record.environment ?? ACTIVE_ENV,
         storeName:       record.storeName ?? null,
         salesPersonId:   record.salesPersonId   ?? null,
         salesPersonName: record.salesPersonName ?? null,
@@ -84,7 +100,7 @@ export async function upsertPurchase(record) {
  */
 export async function listPurchases({ companyId } = {}) {
   const db = await getDb();
-  const match = companyId != null ? { companyId } : {};
+  const match = { ...environmentMatch(), ...(companyId != null ? { companyId } : {}) };
   return db.collection(COLLECTION).find(match).sort({ documentDate: -1 }).toArray();
 }
 
@@ -95,7 +111,7 @@ export async function listPurchases({ companyId } = {}) {
 export async function getBuyerHistory(customerId) {
   const db = await getDb();
   return db.collection(COLLECTION)
-    .find({ customerId })
+    .find({ customerId, ...environmentMatch() })
     .sort({ documentDate: -1 })
     .toArray();
 }

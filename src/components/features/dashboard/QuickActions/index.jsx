@@ -15,6 +15,7 @@ import {
   BookOpen,
   FileSpreadsheet,
   ScanLine,
+  BarChart3,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useBarcodeLookup } from '@/hooks/catalog/useBarcodeLookup';
@@ -103,7 +104,15 @@ const QUICK_ACTIONS = [
     label:       'Custom',
     description: 'Custom Estimation',
     icon:        FileSpreadsheet,
-    href:        '/estimation?view=custom',
+    href:        '/estimation',
+    accent:      'bg-card text-foreground border border-border shadow-sm hover:shadow-md hover:border-accent/40 hover:text-accent',
+  },
+  {
+    id:          'reports',
+    label:       'Reports',
+    description: 'View Reports',
+    icon:        BarChart3,
+    href:        '/reports',
     accent:      'bg-card text-foreground border border-border shadow-sm hover:shadow-md hover:border-accent/40 hover:text-accent',
   },
 ];

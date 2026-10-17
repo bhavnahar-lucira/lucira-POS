@@ -14,7 +14,11 @@ export function useCrmVisits(companyId) {
         .sort((a, b) => new Date(b.visitedAt) - new Date(a.visitedAt));
     },
     enabled: !!companyId,
-    staleTime: APP_CONFIG.STALE_TIME.CUSTOMER,
+    // Live foot-traffic tracking, not slow-changing customer profile data —
+    // a visit recorded on another terminal should show up on refocus without
+    // waiting out a long staleTime. See useWalkInLookup's invalidation for
+    // the same-session case.
+    staleTime: APP_CONFIG.STALE_TIME.STOCK,
   });
 
   return {

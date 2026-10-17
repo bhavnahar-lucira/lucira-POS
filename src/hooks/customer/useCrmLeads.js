@@ -15,7 +15,10 @@ export function useCrmLeads({ enabled = true } = {}) {
       return entities.map(normalizeCrmLead).filter((lead) => lead && !lead.partyId);
     },
     enabled,
-    staleTime: APP_CONFIG.STALE_TIME.CUSTOMER,
+    // Same reasoning as useCrmVisits — a new unregistered walk-in lead
+    // recorded on another terminal should surface on refocus, not sit stale
+    // for 5 minutes.
+    staleTime: APP_CONFIG.STALE_TIME.STOCK,
   });
 
   return {

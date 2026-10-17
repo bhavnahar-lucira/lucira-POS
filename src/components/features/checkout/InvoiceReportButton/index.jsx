@@ -18,6 +18,14 @@ import APP_CONFIG from '@/constants/appConfig';
  *     static transactionId: called once, lazily, the moment the button is
  *     clicked (e.g. Custom Estimate's temp voucher, which must be created
  *     fresh per print so it reflects the current, possibly-just-edited line).
+ *   optKey?: string, — the key FastReport's `opt` payload carries the id
+ *     under. CONFIRMED LIVE 2026-10-15: a real Invoice/Order expects
+ *     `transaction_id`, but a POSEstimationItems/CreateTempVoucher id is NOT
+ *     a real transaction row — OrnaVerse's own Custom Estimate client sends
+ *     it as `transaction_item_id` instead, and `transaction_id` 404s inside
+ *     the report engine with its generic "error occurred while generating
+ *     the report" (no distinct error of its own). Defaults to the
+ *     already-proven-correct key for every existing real-document caller.
  *   documentId?: number,
  *   documentLabel?: string,
  * }} props
@@ -25,6 +33,7 @@ import APP_CONFIG from '@/constants/appConfig';
 export default function InvoiceReportButton({
   transactionId,
   resolveTransactionId,
+  optKey = 'transaction_id',
   documentId = APP_CONFIG.DOCUMENT_TYPES.POS_INVOICE,
   documentLabel = 'Invoice',
 }) {
@@ -63,7 +72,7 @@ export default function InvoiceReportButton({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reportKey:       report.report_key,
-          opt:             { transaction_id: resolvedTransactionId },
+          opt:             { [optKey]: resolvedTransactionId },
           reportFile:      report.report_file,
           reportFolder:    report.report_folder,
           reportSubFolder: report.report_sub_folder ?? '',
