@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { getSessionFromRequest } from '@/lib/ornaverse/session';
 
 // Generates the workbook server-side and returns it as a real file response
 // (Content-Disposition), the same mechanism OrnaVerse's own Excel export
@@ -17,7 +18,25 @@ function toSheetRows(columns, rows) {
   });
 }
 
+// SECURITY (2026-10-19): this route had no auth check at all — an
+// unauthenticated client could hit it directly with an arbitrary, unbounded
+// payload (CPU/memory abuse generating a workbook server-side), and
+// `filename` was interpolated straight into a response header with no
+// sanitization (CR/LF or a stray quote in it could corrupt/inject header
+// content). Now requires a real session and strips header-unsafe characters
+// from the filename before it reaches Content-Disposition.
+function sanitizeFilename(name) {
+  const cleaned = String(name ?? 'export')
+    .replace(/[\r\n"]/g, '')
+    .trim();
+  return cleaned || 'export.xlsx';
+}
+
 export async function POST(request) {
+  if (!(await getSessionFromRequest(request))) {
+    return Response.json({ error: 'Not authenticated' }, { status: 401 });
+  }
+
   const formData = await request.formData();
   const { filename, sheets } = JSON.parse(formData.get('payload'));
 
@@ -32,7 +51,7 @@ export async function POST(request) {
   return new Response(buffer, {
     headers: {
       'Content-Type': XLSX_MIME,
-      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Disposition': `attachment; filename="${sanitizeFilename(filename)}"`,
     },
   });
 }

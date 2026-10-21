@@ -59,6 +59,12 @@ const PERSISTED_QUERY_KEY_PREFIXES = [
   ['catalog', 'products'],
   ['catalog', 'all'],
   ['shopify', 'product-images'],
+  // Per-card style→Shopify-ID lookup + review rating average (both now
+  // MASTER_DATA-cached, see useStyleExternalProductId/useProductReviewSummary)
+  // — without this, every reload re-ran both per visible card even though
+  // neither value realistically changes within the 24h window.
+  ['items', 'design-variants'],
+  ['reviews', 'summary'],
 ];
 
 function matchesPrefix(queryKey, prefix) {

@@ -11,8 +11,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import KPICard from '@/components/features/dashboard/KPICard';
-import { selectActiveStoreId, selectActiveStoreName } from '@/store/slices/storeSlice';
+import { selectActiveStoreId, selectActiveStoreName, selectAvailableStores } from '@/store/slices/storeSlice';
 import { todayDateString, formatDatePadded } from '@/lib/dateUtils';
 import { formatAmount, formatAmountOrDash } from '@/lib/priceUtils';
 import { downloadXlsx } from '@/lib/excelExport';
@@ -25,13 +26,11 @@ import { useOpenPosOrdersReport } from '@/hooks/reports/useOpenPosOrdersReport';
 import { useAdhocReportsList } from '@/hooks/reports/useAdhocReportsList';
 import { useAdhocReportRun } from '@/hooks/reports/useAdhocReportRun';
 
-function daysAgoDateString(n) {
+function firstOfMonthDateString() {
   const d = new Date();
-  d.setDate(d.getDate() - n);
   const yyyy = d.getFullYear();
   const mm   = String(d.getMonth() + 1).padStart(2, '0');
-  const dd   = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
+  return `${yyyy}-${mm}-01`;
 }
 
 const BASE_TABS = [
@@ -242,17 +241,20 @@ function AdhocReportsTab({ reportsList, selectedReportId, selectedReport, onSele
 
 // Shared with ReportsPage's export button so the on-screen KPIs and the
 // exported CSV can never drift out of sync.
+// Labels match OrnaVerse's own POS Dashboard widget verbatim (confirmed live
+// 2026-10-19) — total_order_amount/mto_orders/mto_sales are NOT what their
+// names suggest; OrnaVerse itself displays them as New MTO/Closed MTO/RTS.
 function buildSummaryKpis(data) {
   return [
     { label: 'Total Sales',       value: data.total_sales_amount },
-    { label: 'Total Order Amount', value: data.total_order_amount },
-    { label: 'MTO Orders',        value: data.mto_orders },
-    { label: 'MTO Sales',         value: data.mto_sales },
-    { label: 'RTS + MTO',         value: data.rts_and_mto },
-    { label: 'Returns',           value: data.returns },
+    { label: 'New MTO',           value: data.total_order_amount },
+    { label: 'Closed MTO',        value: data.mto_orders },
+    { label: 'RTS',               value: data.mto_sales },
+    { label: 'RTS / MTO',         value: data.rts_and_mto },
+    { label: 'Return/Exchange',   value: data.returns },
     { label: 'Pending MTO',       value: data.pending_mto },
     { label: 'Total URD',         value: data.total_urd },
-    { label: 'Scheme',            value: data.scheme },
+    { label: 'Schemes',           value: data.scheme },
   ];
 }
 
@@ -338,20 +340,34 @@ const OPEN_ORDERS_COLUMNS = [
 export default function ReportsPage() {
   const companyId   = useSelector(selectActiveStoreId);
   const companyName = useSelector(selectActiveStoreName);
+  const availableStores = useSelector(selectAvailableStores);
 
   const [activeTab, setActiveTab] = useState('summary');
-  const [fromDate, setFromDate] = useState(() => daysAgoDateString(30));
+  // All-stores toggle — Sales Summary only: POSDashbaord/List is the one
+  // report endpoint confirmed live to aggregate correctly across multiple
+  // company_ids in a single call (2026-10-19). The other tabs hit different
+  // endpoints that haven't been confirmed the same way, so they stay single-store.
+  const [allStores, setAllStores] = useState(false);
+  const [fromDate, setFromDate] = useState(() => firstOfMonthDateString());
   const [toDate, setToDate]     = useState(() => todayDateString());
-  const hasCustomRange = fromDate !== daysAgoDateString(30) || toDate !== todayDateString();
+  const hasCustomRange = fromDate !== firstOfMonthDateString() || toDate !== todayDateString();
 
   const handleResetRange = () => {
-    setFromDate(daysAgoDateString(30));
+    setFromDate(firstOfMonthDateString());
+    setToDate(todayDateString());
+  };
+
+  const handleToday = () => {
+    setFromDate(todayDateString());
     setToDate(todayDateString());
   };
 
   const range = { companyId, fromDate, toDate };
+  const summaryCompanyIds = allStores
+    ? availableStores.map((s) => s.company_id)
+    : companyId ? [companyId] : [];
 
-  const summaryReport     = usePosDashboardReport(range);
+  const summaryReport     = usePosDashboardReport({ companyIds: summaryCompanyIds, fromDate, toDate });
   const categoryReport    = useCategoryWiseSalesReport(range);
   const salesPersonReport = useSalesPersonWiseSalesReport(range);
   const velocityReport    = useSkuVelocityReport(range);
@@ -420,7 +436,9 @@ export default function ReportsPage() {
     <div className="flex flex-col gap-4 w-full p-4 md:p-6">
       <div className="sticky top-0 z-10 -mx-4 -mt-4 flex flex-col gap-2 border-b border-border bg-background px-4 pt-4 pb-3 md:-mx-6 md:-mt-6 md:px-6 md:pt-6">
         <p className="text-sm text-muted-foreground">
-          {companyName ? `For ${companyName}` : 'For the active store'}
+          {activeTab === 'summary' && allStores
+            ? `For all ${availableStores.length} stores`
+            : companyName ? `For ${companyName}` : 'For the active store'}
         </p>
 
         {companyId && (
@@ -453,6 +471,22 @@ export default function ReportsPage() {
               )}
 
               <div className="flex items-center gap-2 sm:ml-auto">
+                {activeTab === 'summary' && availableStores.length > 1 && (
+                  <label className="flex items-center gap-2 text-sm text-foreground">
+                    <Switch checked={allStores} onCheckedChange={setAllStores} aria-label="Show all stores" />
+                    All stores
+                  </label>
+                )}
+                {activeTab !== 'adhoc' && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleToday}
+                  >
+                    Today
+                  </Button>
+                )}
                 {activeTab !== 'adhoc' && hasCustomRange && (
                   <Button
                     type="button"

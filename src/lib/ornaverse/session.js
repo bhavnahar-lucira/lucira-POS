@@ -60,11 +60,17 @@
 // CHUNK_SIZE/MAX_CHUNKS below), so no single cookie risks the browser limit
 // regardless of how large OrnaVerse's own cookie jar turns out to be.
 //
-// No signing/encryption layer: OrnaVerse itself is the sole authority that
-// validates this cookie's authenticity on every upstream call (exactly as
-// it already did when the jar lived in Mongo — we never re-validated it
-// ourselves either way) — a tampered cookie just fails upstream, the same
-// outcome tampering with the old opaque Mongo-lookup id would have had.
+// SIGNED, not encrypted (2026-10-19, was originally unsigned — see SECURITY
+// FIX comment near SESSION_SIGNING_SECRET below for why that changed): the
+// raw OrnaVerse cookie/csrf fields are still only ever validated by
+// OrnaVerse itself on an upstream call, same as always. But this app grew
+// several routes (buyer history, wishlist, recently-viewed, abandoned-cart,
+// price-cache, Shopify/WebEngage sync) that read `username`/`isSuperAdmin`
+// off this session and act ONLY on our own data stores — those never touch
+// OrnaVerse, so a hand-crafted cookie with no real credentials at all was
+// previously accepted as a fully authenticated (and self-declared-admin)
+// session. The HMAC signature now makes a forged/edited cookie fail at
+// getSessionFromRequest, for every current and future consumer at once.
 //
 // ── WHY NO STORED PASSWORD ─────────────────────────────────────────────────
 //
@@ -87,6 +93,7 @@
 //   instead of failing obscurely, the same trade-off this file already
 //   made when it only covered printing.
 
+import crypto from 'crypto';
 import { UPSTREAM } from '@/lib/ornaverse/upstream';
 
 /** Prefix for the httpOnly cookie(s) carrying the real OrnaVerse session
@@ -99,6 +106,40 @@ const CHUNK_SIZE = 3000;
 // OrnaVerse session jars are a handful of cookies, nowhere near this.
 export const MAX_CHUNKS = 8;
 const isProd = process.env.NODE_ENV === 'production';
+
+// SECURITY FIX (2026-10-19): this cookie used to be bare JSON with no
+// integrity check — the header comment on this file (below) reasoned that
+// "a tampered cookie just fails upstream", which is true for the generic
+// [...path] proxy (OrnaVerse itself rejects a bad `cookie`/`csrf`), but is
+// FALSE for the growing set of routes that read this session and then only
+// touch OUR OWN Mongo/Shopify/WebEngage — getBuyerHistory, listPurchases,
+// wishlist, recently-viewed, abandoned-cart, price-cache, shopify-sync,
+// webengage — none of those ever call OrnaVerse, so a hand-crafted cookie
+// with no real credentials at all (any JSON blob that parses) was accepted
+// as a fully authenticated session, including a self-declared
+// `isSuperAdmin: true` trusted by /api/buyers. Signing the payload closes
+// this for every current and future consumer of getSessionFromRequest at
+// once, rather than re-deriving trust per route.
+//
+// Reuses ORNAVERSE_LIVE_CLIENT_SECRET (confirmed unused elsewhere in this
+// codebase after the 2026-09 OAuth→cookie-session rewire — see this file's
+// own history above) rather than requiring a new env var that would need
+// adding to every deployment target before this could ship safely. A
+// dedicated SESSION_SIGNING_SECRET, if ever set, takes priority.
+const SESSION_SIGNING_SECRET = process.env.SESSION_SIGNING_SECRET || process.env.ORNAVERSE_LIVE_CLIENT_SECRET;
+
+function signPayload(payload) {
+  if (!SESSION_SIGNING_SECRET) {
+    throw new Error('No session signing secret configured (SESSION_SIGNING_SECRET / ORNAVERSE_LIVE_CLIENT_SECRET).');
+  }
+  return crypto.createHmac('sha256', SESSION_SIGNING_SECRET).update(payload).digest('hex');
+}
+
+function signaturesMatch(a, b) {
+  const bufA = Buffer.from(a ?? '', 'hex');
+  const bufB = Buffer.from(b ?? '', 'hex');
+  return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
+}
 
 function cookieHeader(name, value, { clear = false } = {}) {
   const attrs = `Path=/; HttpOnly; SameSite=Lax${isProd ? '; Secure' : ''}`;
@@ -114,7 +155,9 @@ function cookieHeader(name, value, { clear = false } = {}) {
  * @returns {string[]}
  */
 export function buildSessionCookieHeaders(session) {
-  const encoded = encodeURIComponent(JSON.stringify(session));
+  const payload = JSON.stringify(session);
+  const envelope = JSON.stringify({ p: payload, s: signPayload(payload) });
+  const encoded = encodeURIComponent(envelope);
   const chunks = [];
   for (let i = 0; i < encoded.length; i += CHUNK_SIZE) {
     chunks.push(encoded.slice(i, i + CHUNK_SIZE));
@@ -365,11 +408,36 @@ export async function getSessionFromRequest(request) {
   }
   if (!parts.length) return null;
 
+  // getCookie() already returns a decoded string on both paths (see
+  // parseCookieHeader's own comment) — decoding again here would be the
+  // double-decode bug described there.
+  let envelope;
   try {
-    return JSON.parse(decodeURIComponent(parts.join('')));
+    envelope = JSON.parse(parts.join(''));
   } catch {
     // Corrupt/truncated cookie (e.g. a stale set from a previous version of
     // this code) — treat exactly like no session at all.
+    return null;
+  }
+
+  // Pre-signing cookies (envelope has no `s`) and any hand-crafted/tampered
+  // cookie both fail here — same "no session" outcome as a parse failure,
+  // just forcing a fresh real login instead of trusting an unsigned blob.
+  // Fails CLOSED (no session) rather than throwing, even if the signing
+  // secret itself is misconfigured — a broken secret must never fall back
+  // to "accept anything".
+  try {
+    if (!envelope?.p || !signaturesMatch(signPayload(envelope.p), envelope.s)) {
+      return null;
+    }
+  } catch (err) {
+    console.error('[session] signature verification failed', err);
+    return null;
+  }
+
+  try {
+    return JSON.parse(envelope.p);
+  } catch {
     return null;
   }
 }
@@ -416,11 +484,22 @@ export function renewSessionFromUpstream(session, upstreamResponse) {
   return { ...session, cookie: [...existing.values()].join('; '), csrf: csrf ?? session.csrf };
 }
 
+// Decodes each value here (not where it's used) so both retrieval paths in
+// getCookie() return an already-decoded string — request.cookies.get(name)
+// (Next's RequestCookies/@edge-runtime/cookies) decodes internally, this raw
+// fallback never did, and a caller applying decodeURIComponent uniformly on
+// TOP of either was silently double-decoding the Next.js-API path. Usually
+// harmless for a plain encodeURIComponent'd blob, but a real OrnaVerse cookie
+// jar legitimately contains DOUBLY-percent-encoded bytes of its own (ASP.NET
+// Core's own session cookie re-encodes), and signing's extra JSON-escaping
+// layer was enough to turn that latent double-decode into bytes actually
+// disappearing mid-string — found only because the HMAC in SESSION_SIGNING
+// made the corruption loud (a wrong signature) instead of silent.
 function parseCookieHeader(header) {
   const out = {};
   for (const part of (header ?? '').split(';')) {
     const [name, ...rest] = part.trim().split('=');
-    if (name) out[name] = rest.join('=');
+    if (name) out[name] = decodeURIComponent(rest.join('='));
   }
   return out;
 }

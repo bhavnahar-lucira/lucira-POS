@@ -47,13 +47,27 @@ const PROXY_RATE_LIMIT = { limit: 600, windowMs: 60 * 1000 };
 // Create/Post call, unlike retrying after a response timeout would be.
 const CONNECT_RETRY_DELAY_MS = 500;
 
-async function fetchWithConnectRetry(url, options) {
+// Performance/availability finding (2026-10-19): this fetch had NO bound at
+// all — a hung or merely very slow OrnaVerse response held the serverless
+// function open for its full platform timeout instead of failing fast, tying
+// up a function instance (and, client-side, leaving the caller's own request
+// hanging) for no good reason. `File/TemporaryUpload` gets a longer allowance
+// since a real phone photo over a slow store Wi-Fi genuinely can take a
+// while; every other call here is a small JSON RPC that should resolve in
+// a few seconds normally. Each retry attempt below gets its own fresh
+// timeout window — same per-attempt framing CONNECT_RETRY_DELAY_MS already
+// uses, so a flaky connect doesn't eat into the following attempt's budget.
+const REQUEST_TIMEOUT_MS = 25_000;
+const UPLOAD_TIMEOUT_MS  = 60_000;
+
+async function fetchWithConnectRetry(url, options, timeoutMs) {
+  const withTimeout = { ...options, signal: AbortSignal.timeout(timeoutMs) };
   try {
-    return await fetch(url, options);
+    return await fetch(url, withTimeout);
   } catch (err) {
     if (err.cause?.code !== 'UND_ERR_CONNECT_TIMEOUT') throw err;
     await new Promise((resolve) => setTimeout(resolve, CONNECT_RETRY_DELAY_MS));
-    return fetch(url, options);
+    return fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
   }
 }
 
@@ -158,15 +172,21 @@ async function proxy(request, { params }) {
       headers,
       body,
       cache: 'no-store',
-    });
+    }, isUploadPath ? UPLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
   } catch (err) {
-    console.error('[api proxy] upstream fetch failed', targetUrl, err);
+    const isTimeout = err.name === 'TimeoutError' || err.name === 'AbortError';
+    console.error('[api proxy] upstream fetch failed', targetUrl, isTimeout ? 'timeout' : err);
     return new Response(
-      JSON.stringify({
-        error: 'upstream_unreachable',
-        error_description: 'Could not reach the OrnaVerse server. Please check your connection and try again.',
-      }),
-      { status: 502, headers: { 'Content-Type': 'application/json' } },
+      JSON.stringify(isTimeout
+        ? {
+            error: 'upstream_timeout',
+            error_description: 'The OrnaVerse server took too long to respond. Please try again.',
+          }
+        : {
+            error: 'upstream_unreachable',
+            error_description: 'Could not reach the OrnaVerse server. Please check your connection and try again.',
+          }),
+      { status: isTimeout ? 504 : 502, headers: { 'Content-Type': 'application/json' } },
     );
   }
 

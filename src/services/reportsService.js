@@ -33,9 +33,9 @@ function toRfc1123(dateOnlyString) {
  * getCategoryWiseSales/getSalesPersonWiseSales calls below cover that
  * detail with a confirmed shape instead of guessing at this one.
  */
-export async function getPosDashboard({ companyId, fromDate, toDate }) {
+export async function getPosDashboard({ companyIds, fromDate, toDate }) {
   const response = await axiosInstance.post(API.REPORTS.POS_DASHBOARD, {
-    company_ids: [companyId],
+    company_ids: companyIds,
     from_date:   toRfc1123(fromDate),
     to_date:     toRfc1123(toDate),
   });

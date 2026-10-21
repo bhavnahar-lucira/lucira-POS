@@ -47,15 +47,19 @@ export const getDesignVariants = (styleId) =>
 
 /**
  * Same call, routed through a shared concurrency-capped queue. Style/Retrieve
- * is a single-EntityId RPC with no batch variant, and the catalog grid isn't
- * virtualized — every mounted ProductCard resolves its style independently
- * (useStyleExternalProductId, useDesignVariants share this queryFn's cache
- * key). Confirmed live 2026-09-18: with ~100 cards mounted at once, calling
- * getDesignVariants directly from every one of them floods the browser's
- * connection pool and can take minutes to drain, even though each individual
- * call is fast. Both catalog-facing hooks use this queued version instead —
- * checkoutPricingService's one-off single-style lookup still uses the plain
- * function above, since it's never called from a large mounted list.
+ * is a single-EntityId RPC with no batch variant — even with the grid now
+ * virtualized (react-virtuoso's VirtuosoGrid, see ProductGrid), every
+ * mounted-plus-overscanned ProductCard still resolves its own style
+ * independently (useStyleExternalProductId, useDesignVariants share this
+ * queryFn's cache key). Confirmed live 2026-09-18, before virtualization
+ * existed: with ~100 cards mounted at once, calling getDesignVariants
+ * directly from every one of them flooded the browser's connection pool and
+ * could take minutes to drain, even though each individual call is fast.
+ * Virtualization shrank the worst case a lot, but the queue stays as
+ * cheap insurance against a still-sizeable overscan batch — both
+ * catalog-facing hooks use this queued version instead; checkoutPricingService's
+ * one-off single-style lookup still uses the plain function above, since
+ * it's never called from a large mounted list.
  */
 export const getDesignVariantsQueued = createConcurrencyQueue(getDesignVariants, { concurrency: 6 });
 

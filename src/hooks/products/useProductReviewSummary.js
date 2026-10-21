@@ -12,7 +12,12 @@ export function useProductReviewSummary(shopifyProductId) {
     queryKey:  QUERY_KEYS.REVIEWS.SUMMARY(shopifyProductId),
     queryFn:   () => getReviewSummaryQueued(shopifyProductId),
     enabled:   !!shopifyProductId,
-    staleTime: APP_CONFIG.STALE_TIME.STATIC,
+    // Rating averages move slowly (days, not minutes) — treated as master
+    // data so this also persists across a reload via queryPersister.js
+    // (see PERSISTED_QUERY_KEY_PREFIXES there), same reasoning as
+    // useStyleExternalProductId's identical change.
+    staleTime: APP_CONFIG.STALE_TIME.MASTER_DATA,
+    gcTime:    APP_CONFIG.STALE_TIME.MASTER_DATA,
     select:    normalizeReviewSummary,
   });
 

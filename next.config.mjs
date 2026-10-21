@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactCompiler: true,
+  experimental: {
+    optimizePackageImports: ['radix-ui', 'cmdk'],
+  },
   images: {
     unoptimized: false,
     minimumCacheTTL: 60 * 60 * 24 * 7,

@@ -3,12 +3,12 @@ import { getPosDashboard } from '@/services/reportsService';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 import APP_CONFIG from '@/constants/appConfig';
 
-export function usePosDashboardReport({ companyId, fromDate, toDate }) {
-  const params = { companyId, fromDate, toDate };
+export function usePosDashboardReport({ companyIds, fromDate, toDate }) {
+  const params = { companyIds, fromDate, toDate };
   const query = useQuery({
     queryKey: QUERY_KEYS.REPORTS.POS_DASHBOARD(params),
     queryFn:  () => getPosDashboard(params),
-    enabled:  !!companyId && !!fromDate && !!toDate,
+    enabled:  !!companyIds?.length && !!fromDate && !!toDate,
     staleTime: APP_CONFIG.STALE_TIME.ANALYTICS,
   });
 

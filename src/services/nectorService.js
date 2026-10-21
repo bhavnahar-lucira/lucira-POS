@@ -62,13 +62,17 @@ export async function getReviewSummary(shopifyProductId) {
 }
 
 /**
- * Same call, routed through a shared concurrency-capped queue — the catalog
- * grid isn't virtualized, so every mounted ProductCard calls this
- * independently (via useProductReviewSummary) once its style resolves.
- * Confirmed live 2026-09-18: ~100 simultaneous reviews-count requests
- * compounds with the same-shaped Style/Retrieve flood (see
+ * Same call, routed through a shared concurrency-capped queue — even with
+ * the grid now virtualized (react-virtuoso's VirtuosoGrid, see ProductGrid),
+ * every mounted-plus-overscanned ProductCard still calls this independently
+ * (via useProductReviewSummary) once its style resolves. Confirmed live
+ * 2026-09-18, before virtualization existed: ~100 simultaneous reviews-count
+ * requests compounded with the same-shaped Style/Retrieve flood (see
  * getDesignVariantsQueued in itemService.js) to produce the multi-minute
- * delay before a catalog card's rating badge appears.
+ * delay before a catalog card's rating badge appeared. Both are now also
+ * MASTER_DATA-cached and persisted across reloads (see
+ * useProductReviewSummary + queryPersister.js), so this queue only matters
+ * for products a session hasn't seen before.
  */
 export const getReviewSummaryQueued = createConcurrencyQueue(getReviewSummary, { concurrency: 6 });
 
