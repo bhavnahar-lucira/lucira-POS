@@ -108,7 +108,9 @@ export function useCheckoutPricing() {
       ]);
 
       return {
-        invoice: split.invoice ? { cartItems: split.invoice.cartItems, ...invoicePromoted } : null,
+        invoice: split.invoice
+          ? { cartItems: split.invoice.cartItems, lineCounts: split.invoice.lineCounts, ...invoicePromoted }
+          : null,
         order:   split.order   ? { cartItems: split.order.cartItems,   ...orderPromoted }   : null,
       };
     },
@@ -133,6 +135,7 @@ export function useCheckoutPricing() {
   return {
     invoice: invoiceData ? {
       cartItems: invoiceData.cartItems,
+      lineCounts: invoiceData.lineCounts,
       promotionDetails: invoiceData.promotionDetails ?? [],
       ...summarizeGroup(invoiceData.lineItems),
     } : null,

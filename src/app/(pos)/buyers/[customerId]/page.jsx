@@ -2,34 +2,48 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Store, User, CreditCard, Tag, Loader2, RefreshCw, FileText, ClipboardList } from 'lucide-react';
+import {
+  ArrowLeft, Store, User, CreditCard, Tag, Loader2, RefreshCw,
+  FileText, ClipboardList, RotateCcw, ArrowLeftRight, ShoppingBag,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import PillTabs from '@/components/shared/PillTabs';
 import ErrorState from '@/components/shared/ErrorState';
 import { useBuyerHistory } from '@/hooks/buyers/useBuyerHistory';
 import { useSyncBuyerHistory } from '@/hooks/buyers/useSyncBuyerHistory';
+import { deriveDocumentStatus } from '@/hooks/customer/useCustomerOrders';
+import APP_CONFIG from '@/constants/appConfig';
 import { formatAmountOrNull } from '@/lib/priceUtils';
 import { formatDatePadded } from '@/lib/dateUtils';
 
 const TABS = [
-  { key: 'invoice', label: 'Invoice', icon: FileText },
-  { key: 'order',   label: 'Order',   icon: ClipboardList },
+  { key: 'invoice',  label: 'Invoice',  pluralLabel: 'invoices',   icon: FileText },
+  { key: 'order',    label: 'Order',    pluralLabel: 'orders',     icon: ClipboardList },
+  { key: 'return',   label: 'Return',   pluralLabel: 'returns',    icon: RotateCcw },
+  { key: 'exchange', label: 'Exchange', pluralLabel: 'exchanges',  icon: ArrowLeftRight },
+  { key: 'buyback',  label: 'Buy Back', pluralLabel: 'buy backs',  icon: ShoppingBag },
 ];
+
+const DOCUMENT_TYPE_BADGE_VARIANT = { invoice: 'default', order: 'secondary' };
 
 function PurchaseCard({ purchase }) {
   const {
     documentType, documentNo, transactionId, documentDate,
+    documentStatus, balanceAmount, receiptAmount,
     storeName, salesPersonName, items, promotions, payments, totalAmount,
   } = purchase;
+  const isCancelled = deriveDocumentStatus(documentStatus, balanceAmount, receiptAmount)
+    === APP_CONFIG.ORDER_STATUS.CANCELLED;
 
   return (
     <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3 shadow-sm">
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2">
-          <Badge variant={documentType === 'invoice' ? 'default' : 'secondary'} className="capitalize">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge variant={DOCUMENT_TYPE_BADGE_VARIANT[documentType] ?? 'secondary'} className="capitalize">
             {documentType}
           </Badge>
+          {isCancelled && <Badge variant="destructive">Cancelled</Badge>}
           <span className="text-sm font-medium text-foreground">
             {documentNo || `#${transactionId}`}
           </span>
@@ -134,13 +148,16 @@ export default function BuyerDetailPage() {
   const displayName = first?.customerName || 'Customer';
   const displayMobile = first?.customerMobile;
 
-  const invoicePurchases = useMemo(() => purchases.filter((p) => p.documentType === 'invoice'), [purchases]);
-  const orderPurchases   = useMemo(() => purchases.filter((p) => p.documentType === 'order'),   [purchases]);
+  const purchasesByTab = useMemo(() => {
+    const byType = new Map(TABS.map((t) => [t.key, []]));
+    for (const p of purchases) byType.get(p.documentType)?.push(p);
+    return byType;
+  }, [purchases]);
   const tabsWithCounts = useMemo(() => TABS.map((t) => ({
     ...t,
-    label: `${t.label} (${t.key === 'invoice' ? invoicePurchases.length : orderPurchases.length})`,
-  })), [invoicePurchases.length, orderPurchases.length]);
-  const visiblePurchases = activeTab === 'invoice' ? invoicePurchases : orderPurchases;
+    label: `${t.label} (${purchasesByTab.get(t.key)?.length ?? 0})`,
+  })), [purchasesByTab]);
+  const visiblePurchases = purchasesByTab.get(activeTab) ?? [];
 
   return (
     <div className="flex flex-col gap-4 w-full p-4 md:p-6">
@@ -203,7 +220,7 @@ export default function BuyerDetailPage() {
         <p className="text-sm text-muted-foreground text-center py-10">No purchases recorded for this customer.</p>
       ) : visiblePurchases.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-10">
-          No {activeTab === 'invoice' ? 'invoices' : 'orders'} for this customer.
+          No {TABS.find((t) => t.key === activeTab)?.pluralLabel ?? 'records'} for this customer.
         </p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">

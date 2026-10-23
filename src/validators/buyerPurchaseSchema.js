@@ -20,7 +20,7 @@ export const recordPurchaseSchema = z.object({
   customerEmail:   z.string().nullable().optional(),
   customerAddress: looseRow.nullable().optional(),
   transactionId:   numeric().int().positive(),
-  documentType:    z.enum(['invoice', 'order']),
+  documentType:    z.enum(['invoice', 'order', 'return', 'exchange', 'buyback']),
   documentNo:      z.string().nullable().optional(),
   documentDate:    z.coerce.date(),
   companyId:       numeric().int().positive(),
@@ -31,4 +31,10 @@ export const recordPurchaseSchema = z.object({
   promotions:      z.array(looseRow).optional().default([]),
   payments:        z.array(looseRow).optional().default([]),
   totalAmount:     numeric().nullable().optional(),
+  // 0 Draft / 1 Posted / 2 Cancelled — same raw document_status every other
+  // list in this app reads (see deriveDocumentStatus, useCustomerOrders.js).
+  // Lets the Buyers module flag a cancelled order/return/exchange/buyback.
+  documentStatus:  numeric().int().nullable().optional(),
+  balanceAmount:   numeric().nullable().optional(),
+  receiptAmount:   numeric().nullable().optional(),
 });

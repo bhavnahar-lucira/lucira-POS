@@ -59,7 +59,14 @@ export default function BuyersPage() {
   const trimmedSearch = search.trim().toLowerCase();
   const filteredBuyers = useMemo(() => {
     const matching = purchases.filter((p) => {
-      if (!documentTypes.includes(p.documentType)) return false;
+      // The Invoice/Order toggle only ever covers those two types — a
+      // return/exchange/buyback row is an OUTCOME against a past purchase,
+      // not a purchase a staff member is filtering for, so it always passes
+      // this check (it still respects the date-range filter below) and
+      // keeps contributing to a buyer's outcome counts regardless of which
+      // document types are currently toggled on.
+      const isOutcomeType = p.documentType === 'return' || p.documentType === 'exchange' || p.documentType === 'buyback';
+      if (!isOutcomeType && !documentTypes.includes(p.documentType)) return false;
       const day = p.documentDate ? String(p.documentDate).slice(0, 10) : null;
       if (fromDate && (!day || day < fromDate)) return false;
       if (toDate && (!day || day > toDate)) return false;

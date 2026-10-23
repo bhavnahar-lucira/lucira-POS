@@ -41,7 +41,7 @@
 
 import { getStockPieces } from '@/services/inventoryService';
 import { getItemDetail, getDesignVariants } from '@/services/itemService';
-import { priceStockPiecesForSale, calculateItemRates, findRealBomComponents } from '@/services/pricingService';
+import { priceStockPiecesForSale, calculateItemRates, findRealBomComponents, scalePricedRowToQuantity } from '@/services/pricingService';
 import { applyPromotions } from '@/services/promotionService';
 import { sumRealGst } from '@/lib/gst';
 import APP_CONFIG from '@/constants/appConfig';
@@ -124,17 +124,37 @@ export async function applyPromotionsToLines({
     // A promotion the server declines to price (not applicable to anything in
     // the basket) comes back with no items. Leave the lines as they were
     // rather than dropping the basket on the floor.
-    if (!Array.isArray(items) || items.length !== lines.length) {
-      if (Array.isArray(items)) {
-        // items WAS an array, just the wrong length — a genuine 200 that
-        // this silently discards with zero trace. Logged so a real instance
-        // of this (vs. the documented "declined, no items" case) is visible
-        // instead of reading as "nothing happened" with a 200 in the network tab.
-        console.warn(
-          `[checkoutPricingService] promotion "${promo.promoCode}" returned ${items.length} priced rows, expected ${lines.length} — discarding this promotion's effect`,
-        );
-      }
+    if (!Array.isArray(items)) continue;
+
+    if (items.length > lines.length) {
+      // MORE rows back than sent — never observed, genuinely unexplained if
+      // it happens. Logged so a real instance of this is visible instead of
+      // reading as "nothing happened" with a 200 in the network tab.
+      console.warn(
+        `[checkoutPricingService] promotion "${promo.promoCode}" returned ${items.length} priced rows, expected ${lines.length} (more than sent) — discarding this promotion's effect`,
+      );
       continue;
+    }
+
+    // FEWER rows back than sent is a LEGITIMATE signal, not an error —
+    // CONFIRMED LIVE 2026-10-22. A "Spend X Get Y Free" promo's free-gift
+    // line sends MORE candidate units than the real entitlement (Y is never
+    // exposed up front — see useGoldCoinPromoManager's own quantity-
+    // discovery probe, which deliberately over-asks to find it). This
+    // observed directly: 26 rows sent (1 real item + 25 speculative
+    // free-gift candidates), 3 came back (the 1 real item + exactly 2 real
+    // free rows) — ApplyPromotions doesn't echo the un-entitled excess at
+    // all, it just omits them. The OLD strict-equality check treated this
+    // as "declined" and discarded the WHOLE promotion's effect every time
+    // the probe (deliberately) overshot the real entitlement — which is
+    // most of the time — reproducing live as "applied, then removed
+    // automatically" moments later. Accepting the shorter result directly
+    // is what lets the free-gift quantity settle down to the real
+    // entitlement instead.
+    if (items.length < lines.length) {
+      console.info(
+        `[checkoutPricingService] promotion "${promo.promoCode}" returned fewer rows than sent (${items.length} of ${lines.length}) — accepting as the real (trimmed) entitlement`,
+      );
     }
 
     lines = items;
@@ -215,12 +235,26 @@ async function fetchStockCandidatesByItemId({ items, activeStoreId }) {
  * each other's piece.
  *
  * @param {{ item: object, activeStoreId: number, claimed: Set<number>, candidatesByItemId: Map<number, object[]> }} params
- * @returns {Promise<object[]>} up to `item.quantity` stock rows — PARTIAL
- *   (reported directly, 2026-09-30: a qty-2 line with only 1 free piece was
- *   tipping the WHOLE line into Made to Order instead of splitting into a
- *   1-unit invoice portion + a 1-unit order portion). Never null; an empty
- *   array means nothing could be claimed at all. buildPricedLineItems is
- *   what turns a partial result into two separate line portions.
+ * @returns {Promise<{row: object, piecesClaimed: number}[]>} claims totaling
+ *   up to `item.quantity` units — PARTIAL (reported directly, 2026-09-30: a
+ *   qty-2 line with only 1 free piece was tipping the WHOLE line into Made
+ *   to Order instead of splitting into a 1-unit invoice portion + a 1-unit
+ *   order portion) is expected and fine; never null — an empty array means
+ *   nothing could be claimed at all. buildPricedLineItems is what turns a
+ *   partial result into two separate line portions.
+ *
+ *   Most rows are exactly one physical piece (`row.pieces === 1`), so one
+ *   claim there is one unit, same as always. A bulk/commodity row (confirmed
+ *   live 2026-10-21: gold coin SKU LJ-GC0002-916YGPG, stocked as ONE
+ *   StockJournal row holding many identical units — `pieces: 85` in a single
+ *   bag) can alone satisfy several units of `wanted` through ONE claim, with
+ *   `piecesClaimed` less than the row's own full `pieces` count whenever
+ *   only part of that bag is being sold — mirrors OrnaVerse's own Invoice
+ *   cart, which lets an operator edit a bulk line's "Pieces" down from the
+ *   bag's full count and reprices purely proportionally (client-side, off
+ *   the row's own full-quantity price — see scalePricedRowToQuantity for
+ *   why this is derived rather than re-queried) rather than needing a
+ *   separate row per unit.
  * @throws only on the fulfillment path, when the specific reserved piece is
  *   no longer available — that one has no "partial" concept (always qty 1).
  */
@@ -232,9 +266,12 @@ async function claimStockPieces({ item, activeStoreId, claimed, candidatesByItem
   // insufficient for what THIS item needs — see this function's header for
   // why the shared batch can legitimately come up short for one item even
   // though it genuinely has stock. The common case (every item's fair share
-  // already in the batch) never pays this extra call.
+  // already in the batch) never pays this extra call. Summed by each row's
+  // OWN pieces count, not row count — a single bulk row can cover several
+  // wanted units on its own.
   const neededForThisItem = item.fulfillmentItemLineNo != null ? 1 : (item.quantity ?? 1);
-  if (available.length < neededForThisItem) {
+  const availablePieces = (rows) => rows.reduce((sum, r) => sum + (r.pieces > 0 ? r.pieces : 1), 0);
+  if (availablePieces(available) < neededForThisItem) {
     const response = await getStockPieces({ itemId: item.itemId, companyId: activeStoreId });
     rows = response?.data?.Entities ?? [];
     available = rows.filter((r) => !r.is_allocated && !claimed.has(r.stock_journal_id));
@@ -254,20 +291,34 @@ async function claimStockPieces({ item, activeStoreId, claimed, candidatesByItem
       );
     }
     claimed.add(row.stock_journal_id);
-    return [row];
+    return [{ row, piecesClaimed: row.pieces > 0 ? row.pieces : 1 }];
   }
 
   const wanted = item.quantity ?? 1;
 
   // Short stock is NOT an error here — a basket the shelf can't fill simply
-  // becomes an order instead of a dead end. Claims as many as are actually
-  // free, up to `wanted` — may be fewer, or zero; never rejects the whole
-  // line just because it can't fill it completely (see this function's own
-  // @returns note on why that changed).
-  const taken = available.slice(0, wanted);
-  for (const row of taken) claimed.add(row.stock_journal_id);
-  return taken;
+  // becomes an order instead of a dead end. Claims as many units as are
+  // actually free, up to `wanted`, greedily across rows in order — may total
+  // fewer than `wanted`, or zero; never rejects the whole line just because
+  // it can't fill it completely (see this function's own @returns note on
+  // why that changed). Once ANY pieces are taken from a row, the WHOLE row
+  // is marked claimed — a second cart line can't also draw from its
+  // remainder, but cartSlice.addItem already merges same item/size/style
+  // lines into one, so two distinct lines competing for the same bulk row's
+  // leftovers doesn't arise through normal use.
+  const claims = [];
+  let remaining = wanted;
+  for (const row of available) {
+    if (remaining <= 0) break;
+    const rowPieces = row.pieces > 0 ? row.pieces : 1;
+    const take = Math.min(rowPieces, remaining);
+    claims.push({ row, piecesClaimed: take });
+    claimed.add(row.stock_journal_id);
+    remaining -= take;
+  }
+  return claims;
 }
+
 
 /**
  * Resolves a cart item back to its FULL master record — the Style variant
@@ -389,10 +440,11 @@ export async function buildPricedLineItems({ items, activeStoreId, salesPersonId
   const claimsByItem = [];
   let fullyStocked = true;
   for (const item of items) {
-    const taken = await claimStockPieces({ item, activeStoreId, claimed, candidatesByItemId });
+    const claims = await claimStockPieces({ item, activeStoreId, claimed, candidatesByItemId });
     const wanted = item.quantity ?? 1;
-    if (taken.length < wanted) fullyStocked = false;
-    claimsByItem.push(taken);
+    const claimedPieces = claims.reduce((sum, c) => sum + c.piecesClaimed, 0);
+    if (claimedPieces < wanted) fullyStocked = false;
+    claimsByItem.push(claims);
   }
 
   const applySalesPerson = (rows) => (salesPersonId == null
@@ -402,12 +454,33 @@ export async function buildPricedLineItems({ items, activeStoreId, salesPersonId
   if (items.length === 0) return { invoice: null, order: null };
 
   if (fullyStocked) {
-    const stockRows = claimsByItem.flat();
-    const priced = await priceStockPiecesForSale(stockRows, APP_CONFIG.DOCUMENT_TYPES.POS_INVOICE);
-    if (priced.length !== stockRows.length) {
+    const claims = claimsByItem.flat();
+    // Every row goes to SetSalesItems at its own REAL, full, unmodified
+    // pieces/weight — never pre-scaled down to a claim's smaller quantity.
+    // Confirmed live 2026-10-21: asking the server to price a bulk row at a
+    // SCALED-DOWN quantity can silently switch its making-charge calculation
+    // to a different basis (a per-piece minimum instead of per-gram),
+    // overcharging by a large, non-obvious factor — see
+    // scalePricedRowToQuantity's own header for the exact figures. Pricing
+    // the row's true full quantity and then deriving each claim's own
+    // smaller share CLIENT-SIDE (below) is the only way to stay inside the
+    // SAME pricing bracket the row was actually costed under.
+    const stockRows = claims.map((c) => c.row);
+    const pricedFullRows = await priceStockPiecesForSale(stockRows, APP_CONFIG.DOCUMENT_TYPES.POS_INVOICE);
+    if (pricedFullRows.length !== stockRows.length) {
       throw new Error('Live pricing failed — the server priced a different number of items than were sent.');
     }
-    return { invoice: { cartItems: items, lineItems: applySalesPerson(priced) }, order: null };
+    // A no-op for every normal claim (piecesClaimed already equals the row's
+    // own full pieces) — only a PARTIAL bulk claim actually scales here.
+    const priced = pricedFullRows.map((fullPriced, i) => scalePricedRowToQuantity(fullPriced, claims[i].piecesClaimed));
+    // One lineItems row per CLAIM, not per unit — a bulk row sold partially
+    // is one row covering several units (mapPricedLinesToCart needs this
+    // count explicitly; it can no longer assume item.quantity rows per item).
+    const lineCounts = claimsByItem.map((itemClaims) => itemClaims.length);
+    return {
+      invoice: { cartItems: items, lineItems: applySalesPerson(priced), lineCounts },
+      order: null,
+    };
   }
 
   const priced = await buildOrderLineItems({ items, documentId: APP_CONFIG.DOCUMENT_TYPES.POS_ORDER });
@@ -431,6 +504,13 @@ export async function buildPricedLineItems({ items, activeStoreId, salesPersonId
  *   applyPromotionsToLines has run if any promo is applied — that's what
  *   writes the per-row `discount` field this also surfaces (see
  *   summarizeLineItems for the same sum used in the header total).
+ * @param {number[]} [lineCounts] — how many consecutive `lineItems` rows each
+ *   cart item occupies, in order. Defaults to `item.quantity` (one row per
+ *   unit — true for the Order/MTO path, and for any all-normal-rows invoice)
+ *   when omitted. Required whenever an invoice includes a PARTIALLY-sold
+ *   bulk stock row (see claimStockPieces in this file): that claim is ONE
+ *   lineItems row covering several units, so the row count for that cart
+ *   item is no longer equal to its quantity.
  * @returns {Map<number, {
  *   lineTotal: number, unitPrice: number, discount: number, skus: string[],
  *   breakdown: object,
@@ -446,11 +526,12 @@ export async function buildPricedLineItems({ items, activeStoreId, salesPersonId
  *   PriceBreakdown card's own explicitly-labeled pre-tax figure, kept correct
  *   independently of this change.
  */
-export function mapPricedLinesToCart(items, lineItems) {
+export function mapPricedLinesToCart(items, lineItems, lineCounts) {
   const byCartIndex = new Map();
   if (!items?.length || !lineItems?.length) return byCartIndex;
 
-  const expected = items.reduce((sum, item) => sum + (item.quantity ?? 1), 0);
+  const counts = lineCounts ?? items.map((item) => item.quantity ?? 1);
+  const expected = counts.reduce((sum, n) => sum + n, 0);
   if (expected !== lineItems.length) return byCartIndex;
 
   // ONE traversal of `rows` accumulating every field this line needs, rather
@@ -477,8 +558,9 @@ export function mapPricedLinesToCart(items, lineItems) {
   let cursor = 0;
   items.forEach((item, index) => {
     const quantity = item.quantity ?? 1;
-    const rows = lineItems.slice(cursor, cursor + quantity);
-    cursor += quantity;
+    const rowCount = counts[index] ?? quantity;
+    const rows = lineItems.slice(cursor, cursor + rowCount);
+    cursor += rowCount;
 
     const totals = rows.reduce((acc, r) => {
       acc.sub_total          += r.sub_total ?? 0;
@@ -605,7 +687,7 @@ function cartLineKey(item) {
 export function buildCartDisplayRows(items, { invoice, order }) {
   if (!items?.length) return [];
 
-  const invoiceMap = invoice ? mapPricedLinesToCart(invoice.cartItems, invoice.lineItems) : null;
+  const invoiceMap = invoice ? mapPricedLinesToCart(invoice.cartItems, invoice.lineItems, invoice.lineCounts) : null;
   const orderMap   = order   ? mapPricedLinesToCart(order.cartItems, order.lineItems)     : null;
 
   const rows = [];

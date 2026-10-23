@@ -28,7 +28,7 @@ export const NAV_ITEMS = [
   { label: 'Repair',       href: '/repair',       icon: Wrench          },
   { label: 'Transfers',    href: '/transfers',    icon: Repeat          },
   { label: 'Estimation',   href: '/estimation',   icon: FileSpreadsheet },
-  { label: 'Customers',    href: '/customers',    icon: Users           },
+  // { label: 'Customers',    href: '/customers',    icon: Users           },
   { label: 'Buyers',       href: '/buyers',       icon: HeartHandshake  },
   { label: 'Schemes',      href: '/schemes',      icon: BookOpen        },
   { label: 'Walk-ins',     href: '/walkins',      icon: Footprints      },

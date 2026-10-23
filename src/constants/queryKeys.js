@@ -259,10 +259,6 @@ export const QUERY_KEYS = {
   },
 
   NECTOR: {
-    CHECKOUT_INFO: (mobile, amount) => ['nector', 'checkout-info', mobile, amount],
-    // OrnaVerse's own native LoyaltyCheckout integration (2026-09-28) — see
-    // nectorService.js's header for why this is a separate, independent
-    // mechanism from CHECKOUT_INFO above, not a rename of it.
     LOYALTY_CHECKOUT_SETTINGS: (companyId) => ['nector', 'loyalty-checkout-settings', companyId],
     LOYALTY_CHECKOUT_PREVIEW:  (partyId, cartAmount, companyId) =>
       ['nector', 'loyalty-checkout-preview', partyId, cartAmount, companyId],

@@ -711,8 +711,8 @@ export default function CustomerDetailPage() {
             {fallbackCustomerName ? `Failed to load ${fallbackCustomerName}'s profile.` : 'Failed to load customer.'}
           </p>
           <Button type="button" variant="outline" onClick={refetch}>Retry</Button>
-          <Button type="button" variant="ghost" size="sm" onClick={() => router.push('/customers')}>
-            Back to Customers
+          <Button type="button" variant="ghost" size="sm" onClick={() => router.push('/dashboard')}>
+            Back to Dashboard
           </Button>
         </div>
       )}
@@ -724,8 +724,8 @@ export default function CustomerDetailPage() {
               type="button"
               variant="ghost"
               size="icon"
-              onClick={() => router.push('/customers')}
-              aria-label="Back to customers"
+              onClick={() => router.push('/dashboard')}
+              aria-label="Back to dashboard"
               className="h-9 w-9 -ml-2 shrink-0"
             >
               <ArrowLeft size={18} aria-hidden="true" />

@@ -1,6 +1,6 @@
 'use client';
 
-import { User, Phone, Store, FileText, ClipboardList, IndianRupee, Calendar } from 'lucide-react';
+import { User, Phone, Store, FileText, ClipboardList, IndianRupee, Calendar, RotateCcw, ArrowLeftRight, ShoppingBag, Ban } from 'lucide-react';
 import ListItemCard from '@/components/shared/ListItemCard';
 import { Badge } from '@/components/ui/badge';
 import { formatAmountOrNull } from '@/lib/priceUtils';
@@ -11,13 +11,19 @@ import { formatDatePadded } from '@/lib/dateUtils';
  *   buyer: {
  *     _id: number, customerName: string, customerMobile: string,
  *     stores: string[], invoiceCount: number, orderCount: number,
+ *     returnCount: number, exchangeCount: number, buybackCount: number,
+ *     cancelledCount: number, hasOutcomes: boolean,
  *     totalSpend: number, lastPurchaseDate: string,
  *   },
  *   onSelect: () => void,
  * }} props
  */
 export default function BuyerListItem({ buyer, onSelect }) {
-  const { customerName, customerMobile, stores, invoiceCount, orderCount, totalSpend, lastPurchaseDate } = buyer;
+  const {
+    customerName, customerMobile, stores, invoiceCount, orderCount,
+    returnCount, exchangeCount, buybackCount, cancelledCount,
+    totalSpend, lastPurchaseDate,
+  } = buyer;
 
   return (
     <ListItemCard onSelect={onSelect}>
@@ -56,6 +62,40 @@ export default function BuyerListItem({ buyer, onSelect }) {
           </Badge>
         )}
       </div>
+
+      {/* Lead-quality signal: an item coming back (or an order/document
+          getting cancelled) makes this a weaker retargeting lead than a
+          buyer whose purchases all stuck — flagged with the destructive
+          badge style so it's visually distinct from the positive counts
+          above at a glance. */}
+      {(returnCount > 0 || exchangeCount > 0 || buybackCount > 0 || cancelledCount > 0) && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {returnCount > 0 && (
+            <Badge variant="destructive" className="gap-1">
+              <RotateCcw size={11} aria-hidden="true" />
+              {returnCount} returned
+            </Badge>
+          )}
+          {exchangeCount > 0 && (
+            <Badge variant="destructive" className="gap-1">
+              <ArrowLeftRight size={11} aria-hidden="true" />
+              {exchangeCount} exchanged
+            </Badge>
+          )}
+          {buybackCount > 0 && (
+            <Badge variant="destructive" className="gap-1">
+              <ShoppingBag size={11} aria-hidden="true" />
+              {buybackCount} bought back
+            </Badge>
+          )}
+          {cancelledCount > 0 && (
+            <Badge variant="destructive" className="gap-1">
+              <Ban size={11} aria-hidden="true" />
+              {cancelledCount} cancelled
+            </Badge>
+          )}
+        </div>
+      )}
 
       {formatAmountOrNull(totalSpend) && (
         <div className="flex items-center gap-2 text-[13px] text-muted-foreground">

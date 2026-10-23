@@ -54,7 +54,7 @@ function ReviewImageGridOverflow({ count, onClick }) {
 }
 
 function ReviewCard({ review, onImageClick }) {
-  const images = review.images?.slice(0, MAX_REVIEW_IMAGES) ?? [];
+  const images = (review.images ?? []).slice(0, MAX_REVIEW_IMAGES);
 
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
@@ -83,7 +83,7 @@ function ReviewCard({ review, onImageClick }) {
               key={src}
               src={src}
               alt={`${review.name}'s photo ${i + 1}`}
-              onClick={() => onImageClick(review)}
+              onClick={() => onImageClick(review, i)}
             />
           ))}
         </div>
@@ -124,15 +124,19 @@ function ReviewsSkeleton({ count = PREVIEW_COUNT }) {
 export default function ProductReviewsList({ shopifyProductId }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [openReviewIndex, setOpenReviewIndex] = useState(null);
+  const [openPhotoIndex, setOpenPhotoIndex] = useState(0);
 
   const { average, count, isLoading: summaryLoading } = useProductReviewSummary(shopifyProductId);
   const {
     reviews, isLoading, isFetchingMore, hasMore, loadMore,
   } = useProductReviews(shopifyProductId);
 
-  const openPhoto = (review) => {
+  const openPhoto = (review, photoIndex = 0) => {
     const index = reviews.findIndex((r) => r.id === review.id);
-    if (index !== -1) setOpenReviewIndex(index);
+    if (index !== -1) {
+      setOpenReviewIndex(index);
+      setOpenPhotoIndex(photoIndex);
+    }
   };
   if (!shopifyProductId) return null;
 
@@ -144,7 +148,7 @@ export default function ProductReviewsList({ shopifyProductId }) {
   const hasMoreThanPreview = count > PREVIEW_COUNT;
   
   const allPhotos = reviews.flatMap((review) =>
-    (review.images ?? []).map((src, i) => ({ src, review, key: `${review.id}-${i}` }))
+    (review.images ?? []).map((src, i) => ({ src, review, idx: i, key: `${review.id}-${i}` }))
   );
 
   return (
@@ -159,18 +163,18 @@ export default function ProductReviewsList({ shopifyProductId }) {
         const visible = overflow > 0 ? allPhotos.slice(0, MAX_GRID_PHOTOS - 1) : allPhotos;
         return (
           <div className="flex flex-wrap gap-2">
-            {visible.map(({ src, review, key }) => (
+            {visible.map(({ src, review, idx, key }) => (
               <ReviewImageThumb
                 key={key}
                 src={src}
                 alt={`${review.name}'s photo`}
-                onClick={() => openPhoto(review)}
+                onClick={() => openPhoto(review, idx)}
               />
             ))}
             {overflow > 0 && (
               <ReviewImageGridOverflow
                 count={overflow + 1}
-                onClick={() => openPhoto(allPhotos[visible.length].review)}
+                onClick={() => openPhoto(allPhotos[visible.length].review, allPhotos[visible.length].idx)}
               />
             )}
           </div>
@@ -227,6 +231,7 @@ export default function ProductReviewsList({ shopifyProductId }) {
         reviews={reviews}
         currentIndex={openReviewIndex ?? 0}
         onIndexChange={setOpenReviewIndex}
+        initialPhotoIndex={openPhotoIndex}
       />
     </section>
   );

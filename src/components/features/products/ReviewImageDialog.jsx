@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ChevronLeft, ChevronRight, BadgeCheck } from 'lucide-react';
 import StarRating from '@/components/shared/StarRating';
@@ -23,33 +23,56 @@ function Avatar({ name }) {
  *   reviews: { id: string, name: string, rating: number, text: string, isVerified: boolean, postedAt: string|null, images: string[] }[],
  *   currentIndex: number,
  *   onIndexChange: (index: number) => void,
+ *   initialPhotoIndex?: number,
  * }} props
  */
 export default function ReviewImageDialog({
-  isOpen, onClose, reviews = [], currentIndex, onIndexChange,
+  isOpen, onClose, reviews = [], currentIndex, onIndexChange, initialPhotoIndex = 0,
 }) {
   useBodyScrollLock(isOpen);
-  const goPrev = () => onIndexChange((i) => (i === 0 ? reviews.length - 1 : i - 1));
-  const goNext = () => onIndexChange((i) => (i === reviews.length - 1 ? 0 : i + 1));
+  const [photoIndex, setPhotoIndex] = useState(initialPhotoIndex);
+  const goPrev = () => { setPhotoIndex(0); onIndexChange((i) => (i === 0 ? reviews.length - 1 : i - 1)); };
+  const goNext = () => { setPhotoIndex(0); onIndexChange((i) => (i === reviews.length - 1 ? 0 : i + 1)); };
+
+  const review = reviews[currentIndex];
+  const images = review?.images ?? [];
+
+  // Jump to whichever photo was actually clicked, only when the dialog
+  // transitions from closed to open — goPrev/goNext handle resetting to 0
+  // themselves when switching reviews while already open. Adjusting state
+  // during render (React's own sanctioned pattern for "reset on prop
+  // change") instead of an effect, so this can't cascade an extra render.
+  const [wasOpen, setWasOpen] = useState(isOpen);
+  if (isOpen !== wasOpen) {
+    setWasOpen(isOpen);
+    if (isOpen) setPhotoIndex(initialPhotoIndex);
+  }
+
+  const goPrevPhoto = () => setPhotoIndex((i) => (i === 0 ? images.length - 1 : i - 1));
+  const goNextPhoto = () => setPhotoIndex((i) => (i === images.length - 1 ? 0 : i + 1));
 
   useEffect(() => {
     if (!isOpen) return;
     const handleKey = (e) => {
       if (e.key === 'Escape') onClose();
-      if (e.key === 'ArrowLeft' && reviews.length > 1) goPrev();
-      if (e.key === 'ArrowRight' && reviews.length > 1) goNext();
+      if (e.key === 'ArrowLeft') {
+        if (images.length > 1) goPrevPhoto();
+        else if (reviews.length > 1) goPrev();
+      }
+      if (e.key === 'ArrowRight') {
+        if (images.length > 1) goNextPhoto();
+        else if (reviews.length > 1) goNext();
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, onClose, reviews.length, currentIndex]);
+  }, [isOpen, onClose, reviews.length, currentIndex, images.length, photoIndex]);
 
   if (!isOpen || typeof document === 'undefined') return null;
-
-  const review = reviews[currentIndex];
   if (!review) return null;
 
-  const photo = review.images?.[0] ?? null;
+  const photo = images[photoIndex] ?? null;
 
   return createPortal(
     <div
@@ -97,12 +120,49 @@ export default function ReviewImageDialog({
         </button>
 
         {photo && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={photo}
-            alt={`${review.name}'s photo`}
-            className="h-56 w-full shrink-0 object-cover md:h-auto md:w-1/2 lg:w-3/5"
-          />
+          <div className="relative h-56 w-full shrink-0 md:h-auto md:w-1/2 lg:w-3/5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={photo}
+              alt={`${review.name}'s photo ${photoIndex + 1}`}
+              className="h-full w-full object-cover"
+            />
+            {images.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); goPrevPhoto(); }}
+                  aria-label="Previous photo"
+                  className="absolute left-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white transition-colors hover:bg-black/60"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); goNextPhoto(); }}
+                  aria-label="Next photo"
+                  className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white transition-colors hover:bg-black/60"
+                >
+                  <ChevronRight size={18} />
+                </button>
+                <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/40 px-2 py-1">
+                  {images.map((src, i) => (
+                    <button
+                      key={src}
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setPhotoIndex(i); }}
+                      aria-label={`Go to photo ${i + 1}`}
+                      aria-current={i === photoIndex}
+                      className={[
+                        'h-1.5 w-1.5 rounded-full transition-colors',
+                        i === photoIndex ? 'bg-white' : 'bg-white/40',
+                      ].join(' ')}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         )}
 
         <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-6 sm:p-8">

@@ -1,12 +1,16 @@
 // SERVER-ONLY. Shared logic behind both on-demand Buyers-module syncs:
 //   - src/app/api/buyers/sync-store/[companyId]/route.js  — every Invoice/
-//     Order for one store (powers the /buyers LIST page, which otherwise
-//     has a chicken-and-egg problem: it can only show customers that already
-//     have a Mongo record, so the first time a store is opened there's
-//     nothing to click into and nothing ever gets synced).
-//   - src/app/api/buyers/sync/[customerId]/route.js — every purchase for one
-//     customer across every store (powers the /buyers/[customerId] detail
-//     page's own freshen-on-load).
+//     Order/Return/Exchange/BuyBack for one store (powers the /buyers LIST
+//     page, which otherwise has a chicken-and-egg problem: it can only show
+//     customers that already have a Mongo record, so the first time a store
+//     is opened there's nothing to click into and nothing ever gets synced).
+//   - src/app/api/buyers/sync/[customerId]/route.js — every purchase AND
+//     every post-sale outcome (return/exchange/buyback, plus a cancelled
+//     order/return/etc — see documentStatus) for one customer across every
+//     store (powers the /buyers/[customerId] detail page's own
+//     freshen-on-load). This is what lets the Buyers module flag which
+//     leads already gave an item back — worth skipping on a follow-up call —
+//     versus a genuine repeat customer.
 //
 // Both call straight into OrnaVerse using the CURRENT request's own session
 // cookie (getSessionFromRequest) — same direct-fetch-with-session pattern
@@ -94,6 +98,12 @@ function shapeRecord(kind, entity) {
     promotions: [...promoByCode.values()],
     payments,
     totalAmount: entity.net_amount ?? null,
+    // Same raw document_status every Retrieve call already returns — carried
+    // through unchanged so the Buyers module can flag a cancelled order (or
+    // a cancelled return/exchange/buyback) without a second lookup.
+    documentStatus: entity.document_status ?? null,
+    balanceAmount:  entity.balance_amount  ?? null,
+    receiptAmount:  entity.receipt_amount  ?? null,
   };
 }
 
@@ -117,9 +127,27 @@ async function upsertEntities(kind, entities) {
 // which transaction_ids belong to this store; every one of them is then
 // Retrieved individually for the real record.
 
-const LIST_PATH     = { order: 'Services/POS/Order/List',       invoice: 'Services/POS/Invoice/List' };
-const RETRIEVE_PATH = { order: 'Services/POS/Order/Retrieve',    invoice: 'Services/POS/Invoice/Retrieve' };
+// Return/Exchange/Buyback have no InvoiceReceipt/List-style fallback (that
+// fallback exists only because Invoice/Order List was once found unreliably
+// scoped by company_id for one real tenant — never observed on these three)
+// — RECEIPT_PATH is intentionally left without entries for them; see
+// fetchStoreDocuments's own fallback branch, skipped when absent.
+const LIST_PATH     = {
+  order:    'Services/POS/Order/List',
+  invoice:  'Services/POS/Invoice/List',
+  return:   'Services/POS/Return/List',
+  exchange: 'Services/POS/Exchange/List',
+  buyback:  'Services/POS/BuyBack/List',
+};
+const RETRIEVE_PATH = {
+  order:    'Services/POS/Order/Retrieve',
+  invoice:  'Services/POS/Invoice/Retrieve',
+  return:   'Services/POS/Return/Retrieve',
+  exchange: 'Services/POS/Exchange/Retrieve',
+  buyback:  'Services/POS/BuyBack/Retrieve',
+};
 const RECEIPT_PATH  = { order: 'Services/POS/OrderReceipt/List', invoice: 'Services/POS/InvoiceReceipt/List' };
+const STORE_SYNC_KINDS = ['invoice', 'order', 'return', 'exchange', 'buyback'];
 
 function groupReceiptsByTransaction(rows) {
   const byTx = new Map();
@@ -144,12 +172,14 @@ async function fetchStoreDocuments(kind, companyId, session) {
   let transactionIds;
   if (trustworthy.length > 0) {
     transactionIds = trustworthy.map((e) => e.transaction_id);
-  } else {
+  } else if (RECEIPT_PATH[kind]) {
     const receiptPeek = await ornaversePost(RECEIPT_PATH[kind], { Take: 1, company_id: companyId }, session);
     if ((receiptPeek?.TotalCount ?? 0) === 0) return [];
 
     const receiptData = await ornaversePost(RECEIPT_PATH[kind], { Take: 0, company_id: companyId }, session);
     transactionIds = groupReceiptsByTransaction(receiptData?.Entities ?? []).map((g) => g.transactionId);
+  } else {
+    return [];
   }
 
   const retrieved = await runWithConcurrency(transactionIds, async (transactionId) => {
@@ -164,17 +194,21 @@ async function fetchStoreDocuments(kind, companyId, session) {
   return retrieved.filter((e) => e && e.company_id === companyId);
 }
 
-/** @returns {Promise<{ invoicesSynced: number, ordersSynced: number }>} */
+/**
+ * @returns {Promise<{
+ *   invoicesSynced: number, ordersSynced: number,
+ *   returnsSynced: number, exchangesSynced: number, buybacksSynced: number,
+ * }>}
+ */
 export async function syncStorePurchases({ companyId, session }) {
-  const [invoiceEntities, orderEntities] = await Promise.all([
-    fetchStoreDocuments('invoice', companyId, session),
-    fetchStoreDocuments('order',   companyId, session),
-  ]);
-  const [invoicesSynced, ordersSynced] = await Promise.all([
-    upsertEntities('invoice', invoiceEntities),
-    upsertEntities('order',   orderEntities),
-  ]);
-  return { invoicesSynced, ordersSynced };
+  const entitiesByKind = await Promise.all(
+    STORE_SYNC_KINDS.map((kind) => fetchStoreDocuments(kind, companyId, session)),
+  );
+  const syncedByKind = await Promise.all(
+    STORE_SYNC_KINDS.map((kind, i) => upsertEntities(kind, entitiesByKind[i])),
+  );
+  const [invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced] = syncedByKind;
+  return { invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced };
 }
 
 // ── Customer-level sync (every purchase for one party, across every store) ─
@@ -201,15 +235,25 @@ async function syncCustomerKind(kind, rows, session) {
   return upsertEntities(kind, entities.filter(Boolean));
 }
 
-/** @returns {Promise<{ invoicesSynced: number, ordersSynced: number }>} */
+/**
+ * @returns {Promise<{
+ *   invoicesSynced: number, ordersSynced: number,
+ *   returnsSynced: number, exchangesSynced: number, buybacksSynced: number,
+ * }>}
+ */
 export async function syncCustomerPurchases({ partyId, session }) {
   const tx = await ornaversePost(API.CUSTOMER_HISTORY.PARTY_TRANSACTIONS, { party_id: partyId }, session);
-  const invoiceRows = tx?.Invoices ?? [];
-  const orderRows   = tx?.Orders   ?? [];
 
-  const [invoicesSynced, ordersSynced] = await Promise.all([
-    syncCustomerKind('invoice', invoiceRows, session),
-    syncCustomerKind('order',   orderRows,   session),
+  // tx.Returns also carries this tenant's Credit Notes — confirmed
+  // elsewhere (CreditNote/Retrieve on this tenant returns a full Return
+  // entity, document_id 55; there is no separate Credit Note document
+  // type here) — so no separate credit-note sync is needed.
+  const [invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced] = await Promise.all([
+    syncCustomerKind('invoice',  tx?.Invoices  ?? [], session),
+    syncCustomerKind('order',    tx?.Orders    ?? [], session),
+    syncCustomerKind('return',   tx?.Returns   ?? [], session),
+    syncCustomerKind('exchange', tx?.Exchanges ?? [], session),
+    syncCustomerKind('buyback',  tx?.BuyBacks  ?? [], session),
   ]);
-  return { invoicesSynced, ordersSynced };
+  return { invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced };
 }

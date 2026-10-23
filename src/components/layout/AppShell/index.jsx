@@ -11,6 +11,7 @@ import PageTransition from '@/components/shared/PageTransition';
 import ScrollToTopButton from '@/components/shared/ScrollToTopButton';
 import { NavigationGuardProvider } from '@/contexts/NavigationGuardContext';
 import { useAllCatalog } from '@/hooks/catalog/useAllCatalog';
+import { useGoldCoinPromoManager } from '@/hooks/checkout/useGoldCoinPromoManager';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
 
 export default function AppShell({ children }) {
@@ -23,6 +24,11 @@ export default function AppShell({ children }) {
   }, []);
 
   useAllCatalog(activeStoreId, { enabled: sweepReady });
+  // Mounted exactly once here (AppShell persists across client-side
+  // navigation within the whole POS route group) so the gold-coin promo's
+  // auto-apply/eligibility/quantity-discovery effects never run more than
+  // once concurrently — see the hook's own header for the race this avoids.
+  useGoldCoinPromoManager();
 
   return (
     <TooltipProvider delayDuration={300}>

@@ -6,10 +6,11 @@ import { syncStorePurchases } from '@/lib/ornaverse/buyerSync';
 // have a Mongo record, so without this the very first visit to a store with
 // no prior live-captured sales has nothing to show AND nothing to click into
 // to trigger a sync (the per-customer sync lives on the detail page, which
-// is unreachable from an empty list). This pulls every Invoice/Order for one
-// store directly from OrnaVerse and upserts them — idempotent, safe to
-// re-run. See buyerSync.js for the List → Receipt-List-fallback → Retrieve
-// logic (same approach as scripts/backfillBuyerPurchases.mjs).
+// is unreachable from an empty list). This pulls every Invoice/Order/Return/
+// Exchange/BuyBack for one store directly from OrnaVerse and upserts them —
+// idempotent, safe to re-run. See buyerSync.js for the List →
+// Receipt-List-fallback → Retrieve logic (same approach as
+// scripts/backfillBuyerPurchases.mjs, which only covers Invoice/Order).
 export async function POST(request, { params }) {
   const session = await getSessionFromRequest(request);
   if (!session) {

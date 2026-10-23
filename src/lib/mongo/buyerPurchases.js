@@ -44,7 +44,7 @@ function buildId({ documentType, transactionId }) {
  * @param {{
  *   customerId: number, customerName?: string, customerMobile?: string,
  *   customerEmail?: string, customerAddress?: object,
- *   transactionId: number, documentType: 'invoice'|'order',
+ *   transactionId: number, documentType: 'invoice'|'order'|'return'|'exchange'|'buyback',
  *   documentNo?: string, documentDate: string|Date,
  *   companyId: number, storeName?: string,
  *   salesPersonId?: number, salesPersonName?: string,
@@ -79,6 +79,17 @@ export async function upsertPurchase(record) {
         promotions:      record.promotions  ?? [],
         payments:        record.payments    ?? [],
         totalAmount:     record.totalAmount ?? 0,
+        // documentStatus: 0 Draft / 1 Posted / 2 Cancelled — same raw
+        // document_status every other list in this app already reads (see
+        // deriveDocumentStatus, useCustomerOrders.js). balance/receipt are
+        // stored alongside it so the UI can reuse that SAME shared precedence
+        // helper instead of re-deriving "cancelled" with its own logic.
+        // Lets the Buyers module flag "this lead cancelled/returned/
+        // exchanged their purchase" — a signal for who's worth a follow-up
+        // call and who isn't — without a second write path.
+        documentStatus:  record.documentStatus ?? null,
+        balanceAmount:   record.balanceAmount  ?? null,
+        receiptAmount:   record.receiptAmount  ?? null,
         updatedAt:       new Date(),
       },
       $setOnInsert: { createdAt: new Date() },

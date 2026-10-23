@@ -66,8 +66,10 @@ export async function calculateItemRates(items, documentId = 52) {
  * genuinely made-to-order (nothing on the shelf to sell).
  *
  * @param {{ item: object, companyId?: number }} params
- * @returns {Promise<object|null>} the priced row (its `sku` is set when a real
- *   piece was priced, absent for made-to-order)
+ * @returns {Promise<object|null>} the priced row, scaled to exactly ONE unit
+ *   when the underlying stock piece is a bulk/commodity row (see
+ *   scalePricedRowToQuantity) — its `sku` is set when a real piece was
+ *   priced, absent for made-to-order
  */
 export async function priceItemAsSold({ item, companyId }) {
   if (!item?.item_id) return null;
@@ -82,10 +84,16 @@ export async function priceItemAsSold({ item, companyId }) {
     const response = await getStockPieces({ itemId: item.item_id, companyId, take: 5 });
     const row = (response?.data?.Entities ?? []).find((r) => !r.is_allocated);
     if (row) {
+      // Price the row AS-IS first (whatever its own pieces count is) — the
+      // server prices a bulk row's real rates off its real weight, so this
+      // must not be pre-scaled before the request. Only the RESPONSE needs
+      // scaling down to a per-unit figure, for display here — checkout's own
+      // claiming (checkoutPricingService.js) scales independently, to
+      // whatever quantity is actually being sold, not always 1.
       const [priced] = await priceStockPiecesForSale(
         [row], APP_CONFIG.DOCUMENT_TYPES.POS_INVOICE
       );
-      if (priced) return priced;
+      if (priced) return scalePricedRowToQuantity(priced, 1);
     }
   }
 
@@ -171,6 +179,98 @@ export async function priceItemAsMaster(item) {
 }
 
 /**
+ * A stock row is USUALLY exactly one physical piece, but some commodity/bulk
+ * items (confirmed live 2026-10-21: gold coin SKU LJ-GC0002-916YGPG) are
+ * stocked as ONE StockJournal row holding many identical units at once
+ * (`pieces: 356`, a single bag) rather than one row per unit — e.g. selling
+ * 3 coins out of an 85-coin bag.
+ *
+ * NEVER ask the server to re-price a SCALED-DOWN request for part of a bulk
+ * row — confirmed live 2026-10-21 (same SKU/stock_journal_id, same making-
+ * charge operation): priced at its real full quantity (356 pcs, 35.6g),
+ * SetSalesItems charged labour per NET-WEIGHT GRAM (₹500/g × 35.6g = ₹17,800,
+ * uoc_id 62); asked to price a pre-scaled 4 pcs/0.4g request for the SAME
+ * item instead, it silently switched to a per-PIECE minimum-charge basis
+ * (₹500/piece × 4 = ₹2,000, uoc_id 61) — ELEVEN TIMES the correct pro-rata
+ * figure (₹200), not a rounding slip. Whatever bracket/threshold decides
+ * that basis lives entirely server-side and isn't something a client can
+ * predict or avoid by how it shapes the request.
+ *
+ * This is exactly why OrnaVerse's own Invoice cart — confirmed live, same
+ * investigation — never re-queries the server when its own "Pieces" field is
+ * edited down on a bulk line: it only ever prices the row ONCE, at its real
+ * full quantity, then derives any smaller quantity's price by multiplying
+ * that ONE response's own per-unit rate — client-side arithmetic, no second
+ * round trip, and no risk of landing in a different pricing bracket. This
+ * function is that same derivation: scales an ALREADY-PRICED row (the real
+ * server response for the row's own full pieces/weight) down to exactly
+ * `targetPieces` units, by dividing every genuine AGGREGATE total by the
+ * row's own full piece count and multiplying by the target.
+ *
+ * Deliberately leaves `item_rate` (a ₹-per-GRAM metal rate, not a total) and
+ * `item_labour` alone from the TOTALS treatment below — both are already a
+ * rate/per-unit figure in the response, confirmed to read identically
+ * (₹50) whether the row holds 85 or 356 pieces; scaling them again would
+ * double-apply the ratio (the exact bug this header is warning about, just
+ * on the client side instead of the server's).
+ *
+ * A no-op for the common case (`targetPieces` already equal to the row's own
+ * `pieces`, e.g. 1-piece rows and a bulk row sold in full) — returns the row
+ * unchanged.
+ *
+ * @param {object} priced — a SetSalesItems response row, priced at its own
+ *   real, full, UNMODIFIED pieces/weight (never pre-scaled)
+ * @param {number} targetPieces — how many of the row's own units this claim
+ *   actually covers
+ * @returns {object} the row, scaled to `targetPieces` units
+ */
+export function scalePricedRowToQuantity(priced, targetPieces) {
+  const rowPieces = priced.pieces > 0 ? priced.pieces : 1;
+  if (targetPieces === rowPieces) return priced;
+
+  const ratio = targetPieces / rowPieces;
+  const scale = (n) => (typeof n === 'number' ? +(n * ratio).toFixed(2) : n);
+  const scaleWeight = (n) => (n != null ? +(n * ratio).toFixed(6) : n);
+  const scaleCount  = (n) => (typeof n === 'number' ? Math.round(n * ratio) : n);
+  return {
+    ...priced,
+    pieces:          targetPieces,
+    weight:          scaleWeight(priced.weight),
+    net_weight:      scaleWeight(priced.net_weight),
+    pure_weight:     scaleWeight(priced.pure_weight),
+    metal_amount:    scale(priced.metal_amount),
+    diamond_amount:  scale(priced.diamond_amount),
+    diamond_pieces:  scaleCount(priced.diamond_pieces),
+    diamond_weight:  scaleWeight(priced.diamond_weight),
+    stone_amount:    scale(priced.stone_amount),
+    stone_pieces:    scaleCount(priced.stone_pieces),
+    stone_weight:    scaleWeight(priced.stone_weight),
+    color_stone_amount: scale(priced.color_stone_amount),
+    color_stone_pieces: scaleCount(priced.color_stone_pieces),
+    color_stone_weight: scaleWeight(priced.color_stone_weight),
+    other_amount:    scale(priced.other_amount),
+    other_pieces:    scaleCount(priced.other_pieces),
+    other_weight:    scaleWeight(priced.other_weight),
+    item_cost:       scale(priced.item_cost),
+    sub_total:       scale(priced.sub_total),
+    base_sub_total:  scale(priced.base_sub_total),
+    taxable_amount:  scale(priced.taxable_amount),
+    tax_amount:      scale(priced.tax_amount),
+    base_tax_amount: scale(priced.base_tax_amount),
+    net_amount:      scale(priced.net_amount),
+    base_net_amount: scale(priced.base_net_amount),
+    item_taxes: Array.isArray(priced.item_taxes)
+      ? priced.item_taxes.map((t) => ({
+          ...t,
+          taxable_amount: scale(t.taxable_amount),
+          tax_amount:     scale(t.tax_amount),
+          base_tax_amount: scale(t.base_tax_amount),
+        }))
+      : priced.item_taxes,
+  };
+}
+
+/**
  * Prices actual STOCK PIECES for a sale — the checkout counterpart of
  * calculateItemRates.
  *
@@ -187,27 +287,62 @@ export async function priceItemAsMaster(item) {
  *     is_labour_applicable/is_purchase entirely.
  *
  * `pieces` is NOT forced to 1 here (unlike calculateItemRates): a stock row
- * already describes exactly one physical piece.
+ * already describes exactly one physical piece, or, for a bulk/commodity
+ * row, however many units are really in it — ALWAYS its own real, full
+ * count. Never pre-scaled before this call (see scalePricedRowToQuantity's
+ * own header for why asking the server to price anything other than a row's
+ * real full quantity is unsafe); a partial claim is derived from this
+ * function's own response afterward, client-side.
  *
  * @param {object[]} stockRows — rows from inventoryService.getStockPieces,
- *   passed through unmodified.
+ *   passed through completely unmodified.
  * @param {number} documentId — the document type being raised.
  * @returns {Promise<object[]>} priced rows, ready to become line_items.
  */
 export async function priceStockPiecesForSale(stockRows, documentId) {
   if (!stockRows?.length) return [];
 
-  const response = await axiosInstance.post(API.HELPERS.SET_SALES_ITEMS, {
-    selected_products: stockRows,
+  const post = (products, docId) => axiosInstance.post(API.HELPERS.SET_SALES_ITEMS, {
+    selected_products: products,
     price_list_id:     0,
     calculate_rates:   true,
     document_date:     new Date().toUTCString(),
-    document_id:       documentId,
+    document_id:       docId,
     exchange_rate:     1,
     generate_line_no:  false,
     generate_lot_no:   false,
     is_tax_applicable: true,
   });
 
-  return response.data?.Entities ?? [];
+  try {
+    const response = await post(stockRows, documentId);
+    return response.data?.Entities ?? [];
+  } catch (err) {
+    // OrnaVerse's own Invoice-costing path (document_id 54) can fail to
+    // resolve a stock piece's BOM even though the piece itself is real and
+    // genuinely available — confirmed live 2026-10-21, stock_journal_id
+    // 93051 (LJ-GC0002-916YGPG at HO): "Unable to load BOM for <code>" at
+    // document_id 54, while the IDENTICAL row prices fine (material
+    // component silently dropped, priced labour-only) at document_id 52
+    // (Estimation) — captured directly from OrnaVerse's own Estimation
+    // screen's network call for this exact item, not something invented
+    // here. Retried with that SAME fallback so a piece with this specific
+    // OrnaVerse-side data gap still gets a real, sellable price instead of
+    // hanging forever (the catalog/product-page symptom this was reported
+    // as) — matching upstream's own observed behavior exactly.
+    //
+    // CAVEAT: this fixes PRICING only. Whether Invoice/Create itself still
+    // accepts this exact stock piece at actual submission time is unverified
+    // — its own internal costing may hit the same BOM gap independently of
+    // what document_id this preview call used. Not tested against a real
+    // Create call (deliberately — see this file's own standing practice of
+    // never placing a real order during a live investigation).
+    const message = err?.response?.data?.Error?.Message ?? '';
+    if (documentId === APP_CONFIG.DOCUMENT_TYPES.POS_INVOICE && /Unable to load BOM/i.test(message)) {
+      console.warn('[pricingService] priceStockPiecesForSale: BOM load failed at Invoice costing, retrying as Estimation', message);
+      const response = await post(stockRows, APP_CONFIG.DOCUMENT_TYPES.ESTIMATION);
+      return response.data?.Entities ?? [];
+    }
+    throw err;
+  }
 }
