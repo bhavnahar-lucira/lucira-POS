@@ -51,8 +51,9 @@ const handleLogout = (store) => {
   tracker.clear();
   toast.error('Your session has expired. Please log in again — check Orders/Invoices for anything you were just placing.');
   if (typeof window !== 'undefined') {
-    const current = window.location.pathname + window.location.search;
-    const next = current.startsWith('/login') ? '' : `?next=${encodeURIComponent(current)}`;
+    const path = window.location.pathname;
+    const skipNext = path.startsWith('/login') || path.startsWith('/customers');
+    const next = skipNext ? '' : `?next=${encodeURIComponent(path + window.location.search)}`;
     setTimeout(() => {
       queryClient.clear();
       window.location.href = `/login${next}`;

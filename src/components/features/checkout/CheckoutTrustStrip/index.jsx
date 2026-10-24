@@ -6,7 +6,7 @@ const TRUST_ITEMS = [
   { icon: RotateCcw,   label: '15 Day Exchange' },
   { icon: ShieldCheck, label: '100% Certified' },
   { icon: RefreshCw,   label: 'Lifetime Exchange' },
-  { icon: Award,       label: 'One Year Warranty' },
+  // { icon: Award,       label: 'One Year Warranty' },
 ];
 
 const PAYMENT_LOGOS = [

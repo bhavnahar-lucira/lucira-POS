@@ -86,8 +86,15 @@ export const customerSchema = z.object({
   // gender: 1=Male, 2=Female, 3=Other (OrnaVerse enum)
   gender: z.number().int().optional().nullable(),
 
-  // marital_status: 1=Single, 2=Married (OrnaVerse enum)
+  // marital_status: 1=Married, 2=Unmarried (OrnaVerse enum — confirmed live
+  // 2026-10-24 against OrnaVerse's own Create Customer form)
   marital_status: z.number().int().optional().nullable(),
+
+  // religion_id: see RELIGION_OPTIONS in constants/customerOptions.js
+  religion_id: z.number().int().optional().nullable(),
+
+  allow_credit: z.boolean().optional(),
+  credit_limit: z.string().optional().or(z.literal('')),
 });
 
 // ── Update Customer ────────────────────────────────────────────────────────────
@@ -156,5 +163,8 @@ export function buildUpdateCustomerSchema(raw) {
     anniversary:    z.string().optional().or(z.literal('')),
     gender:         z.number().int().optional().nullable(),
     marital_status: z.number().int().optional().nullable(),
+    religion_id:    z.number().int().optional().nullable(),
+    allow_credit:   z.boolean().optional(),
+    credit_limit:   z.string().optional().or(z.literal('')),
   });
 }

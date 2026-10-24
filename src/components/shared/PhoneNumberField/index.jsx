@@ -40,6 +40,14 @@ export default function PhoneNumberField({ value, onChange, onBlur, id, placehol
       // "+81 496 39 991", Japan). This app is India-only, so the calling
       // code should never be user-editable in the first place.
       countryCallingCodeEditable={false}
+      // Restricting the selectable list to just India closes the other half
+      // of that same gap — countryCallingCodeEditable only blocks editing the
+      // "+91" text, it doesn't stop the country <select/> itself from being
+      // reopened and switched, which can wipe already-typed digits when the
+      // library re-derives the value for the newly picked country (reported
+      // 2026-10-24). With only one country in the list there's nothing to
+      // switch to.
+      countries={['IN']}
       inputComponent={Input}
       placeholder={placeholder}
       disabled={disabled}

@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, Phone, Mail, MapPin, CreditCard,
   ClipboardList, BookOpen,
   ShoppingCart, FileText, RotateCcw, ArrowLeftRight, Coins, Gem, Receipt, Star, Info, Heart, History,
+  ExternalLink, Orbit,
 } from 'lucide-react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -22,6 +23,11 @@ import { QUERY_KEYS } from '@/constants/queryKeys';
 import { Button }   from '@/components/ui/button';
 import { Input }    from '@/components/ui/input';
 import { Label }    from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { GENDER_OPTIONS, MARITAL_STATUS_OPTIONS, RELIGION_OPTIONS } from '@/constants/customerOptions';
 import LocationSelect from '@/components/shared/LocationSelect';
 import PanDocumentUpload from '@/components/shared/PanDocumentUpload';
 import PillTabs from '@/components/shared/PillTabs';
@@ -31,18 +37,26 @@ import InlineLoader from '@/components/shared/InlineLoader';
 
 import { buildUpdateCustomerSchema } from '@/validators/customerSchema';
 import { storedValueToPhone, isMaskedValue } from '@/lib/normalizers/customer';
+import { useCustomerSession }     from '@/hooks/customer/useCustomerSession';
 import { useRetrieveCustomer }    from '@/hooks/customer/useRetrieveCustomer';
 import { useUpdateCustomer }      from '@/hooks/customer/useUpdateCustomer';
 import { useCustomerEnrollments } from '@/hooks/customer/useCustomerEnrollments';
 import { useCustomer360 }         from '@/hooks/customer/useCustomer360';
 import { useCustomerWishlist }    from '@/hooks/customer/useCustomerWishlist';
 import { useCustomerRecentlyViewed } from '@/hooks/customer/useCustomerRecentlyViewed';
+import { useWebsiteActivity }     from '@/hooks/customer/useWebsiteActivity';
+import { useAllCatalog }          from '@/hooks/catalog/useAllCatalog';
+import { buildSkuIndex, matchBySku } from '@/lib/catalog/matchCatalogBySku';
+import { useMasterItemsByCode } from '@/hooks/catalog/useMasterItemsByCode';
 import { useLiveCatalogPrices }   from '@/hooks/catalog/useLiveCatalogPrices';
 import { useCrossStoreStockCodes } from '@/hooks/catalog/useCrossStoreStockCodes';
 import { useCountries, useStates, useCities } from '@/hooks/settings/useLocation';
 import ProductCard from '@/components/features/catalog/ProductCard';
+import { Badge } from '@/components/ui/badge';
+import Logo from '@/components/shared/Logo';
 import { formatAmountOrDash } from '@/lib/priceUtils';
-import { formatDateNumeric } from '@/lib/dateUtils';
+import { formatDateNumeric, todayDateString } from '@/lib/dateUtils';
+import Link from 'next/link';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt = formatAmountOrDash;
@@ -92,10 +106,13 @@ function TabEmpty({ icon, label }) {
 
 // ── Profile Tab ───────────────────────────────────────────────────────────────
 function ProfileTab({ customer }) {
-  const { customerName, customerMobile, customerEmail, customerPan, taxNo, customerAddress, raw } = customer;
+  const { customerId, customerName, customerMobile, customerEmail, customerPan, taxNo, customerAddress, raw } = customer;
   const partyCode  = raw?.party_code && raw.party_code !== 'NA' ? raw.party_code : null;
   const birthDate  = raw?.birth_date  ? fmtDate(raw.birth_date)  : null;
   const anniversary= raw?.anniversary ? fmtDate(raw.anniversary) : null;
+
+  const oneviewMobile = customerMobile?.replace(/\D/g, '').slice(-10) || null;
+  const oneviewBaseUrl = process.env.NEXT_PUBLIC_ONEVIEW_BASE_URL;
 
   return (
     <div className="flex flex-col gap-3 text-sm">
@@ -141,11 +158,38 @@ function ProfileTab({ customer }) {
       {anniversary && (
         <p className="text-xs text-muted-foreground">Anniversary: {anniversary}</p>
       )}
+      {customerId != null && oneviewMobile && oneviewBaseUrl && (
+        <Button type="button" variant="secondary" size="sm" className="self-start gap-1.5" onClick={async () => {
+          const win = window.open('', '_blank');
+          try {
+            const res =  await fetch('/api/oneview/token', {
+              method: 'POST',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({ partyId: customerId, mobile: oneviewMobile }),
+            });
+            if(!res.ok) throw new Error(`Token request failed: ${res.status}`);
+            const { token } = await res.json();
+            if(win) win.location = `${oneviewBaseUrl}/${customerId}?token=${token}`
+          } catch (err) {
+            console.error('[Oneview] failed to open', err);
+            win?.close();
+          }
+        }}>
+          <Orbit size={14} aria-hidden="true" />
+          Oneview
+        </Button>
+      )}
     </div>
   );
 }
 
 // ── Edit Tab ──────────────────────────────────────────────────────────────────
+// OrnaVerse returns birth_date/anniversary as a full ISO datetime
+// ("2026-12-05T00:00:00.000") — <input type="date"> needs just the date part.
+function toDateInputValue(iso) {
+  return iso ? String(iso).slice(0, 10) : '';
+}
+
 function EditTab({ customer, onSaved }) {
   const updateCustomer = useUpdateCustomer();
   const raw = customer.raw;
@@ -173,10 +217,22 @@ function EditTab({ customer, onSaved }) {
       city_id:     raw?.city_id     ?? null,
       nationality_id: raw?.nationality_id ?? null,
       pin_code:    raw?.pin_code ? String(raw.pin_code) : '',
+      birth_date:  toDateInputValue(raw?.birth_date),
+      anniversary: toDateInputValue(raw?.anniversary),
+      gender:         raw?.gender         || null,
+      marital_status: raw?.marital_status || null,
+      religion_id:    raw?.religion_id    || null,
+      allow_credit:   raw?.allow_credit   ?? false,
+      credit_limit:   raw?.credit_limit ? String(raw.credit_limit) : '',
     },
   });
-  
+
+  const allowCredit = watch('allow_credit');
+
+  const loadedPartyIdRef = useRef(null);
   useEffect(() => {
+    if (!raw || loadedPartyIdRef.current === raw.party_id) return;
+    loadedPartyIdRef.current = raw.party_id;
     reset({
       party_name:  raw?.party_name  ?? '',
       mobile:      storedValueToPhone(raw?.mobile),
@@ -194,6 +250,13 @@ function EditTab({ customer, onSaved }) {
       city_id:     raw?.city_id     ?? null,
       nationality_id: raw?.nationality_id ?? null,
       pin_code:    raw?.pin_code ? String(raw.pin_code) : '',
+      birth_date:  toDateInputValue(raw?.birth_date),
+      anniversary: toDateInputValue(raw?.anniversary),
+      gender:         raw?.gender         || null,
+      marital_status: raw?.marital_status || null,
+      religion_id:    raw?.religion_id    || null,
+      allow_credit:   raw?.allow_credit   ?? false,
+      credit_limit:   raw?.credit_limit ? String(raw.credit_limit) : '',
     });
   }, [raw, reset]);
 
@@ -345,6 +408,64 @@ function EditTab({ customer, onSaved }) {
             placeholder="Select nationality" isLoading={countriesLoading}
           />
         </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ep_birth_date">Birth Date <span className="text-muted-foreground text-xs">(optional)</span></Label>
+          <Input id="ep_birth_date" type="date" max={todayDateString()} {...register('birth_date')} className="h-11" />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ep_anniversary">Anniversary <span className="text-muted-foreground text-xs">(optional)</span></Label>
+          <Input id="ep_anniversary" type="date" max={todayDateString()} {...register('anniversary')} className="h-11" />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Gender <span className="text-muted-foreground text-xs">(optional)</span></Label>
+          <Controller
+            name="gender"
+            control={control}
+            render={({ field }) => (
+              <Select value={field.value != null ? String(field.value) : ''} onValueChange={(v) => field.onChange(Number(v))}>
+                <SelectTrigger className="h-11 w-full"><SelectValue placeholder="Select gender" /></SelectTrigger>
+                <SelectContent>
+                  {GENDER_OPTIONS.map((g) => <SelectItem key={g.value} value={String(g.value)}>{g.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Marital status <span className="text-muted-foreground text-xs">(optional)</span></Label>
+          <Controller
+            name="marital_status"
+            control={control}
+            render={({ field }) => (
+              <Select value={field.value != null ? String(field.value) : ''} onValueChange={(v) => field.onChange(Number(v))}>
+                <SelectTrigger className="h-11 w-full"><SelectValue placeholder="Select marital status" /></SelectTrigger>
+                <SelectContent>
+                  {MARITAL_STATUS_OPTIONS.map((m) => <SelectItem key={m.value} value={String(m.value)}>{m.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Religion <span className="text-muted-foreground text-xs">(optional)</span></Label>
+          <Controller
+            name="religion_id"
+            control={control}
+            render={({ field }) => (
+              <Select value={field.value != null ? String(field.value) : ''} onValueChange={(v) => field.onChange(Number(v))}>
+                <SelectTrigger className="h-11 w-full"><SelectValue placeholder="Select religion" /></SelectTrigger>
+                <SelectContent>
+                  {RELIGION_OPTIONS.map((r) => <SelectItem key={r.value} value={String(r.value)}>{r.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
+          />
+        </div>
       </div>
       <div className="flex flex-col gap-1.5">
         <Label>Address</Label>
@@ -360,6 +481,20 @@ function EditTab({ customer, onSaved }) {
           originalRaw={raw}
           savedPath={customer.customerPanDocument}
         />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <Controller
+            name="allow_credit"
+            control={control}
+            render={({ field }) => <Checkbox checked={field.value} onCheckedChange={field.onChange} />}
+          />
+          <span className="text-sm text-foreground">Allow credit</span>
+        </label>
+        {allowCredit && (
+          <Input id="ep_credit_limit" type="number" inputMode="numeric" placeholder="Credit limit" {...register('credit_limit')} className="h-11" />
+        )}
       </div>
 
       <Button type="submit" disabled={updateCustomer.isPending || !isDirty} className="h-11 mt-1">
@@ -606,16 +741,175 @@ function PointsTab({ customerMobile, customerId }) {
   );
 }
 
+// Same flag shape/position ProductCard's own StockBadge uses (left-0,
+// rounded flag) — one consistent badge system, not a foreign label bolted on.
+function WebsiteFlag({ stacked }) {
+  return (
+    <div className={`absolute left-0 z-10 ${stacked ? 'top-10' : 'top-3'}`}>
+      <Badge className="h-auto rounded-l-none rounded-r-full bg-primary/95 py-0.5 pl-2 pr-2.5 text-[10px] font-semibold text-primary-foreground shadow-sm sm:py-1 sm:pl-2.5 sm:pr-3 sm:text-[11px]">
+        On website
+      </Badge>
+    </div>
+  );
+}
+
+// A website item with no resolvable OrnaVerse item_id — matches ProductCard's
+// own layout/typography exactly (same rounded-2xl card, image aspect, price
+// and title treatment) so the grid reads as one consistent system, but isn't
+// a button: there's nowhere real for it to navigate to.
+function WebsiteItemCard({ title, image, price, comparePrice, meta }) {
+  return (
+    <div className="flex h-full w-full flex-col overflow-hidden rounded-2xl border bg-card text-left shadow-sm">
+      <div className="relative aspect-square w-full overflow-hidden bg-muted">
+        {image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={image} alt={title ?? ''} className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 bg-muted">
+            <Logo variant="icon" color="brown" width={32} height={32} className="opacity-40" />
+            <span className="text-[10px] text-muted-foreground/60 tracking-wide">No image</span>
+          </div>
+        )}
+        <WebsiteFlag stacked={false} />
+      </div>
+      <div className="flex flex-1 flex-col gap-1.5 border-t border-border p-2.5 sm:p-3.5">
+        <span className="min-h-4 text-xs sm:block hidden text-muted-foreground">{meta ?? ' '}</span>
+        {price != null ? (
+          <p className="flex flex-wrap items-baseline gap-x-1.5 font-sans text-sm font-bold text-foreground sm:text-base md:text-lg">
+            {fmt(price)}
+            {comparePrice != null && comparePrice > price && (
+              <span className="text-[11px] font-medium text-muted-foreground line-through sm:text-xs">{fmt(comparePrice)}</span>
+            )}
+          </p>
+        ) : (
+          <p className="font-sans text-xs font-medium text-muted-foreground sm:text-sm">Price unavailable</p>
+        )}
+        <p className="line-clamp-3 min-h-10 text-xs sm:text-sm font-semibold leading-snug text-foreground">
+          {title ?? 'Untitled product'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function websiteWishlistToCard(item, idx) {
+  return {
+    key: `web-wishlist-${item.variantId ?? item.productId ?? idx}`,
+    title: item.title,
+    image: item.image,
+    price: item.price ?? null,
+    comparePrice: item.comparePrice ?? null,
+    meta: [item.color, item.size].filter(Boolean).join(' · ') || null,
+  };
+}
+
+function websiteCartToCard(item, idx) {
+  return {
+    key: `web-cart-${item.sku ?? item.variantId ?? idx}`,
+    title: item.title,
+    image: item.image,
+    price: item.finalPrice ?? item.price ?? null,
+    comparePrice: item.comparePrice ?? null,
+    meta: [item.color, item.size].filter(Boolean).join(' · ') || null,
+  };
+}
+
+// Only ~18% of website wishlist items and ~96% of website cart items carry a
+// sku — the rest only have Shopify product/variant IDs, which don't resolve
+// to a real OrnaVerse item_id without a much bigger per-style crawl. So a
+// website item is only ever clickable/add-to-cart-able when its sku matches
+// a real catalog row; everything else stays a plain read-only reference card.
+function partitionWebsiteItems(webItems, resolve) {
+  const matched = [];
+  const unmatched = [];
+  for (const item of webItems) {
+    const row = resolve(item);
+    if (row) matched.push(row);
+    else unmatched.push(item);
+  }
+  return { matched, unmatched };
+}
+
+function WebsiteProductCard({ catalogRow, price, isPricing, realStock }) {
+  const showStockBadge = realStock != null;
+  return (
+    <div className="relative">
+      <WebsiteFlag stacked={showStockBadge} />
+      <ProductCard
+        product={{ ...catalogRow, price, is_pricing: isPricing }}
+        showStockBadge={showStockBadge}
+        realStock={realStock}
+      />
+    </div>
+  );
+}
+
 // ── Wishlist Tab ──────────────────────────────────────────────────────────────
-function WishlistTab({ customerId, customerMobile }) {
+function WishlistTab({ customerId, customerMobile, customerEmail }) {
+  const activeStoreId = useSelector(selectActiveStoreId);
   const { items, isLoading, isError } = useCustomerWishlist(customerId, customerMobile);
-  const { priceById, settledIds } = useLiveCatalogPrices(items);
-  const itemIds = useMemo(() => items.map((i) => i.item_id), [items]);
+  const { wishlist: webWishlist, cart: webCart, abandonedCart: webAbandonedCart } = useWebsiteActivity(customerId, customerMobile, customerEmail);
+  const { data: catalog = [] } = useAllCatalog(activeStoreId);
+  const skuIndex = useMemo(() => buildSkuIndex(catalog), [catalog]);
+
+  const { matched: matchedWishlist, unmatched: unmatchedWishlist } = useMemo(
+    () => partitionWebsiteItems(webWishlist, (item) => matchBySku(item.sku, skuIndex)), [webWishlist, skuIndex],
+  );
+  const { matched: matchedCart, unmatched: unmatchedCart } = useMemo(
+    () => partitionWebsiteItems(webCart, (item) => matchBySku(item.sku, skuIndex)), [webCart, skuIndex],
+  );
+  const { matched: matchedAbandoned, unmatched: unmatchedAbandoned } = useMemo(
+    () => partitionWebsiteItems(webAbandonedCart, (item) => matchBySku(item.sku, skuIndex)), [webAbandonedCart, skuIndex],
+  );
+
+  // Second tier — a sku that's real but just isn't assigned/stocked at THIS
+  // store never shows up in the fast in-stock catalog cache above, even
+  // though the item genuinely exists in OrnaVerse. A small, targeted master-
+  // item lookup (not a full-catalog crawl) catches those.
+  const unmatchedSkus = useMemo(
+    () => [...unmatchedWishlist, ...unmatchedCart, ...unmatchedAbandoned].map((item) => item.sku).filter((sku) => sku?.trim()),
+    [unmatchedWishlist, unmatchedCart, unmatchedAbandoned],
+  );
+  const masterItemBySku = useMasterItemsByCode(unmatchedSkus);
+  const resolveViaMaster = (item) => masterItemBySku.get(item.sku) ?? null;
+  const { matched: matchedWishlistMaster, unmatched: unmatchedWishlistFinal } = useMemo(
+    () => partitionWebsiteItems(unmatchedWishlist, resolveViaMaster), [unmatchedWishlist, masterItemBySku],
+  );
+  const { matched: matchedCartMaster, unmatched: unmatchedCartFinal } = useMemo(
+    () => partitionWebsiteItems(unmatchedCart, resolveViaMaster), [unmatchedCart, masterItemBySku],
+  );
+  const { matched: matchedAbandonedMaster, unmatched: unmatchedAbandonedFinal } = useMemo(
+    () => partitionWebsiteItems(unmatchedAbandoned, resolveViaMaster), [unmatchedAbandoned, masterItemBySku],
+  );
+
+  // A duplicate website entry (same product wishlisted twice, also sitting in
+  // the cart, or also abandoned) resolves to the same catalog row more than
+  // once — render it as a single card, not a repeat.
+  const matchedWeb = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    for (const row of [
+      ...matchedWishlist, ...matchedCart, ...matchedAbandoned,
+      ...matchedWishlistMaster, ...matchedCartMaster, ...matchedAbandonedMaster,
+    ]) {
+      const key = `${row.item_id}-${row.item_size_id ?? 'base'}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(row);
+    }
+    return out;
+  }, [matchedWishlist, matchedCart, matchedAbandoned, matchedWishlistMaster, matchedCartMaster, matchedAbandonedMaster]);
+
+  const allPricedItems = useMemo(() => [...items, ...matchedWeb], [items, matchedWeb]);
+  const { priceById, settledIds } = useLiveCatalogPrices(allPricedItems);
+  const itemIds = useMemo(() => allPricedItems.map((i) => i.item_id), [allPricedItems]);
   const { stockByItemId, isLoading: stockLoading } = useCrossStoreStockCodes(itemIds);
 
   if (isLoading) return <TabLoading label="Loading wishlist…" />;
   if (isError)   return <TabError label="Failed to load wishlist." />;
-  if (items.length === 0) return <TabEmpty icon={Heart} label="No wishlisted products yet." />;
+  if (items.length === 0 && webWishlist.length === 0 && webCart.length === 0 && webAbandonedCart.length === 0) {
+    return <TabEmpty icon={Heart} label="No wishlisted products yet." />;
+  }
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
@@ -630,21 +924,49 @@ function WishlistTab({ customerId, customerMobile }) {
             realStock={stockByItemId.get(item.item_id) ?? null}
           />
         );
+      })}
+      {matchedWeb.map((row) => {
+        const price = priceById.get(row.item_id) ?? null;
+        const isPricing = price == null && !settledIds.has(row.item_id);
+        return (
+          <WebsiteProductCard
+            key={`web-matched-${row.item_id}-${row.item_size_id ?? 'base'}`}
+            catalogRow={row}
+            price={price}
+            isPricing={isPricing}
+            realStock={stockLoading ? null : stockByItemId.get(row.item_id) ?? null}
+          />
+        );
+      })}
+      {unmatchedWishlistFinal.map((item, idx) => {
+        const { key, ...card } = websiteWishlistToCard(item, idx);
+        return <WebsiteItemCard key={key} {...card} />;
+      })}
+      {unmatchedCartFinal.map((item, idx) => {
+        const { key, ...card } = websiteCartToCard(item, idx);
+        return <WebsiteItemCard key={key} {...card} meta={`In cart on website${card.meta ? ` · ${card.meta}` : ''}`} />;
+      })}
+      {unmatchedAbandonedFinal.map((item, idx) => {
+        const { key, ...card } = websiteCartToCard(item, idx);
+        return <WebsiteItemCard key={`abandoned-${key}`} {...card} meta={`Abandoned cart on website${card.meta ? ` · ${card.meta}` : ''}`} />;
       })}
     </div>
   );
 }
 
 // ── Recently Viewed Tab ───────────────────────────────────────────────────────
-function RecentlyViewedTab({ customerId, customerMobile }) {
+function RecentlyViewedTab({ customerId, customerMobile, customerEmail }) {
   const { items, isLoading, isError } = useCustomerRecentlyViewed(customerId, customerMobile);
   const { priceById, settledIds } = useLiveCatalogPrices(items);
   const itemIds = useMemo(() => items.map((i) => i.item_id), [items]);
   const { stockByItemId, isLoading: stockLoading } = useCrossStoreStockCodes(itemIds);
+  const { recentlyViewed: webViewed } = useWebsiteActivity(customerId, customerMobile, customerEmail);
 
   if (isLoading) return <TabLoading label="Loading recently viewed…" />;
   if (isError)   return <TabError label="Failed to load recently viewed products." />;
-  if (items.length === 0) return <TabEmpty icon={History} label="No recently viewed products yet." />;
+  if (items.length === 0 && webViewed.length === 0) {
+    return <TabEmpty icon={History} label="No recently viewed products yet." />;
+  }
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
@@ -660,6 +982,15 @@ function RecentlyViewedTab({ customerId, customerMobile }) {
           />
         );
       })}
+      {webViewed.map((view, idx) => (
+        <WebsiteItemCard
+          key={`web-viewed-${view.variantId ?? idx}`}
+          title={view.title}
+          image={null}
+          price={null}
+          meta={view.timestamp ? `Viewed on website · ${fmtDate(view.timestamp)}` : 'Viewed on website'}
+        />
+      ))}
     </div>
   );
 }
@@ -691,6 +1022,16 @@ export default function CustomerDetailPage() {
   const { customer, isLoading, isError, refetch } = useRetrieveCustomer(partyId, {
     enabled: !!partyId,
   });
+
+  const { customerId: attachedCustomerId } = useCustomerSession();
+  const wasAttachedRef = useRef(false);
+  useEffect(() => {
+    if (attachedCustomerId === partyId) {
+      wasAttachedRef.current = true;
+    } else if (wasAttachedRef.current) {
+      router.replace('/dashboard');
+    }
+  }, [attachedCustomerId, partyId, router]);
 
   const handleSaved = () => {
     refetch();
@@ -754,8 +1095,8 @@ export default function CustomerDetailPage() {
             {activeTab === 'schemes' && <SchemesTab customerId={customer.customerId} />}
             {activeTab === 'points'  && <PointsTab customerMobile={customer.customerMobile} customerId={customer.customerId} />}
             {activeTab === '360'     && isSuperAdmin && <Customer360Tab customerId={customer.customerId} />}
-            {activeTab === 'wishlist' && <WishlistTab customerId={customer.customerId} customerMobile={customer.customerMobile} />}
-            {activeTab === 'RecentlyViewed' && <RecentlyViewedTab customerId={customer.customerId} customerMobile={customer.customerMobile} />}
+            {activeTab === 'wishlist' && <WishlistTab customerId={customer.customerId} customerMobile={customer.customerMobile} customerEmail={customer.customerEmail} />}
+            {activeTab === 'RecentlyViewed' && <RecentlyViewedTab customerId={customer.customerId} customerMobile={customer.customerMobile} customerEmail={customer.customerEmail} />}
           </div>
 
         </div>

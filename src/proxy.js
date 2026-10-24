@@ -45,7 +45,9 @@ export function proxy(request) {
     const hasSession = request.cookies.has(`${SESSION_COOKIE_PREFIX}0`);
     if (!hasSession) {
       const url = new URL('/login', request.url);
-      url.searchParams.set('next', pathname);
+      if (!pathname.startsWith('/customers')) {
+        url.searchParams.set('next', pathname);
+      }
       return NextResponse.redirect(url);
     }
   }

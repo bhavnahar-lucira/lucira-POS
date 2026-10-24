@@ -211,6 +211,9 @@ export function buildCustomerCreatePayload(formValues) {
     anniversary:     formValues.anniversary    || undefined,
     gender:          formValues.gender         ?? undefined,
     marital_status:  formValues.marital_status ?? undefined,
+    religion_id:     formValues.religion_id    ?? undefined,
+    allow_credit:    formValues.allow_credit   || undefined,
+    credit_limit:    formValues.allow_credit && formValues.credit_limit ? Number(formValues.credit_limit) : undefined,
     company_id:      formValues.company_id,
   };
 }
@@ -237,6 +240,7 @@ export function buildCustomerUpdatePayload(originalRaw, formChanges) {
     gender:         merged.gender         === 0 ? undefined : merged.gender,
     marital_status: merged.marital_status === 0 ? undefined : merged.marital_status,
     religion_id:    merged.religion_id    === 0 ? undefined : merged.religion_id,
+    credit_limit:   merged.allow_credit && merged.credit_limit ? Number(merged.credit_limit) : undefined,
   };
 }
 

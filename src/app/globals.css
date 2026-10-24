@@ -374,6 +374,40 @@
       scroll-behavior: auto !important;
     }
   }
+
+  /* Compact custom scrollbar, everywhere — replaces the chunky OS default
+     on the page body, sidebar, and every scrollable card/sheet/dropdown.
+     Reads from the same design tokens as the rest of the UI, so it adapts
+     to .dark automatically with no separate override needed. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 9999px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
+
+  /* Hides the scrollbar entirely while staying scrollable — already relied
+     on by PillTabs' horizontal tab row, never actually defined until now
+     (a silent no-op class before this). */
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* Radix Select's hidden native <select> (rendered for real <form> submission

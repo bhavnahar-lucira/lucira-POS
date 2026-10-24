@@ -7,7 +7,29 @@ import {
 } from '@/lib/ornaverse/session';
 import { UPSTREAM } from '@/lib/ornaverse/upstream';
 import { checkRateLimit, getClientIp } from '@/lib/security/rateLimit';
+import { getUserStores } from '@/lib/ornaverse/authorizedStores';
+import { recordLogin, recordLoginFailed, endSession, END_REASONS } from '@/lib/mongo/posSessions';
 import APP_CONFIG from '@/constants/appConfig';
+import { randomUUID } from 'crypto';
+import { after } from 'next/server';
+
+const IDLE_TIMEOUT_MS = APP_CONFIG.SESSION.STAFF_IDLE_TIMEOUT_MS;
+
+// Session tracking (lib/mongo/posSessions.js) runs after the response is
+// sent and swallows its own failures — it must never block or break auth.
+function trackInBackground(label, work) {
+  after(() => work().catch((err) => console.error(`[posSessions] ${label}`, err?.message ?? err)));
+}
+
+// An idle-expired session really ended IDLE_TIMEOUT_MS after its last
+// activity, not whenever we happened to notice — record that time.
+function trackIdleExpiry(session) {
+  if (!session?.sid) return;
+  trackInBackground('idle expiry', () => endSession(session.sid, {
+    reason: 'idle_timeout',
+    endedAt: session.lastActivityAt + IDLE_TIMEOUT_MS,
+  }));
+}
 
 // Lets the client reconcile its own (persisted, can go stale — e.g. idle
 // timeout, cookie cleared, a cross-tab logout) `isAuthenticated` cache
@@ -16,7 +38,9 @@ import APP_CONFIG from '@/constants/appConfig';
 // outlive the real session — see RehydrationGuard, the only caller.
 export async function GET(request) {
   const session = await getSessionFromRequest(request);
-  if (!session || isSessionIdleExpired(session, APP_CONFIG.SESSION.STAFF_IDLE_TIMEOUT_MS)) {
+  if (!session) return Response.json({ ok: false }, { status: 401 });
+  if (isSessionIdleExpired(session, IDLE_TIMEOUT_MS)) {
+    trackIdleExpiry(session);
     return Response.json({ ok: false }, { status: 401 });
   }
   return Response.json({ ok: true, username: session.username, isSuperAdmin: !!session.isSuperAdmin });
@@ -33,11 +57,13 @@ export async function POST(request) {
   const { username, password } = payload ?? {};
 
   const ip = getClientIp(request);
+  const userAgent = request.headers.get('user-agent');
   const normalizedUsername = String(username ?? '').trim().toLowerCase();
   const perAccount = checkRateLimit(`login:${ip}:${normalizedUsername}`, { limit: 5, windowMs: 5 * 60 * 1000 });
   const perIp = checkRateLimit(`login-ip:${ip}`, { limit: 20, windowMs: 5 * 60 * 1000 });
 
   if (!perAccount.allowed || !perIp.allowed) {
+    trackInBackground('rate-limited login', () => recordLoginFailed({ username: normalizedUsername, code: 'too_many_attempts', ip, userAgent }));
     const retryAfterSeconds = Math.max(perAccount.retryAfterSeconds, perIp.retryAfterSeconds);
     return Response.json(
       { error: 'too_many_attempts', error_description: 'Too many login attempts. Please try again later.' },
@@ -46,7 +72,17 @@ export async function POST(request) {
   }
 
   try {
-    const session = await createOrnaverseSession({ username, password });
+    const loginAt = Date.now();
+    const session = { ...(await createOrnaverseSession({ username, password })), sid: randomUUID(), loginAt };
+    trackInBackground('login', async () => {
+      // Which store this login belongs to, per OrnaVerse itself. A lookup
+      // failure still records the login, just without the store.
+      const stores = await getUserStores(session).catch(() => null);
+      await recordLogin({
+        sid: session.sid, username: session.username, isSuperAdmin: session.isSuperAdmin,
+        loginAt, idleTimeoutMs: IDLE_TIMEOUT_MS, ip, userAgent, stores,
+      });
+    });
     const response = Response.json({ ok: true, username: session.username, isSuperAdmin: session.isSuperAdmin });
     for (const header of buildSessionCookieHeaders(session)) {
       response.headers.append('Set-Cookie', header);
@@ -54,6 +90,7 @@ export async function POST(request) {
     return response;
   } catch (err) {
     console.error('[auth/session]', err?.code ?? 'ERROR', err?.message);
+    trackInBackground('failed login', () => recordLoginFailed({ username: normalizedUsername, code: err?.code ?? 'LOGIN_FAILED', ip, userAgent }));
     const status = err?.code === 'BAD_REQUEST' ? 400 : 401;
     return Response.json({ ok: false, code: err?.code ?? 'LOGIN_FAILED' }, { status });
   }
@@ -72,6 +109,13 @@ export async function POST(request) {
 // has to clear our cookies and sign the operator out locally.
 export async function DELETE(request) {
   const session = await getSessionFromRequest(request);
+  if (session?.sid) {
+    // Label only (manual vs the client's own idle timer) — validated, and
+    // endSession never overwrites a session the server already closed.
+    const requested = new URL(request.url).searchParams.get('reason');
+    const reason = END_REASONS.includes(requested) ? requested : 'manual';
+    trackInBackground('logout', () => endSession(session.sid, { reason, endedAt: Date.now() }));
+  }
   if (session?.cookie) {
     try {
       await fetch(`${UPSTREAM}/Account/Signout`, {

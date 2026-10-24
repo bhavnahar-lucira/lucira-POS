@@ -1,5 +1,6 @@
 import { getSessionFromRequest } from '@/lib/ornaverse/session';
 import { syncStorePurchases } from '@/lib/ornaverse/buyerSync';
+import { getAuthorizedCompanyIds } from '@/lib/ornaverse/authorizedStores';
 
 // On-demand store-level historical sync — called from the /buyers LIST page
 // right after it loads. The list can only ever show customers that already
@@ -21,6 +22,18 @@ export async function POST(request, { params }) {
   const id = Number(companyId);
   if (!Number.isInteger(id) || id <= 0) {
     return Response.json({ error: 'Invalid companyId' }, { status: 400 });
+  }
+
+  if (!session.isSuperAdmin) {
+    try {
+      const authorized = await getAuthorizedCompanyIds(session);
+      if (!authorized.has(id)) {
+        return Response.json({ error: 'Not authorized for this store' }, { status: 403 });
+      }
+    } catch (err) {
+      console.error('[api/buyers/sync-store] store authorization check failed', err);
+      return Response.json({ error: 'Could not verify store access' }, { status: 502 });
+    }
   }
 
   try {

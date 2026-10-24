@@ -94,7 +94,7 @@
 //   made when it only covered printing.
 
 import crypto from 'crypto';
-import { UPSTREAM } from '@/lib/ornaverse/upstream';
+import { UPSTREAM, ACTIVE_ENV } from '@/lib/ornaverse/upstream';
 
 /** Prefix for the httpOnly cookie(s) carrying the real OrnaVerse session
  *  jar on OUR origin — one cookie per chunk, see CHUNKING above. */
@@ -306,6 +306,10 @@ export async function createOrnaverseSession({ username, password }) {
     username,
     isSuperAdmin: await checkIsSuperAdmin({ cookie: finalCookie, csrf: finalCsrf }, username),
     lastActivityAt: Date.now(),
+    // Stamped so a session minted against one environment (UAT/LIVE) is
+    // never silently reused against the other after ACTIVE_ENV changes —
+    // see the matching check in getSessionFromRequest.
+    env: ACTIVE_ENV,
   };
 }
 
@@ -435,11 +439,22 @@ export async function getSessionFromRequest(request) {
     return null;
   }
 
+  let session;
   try {
-    return JSON.parse(envelope.p);
+    session = JSON.parse(envelope.p);
   } catch {
     return null;
   }
+
+  // Reported live (2026-10-24): switching ACTIVE_ENV (UAT <-> LIVE) left a
+  // session minted against the old one still signed-valid, so the app kept
+  // "logged in" while every real OrnaVerse call used a cookie that upstream
+  // no longer recognizes — confusing failures instead of a clean relogin.
+  // A session with no `env` at all predates this fix; treat it the same as
+  // a mismatch rather than assume which environment it was issued for.
+  if (session.env !== ACTIVE_ENV) return null;
+
+  return session;
 }
 
 /**

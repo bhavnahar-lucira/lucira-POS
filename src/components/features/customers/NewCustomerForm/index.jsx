@@ -16,17 +16,8 @@ import { storedValueToPhone } from '@/lib/normalizers/customer';
 import { useCreateCustomer } from '@/hooks/customer/useCreateCustomer';
 import { useCountries, useStates, useCities } from '@/hooks/settings/useLocation';
 import { todayDateString } from '@/lib/dateUtils';
-
-const GENDER_OPTIONS = [
-  { value: 1, label: 'Male' },
-  { value: 2, label: 'Female' },
-  { value: 3, label: 'Other' },
-];
-
-const MARITAL_STATUS_OPTIONS = [
-  { value: 1, label: 'Single' },
-  { value: 2, label: 'Married' },
-];
+import { Checkbox } from '@/components/ui/checkbox';
+import { GENDER_OPTIONS, MARITAL_STATUS_OPTIONS, RELIGION_OPTIONS } from '@/constants/customerOptions';
 
 export default function NewCustomerForm({ defaultMobile = '', defaultName = '', onCreated }) {
   const {
@@ -59,8 +50,13 @@ export default function NewCustomerForm({ defaultMobile = '', defaultName = '', 
       anniversary:    '',
       gender:         null,
       marital_status: null,
+      religion_id:    null,
+      allow_credit:   false,
+      credit_limit:   '',
     },
   });
+
+  const allowCredit = watch('allow_credit');
 
   const countryId = watch('country_id');
   const stateId   = watch('state_id');
@@ -328,6 +324,33 @@ export default function NewCustomerForm({ defaultMobile = '', defaultName = '', 
 
       <div className="flex flex-col gap-1.5">
         <Label>
+          Religion <span className="text-muted-foreground text-xs">(optional)</span>
+        </Label>
+        <Controller
+          name="religion_id"
+          control={control}
+          render={({ field }) => (
+            <Select
+              value={field.value != null ? String(field.value) : ''}
+              onValueChange={(value) => field.onChange(Number(value))}
+            >
+              <SelectTrigger className="h-11 w-full">
+                <SelectValue placeholder="Select religion" />
+              </SelectTrigger>
+              <SelectContent>
+                {RELIGION_OPTIONS.map((r) => (
+                  <SelectItem key={r.value} value={String(r.value)}>
+                    {r.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label>
           Address <span className="text-muted-foreground text-xs">(optional)</span>
         </Label>
         <Input
@@ -418,6 +441,29 @@ export default function NewCustomerForm({ defaultMobile = '', defaultName = '', 
           placeholder="Select nationality"
           isLoading={countriesLoading}
         />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <Controller
+            name="allow_credit"
+            control={control}
+            render={({ field }) => (
+              <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+            )}
+          />
+          <span className="text-sm text-foreground">Allow credit</span>
+        </label>
+        {allowCredit && (
+          <Input
+            id="credit_limit"
+            type="number"
+            inputMode="numeric"
+            placeholder="Credit limit"
+            {...register('credit_limit')}
+            className="h-11"
+          />
+        )}
       </div>
 
       <Button type="submit" disabled={createCustomer.isPending} className="h-11 mt-1">

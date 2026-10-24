@@ -33,9 +33,12 @@ export async function login(username, password) {
   return { username: data.username ?? username, isSuperAdmin: !!data.isSuperAdmin };
 }
 
-/** Tears down the operator's OrnaVerse session. Best-effort, never throws. */
-export async function logout() {
+/**
+ * Tears down the operator's OrnaVerse session. Best-effort, never throws.
+ * @param {'manual'|'idle_timeout'} [reason] — recorded in the admin's session log
+ */
+export async function logout(reason = 'manual') {
   try {
-    await fetch('/api/auth/session', { method: 'DELETE' });
+    await fetch(`/api/auth/session?reason=${encodeURIComponent(reason)}`, { method: 'DELETE' });
   } catch { /* signing out locally matters more than the server-side sweep */ }
 }

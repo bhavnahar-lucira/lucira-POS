@@ -26,16 +26,7 @@ import { useCategories } from '@/hooks/catalog/useCategoryFilters';
 import { useCountries, useStates, useCities } from '@/hooks/settings/useLocation';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import { todayDateString } from '@/lib/dateUtils';
-
-const GENDER_OPTIONS = [
-  { value: 1, label: 'Male' },
-  { value: 2, label: 'Female' },
-  { value: 3, label: 'Other' },
-];
-const MARITAL_STATUS_OPTIONS = [
-  { value: 1, label: 'Single' },
-  { value: 2, label: 'Married' },
-];
+import { GENDER_OPTIONS, MARITAL_STATUS_OPTIONS } from '@/constants/customerOptions';
 
 export default function WalkInRegisterForm({ defaultMobile = '', onRegistered }) {
   const {

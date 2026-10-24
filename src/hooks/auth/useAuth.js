@@ -120,8 +120,10 @@ export function useAuth() {
     }
   }, [dispatch, router, switchStore]);
 
-  const logout = useCallback(() => {
-    logoutFromOrnaverse();
+  // Buttons wire this straight to onClick, so `reason` may be a click event —
+  // only the exact idle-timer string counts, anything else is a manual logout.
+  const logout = useCallback((reason) => {
+    logoutFromOrnaverse(reason === 'idle_timeout' ? 'idle_timeout' : 'manual');
 
     if (tracker.isSessionActive()) {
       tracker.endSession('agent_logout');

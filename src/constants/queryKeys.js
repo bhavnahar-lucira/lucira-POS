@@ -90,6 +90,7 @@ export const QUERY_KEYS = {
     CLAIMABLE_STOCK:       (itemId, companyId) => ['catalog', 'claimable-stock', itemId, companyId],
     PRICE:                 (itemId, storeId, epoch) => ['catalog', 'price', itemId, storeId, epoch],
     PRICE_EPOCH:           (storeId, canaryIds) => ['catalog', 'price-epoch', storeId, canaryIds],
+    MASTER_ITEM_BY_CODE:   (itemCode) => ['catalog', 'master-item-by-code', itemCode],
   },
 
   INVENTORY: {
@@ -103,6 +104,7 @@ export const QUERY_KEYS = {
     SEARCH:   (companyId, containsText) => ['customers', 'search', companyId, containsText],
     WISHLIST: (partyId) => ['customers', 'wishlist', partyId],
     RECENTLY_VIEWED: (partyId) => ['customers', 'recently-viewed', partyId],
+    WEBSITE_ACTIVITY: (partyId) => ['customers', 'website-activity', partyId],
   },
   
   WALKINS: {

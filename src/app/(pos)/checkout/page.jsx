@@ -205,7 +205,8 @@ function CheckoutScreen() {
 
   // ── Checkout form ──────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col gap-6 max-w-6xl mx-auto w-full pb-32 p-4 md:p-6">
+    <>
+    <div className="flex flex-col gap-6 max-w-6xl mx-auto w-full p-4 md:p-6">
       <p className="text-sm text-muted-foreground -mb-2">Review your order and complete the payment</p>
 
       <div className='grid grid-cols-1 items-start gap-5 lg:grid-cols-2'>
@@ -306,53 +307,56 @@ function CheckoutScreen() {
       </div>
       
       <CheckoutTrustStrip />
-      <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-border bg-card p-4 shadow-lg md:px-6">
-        <div className="max-w-6xl mx-auto w-full flex flex-col items-center gap-2">
-          <PlaceOrderButton
-            isValid={isValid}
-            isPlacingOrder={isSubmitting}
-            onPlaceOrder={handlePlaceOrderClick}
-            amountDue={payableTotal}
-            amountCollected={amountCollected}
-            creditApplied={creditApplied}
-            isPricing={isPricing}
-            documentType={documentType}
-          />
-          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <ShieldCheck size={13} className="text-accent" aria-hidden="true" />
-            Secure checkout · Your data is safe with us
-          </p>
-        </div>
-      </div>
-
-      <ConfirmDialog
-        isOpen={isBackConfirmOpen}
-        onOpenChange={setIsBackConfirmOpen}
-        title="Leave checkout?"
-        description="Your cart items will be kept, but any payment selections you've made here will be lost."
-        confirmLabel="Leave"
-        cancelLabel="Stay"
-        confirmVariant="destructive"
-        onConfirm={handleConfirmLeave}
-      />
-      
-      <ConfirmDialog
-        isOpen={isPaymentConfirmOpen}
-        onOpenChange={setIsPaymentConfirmOpen}
-        title="Confirm payment on terminal"
-        description={
-          documentType === 'order'
-            ? `Has the advance of ${formatAmount(amountCollected)} been completed on the payment terminal? Confirming will place the order — declining will not save anything.`
-            : `Has the payment of ${formatAmount(payableTotal)} been completed on the payment terminal? Confirming will generate the invoice — declining will not save anything.`
-        }
-        confirmLabel="Yes, Payment Received"
-        cancelLabel="No, Declined"
-        confirmVariant="default"
-        onConfirm={handlePaymentConfirmed}
-        onCancel={handlePaymentDeclined}
-      />
-
     </div>
+
+    {/* sticky (not fixed) so this bar stays bounded to <main>'s own width —
+        a fixed bar spans the full viewport and overlapped the sidebar. */}
+    <div className="sticky bottom-0 z-20 border-t border-border bg-card p-4 shadow-lg md:px-6">
+      <div className="max-w-6xl mx-auto w-full flex flex-col items-center gap-2">
+        <PlaceOrderButton
+          isValid={isValid}
+          isPlacingOrder={isSubmitting}
+          onPlaceOrder={handlePlaceOrderClick}
+          amountDue={payableTotal}
+          amountCollected={amountCollected}
+          creditApplied={creditApplied}
+          isPricing={isPricing}
+          documentType={documentType}
+        />
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <ShieldCheck size={13} className="text-accent" aria-hidden="true" />
+          Secure checkout · Your data is safe with us
+        </p>
+      </div>
+    </div>
+
+    <ConfirmDialog
+      isOpen={isBackConfirmOpen}
+      onOpenChange={setIsBackConfirmOpen}
+      title="Leave checkout?"
+      description="Your cart items will be kept, but any payment selections you've made here will be lost."
+      confirmLabel="Leave"
+      cancelLabel="Stay"
+      confirmVariant="destructive"
+      onConfirm={handleConfirmLeave}
+    />
+
+    <ConfirmDialog
+      isOpen={isPaymentConfirmOpen}
+      onOpenChange={setIsPaymentConfirmOpen}
+      title="Confirm payment on terminal"
+      description={
+        documentType === 'order'
+          ? `Has the advance of ${formatAmount(amountCollected)} been completed on the payment terminal? Confirming will place the order — declining will not save anything.`
+          : `Has the payment of ${formatAmount(payableTotal)} been completed on the payment terminal? Confirming will generate the invoice — declining will not save anything.`
+      }
+      confirmLabel="Yes, Payment Received"
+      cancelLabel="No, Declined"
+      confirmVariant="default"
+      onConfirm={handlePaymentConfirmed}
+      onCancel={handlePaymentDeclined}
+    />
+    </>
   );
 }
 

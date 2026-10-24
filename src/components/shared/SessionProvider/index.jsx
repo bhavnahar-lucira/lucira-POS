@@ -150,7 +150,7 @@ export default function SessionProvider({ children }) {
         storeId:   activeStoreId,
         storeName: activeStoreName,
       });
-      logout();
+      logout('idle_timeout');
     }, APP_CONFIG.SESSION.STAFF_IDLE_TIMEOUT_MS);
   }, [isAuthenticated, clearStaffIdleTimers, logout, activeStoreId, activeStoreName, authUser]);
 

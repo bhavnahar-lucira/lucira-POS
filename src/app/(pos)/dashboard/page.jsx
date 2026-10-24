@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense } from 'react';
+import { BellRing } from 'lucide-react';
 import { RevenueIcon, OrdersIcon } from '@/components/features/dashboard/KPICard/icons';
 
 import KPICard              from '@/components/features/dashboard/KPICard';
@@ -8,10 +9,14 @@ import RecentOrdersList     from '@/components/features/dashboard/RecentOrdersLi
 import QuickActionGrid      from '@/components/features/dashboard/QuickActions';
 import TodaysActivityStrip  from '@/components/features/dashboard/TodaysActivityStrip';
 import MetalRatesTicker     from '@/components/features/dashboard/MetalRatesTicker';
+import UpcomingEventsCard   from '@/components/features/dashboard/UpcomingEventsCard';
+import SchemeRemindersCard  from '@/components/features/dashboard/SchemeRemindersCard';
 import InlineLoader         from '@/components/shared/InlineLoader';
 import ErrorState           from '@/components/shared/ErrorState';
 
 import { useDashboardSummary } from '@/hooks/dashboard/useDashboardSummary';
+import { useUpcomingEvents }   from '@/hooks/dashboard/useUpcomingEvents';
+import { useSchemeReminders }  from '@/hooks/dashboard/useSchemeReminders';
 
 function DashboardScreen() {
   const {
@@ -30,11 +35,14 @@ function DashboardScreen() {
     activityToday,
   } = useDashboardSummary();
 
+  const { birthdays, anniversaries, isLoading: eventsLoading } = useUpcomingEvents();
+  const { due: schemesDue, maturing: schemesMaturing, isLoading: schemesLoading } = useSchemeReminders();
+
   if (isError && !isLoading) {
     return (
       <>
         <MetalRatesTicker />
-        <div className="max-w-6xl mx-auto w-full px-4 py-4 md:px-6">
+        <div className="max-w-[1600px] mx-auto w-full px-4 py-4 md:px-6">
           <ErrorState
             title="Couldn't load today's activity."
             description="Today's revenue, orders, and activity counts couldn't be fetched. Quick actions below still work normally."
@@ -66,7 +74,7 @@ function DashboardScreen() {
     <>
       <MetalRatesTicker />
 
-      <div className="flex flex-col gap-6 max-w-6xl mx-auto w-full px-4 py-4 md:px-6">
+      <div className="flex flex-col gap-6 max-w-[1600px] mx-auto w-full px-4 py-4 md:px-6">
 
         {/* ── ROW 1: KPI cards ───────────────────────────────────── */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -104,7 +112,21 @@ function DashboardScreen() {
           </div>
         </div>
 
-        {/* ── ROW 3: Today's activity ────────────────────────────── */}
+        {/* ── ROW 3: Reminders ───────────────────────────────────── */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <BellRing size={16} className="text-primary" aria-hidden="true" />
+            <h2 className="font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Today's Reminders
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <UpcomingEventsCard birthdays={birthdays} anniversaries={anniversaries} isLoading={eventsLoading} />
+            <SchemeRemindersCard due={schemesDue} maturing={schemesMaturing} isLoading={schemesLoading} />
+          </div>
+        </div>
+
+        {/* ── ROW 4: Today's activity ────────────────────────────── */}
         <TodaysActivityStrip
           returns={activityToday.returns}
           exchanges={activityToday.exchanges}

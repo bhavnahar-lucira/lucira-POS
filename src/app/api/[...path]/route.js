@@ -5,7 +5,15 @@ import {
 } from '@/lib/ornaverse/session';
 import { getCachedRead, setCachedRead, isCacheableReadPath } from '@/lib/security/proxyReadCache';
 import { checkRateLimit } from '@/lib/security/rateLimit';
+import { touchSession, endSession } from '@/lib/mongo/posSessions';
 import APP_CONFIG from '@/constants/appConfig';
+import { after } from 'next/server';
+
+// Session tracking — after the response, failures swallowed, never in the
+// request's own path (same contract as api/auth/session/route.js).
+function trackInBackground(label, work) {
+  after(() => work().catch((err) => console.error(`[posSessions] ${label}`, err?.message ?? err)));
+}
 
 const PUBLIC_PATH_PREFIXES = ['upload/'];
 
@@ -102,6 +110,13 @@ async function proxy(request, { params }) {
     // device slept, or JS was disabled) — see isSessionIdleExpired's own
     // comment for the full reasoning.
     if (isSessionIdleExpired(session, APP_CONFIG.SESSION.STAFF_IDLE_TIMEOUT_MS)) {
+      if (session.sid) {
+        // It really ended timeout-after-last-activity, not now.
+        trackInBackground('idle expiry', () => endSession(session.sid, {
+          reason: 'idle_timeout',
+          endedAt: session.lastActivityAt + APP_CONFIG.SESSION.STAFF_IDLE_TIMEOUT_MS,
+        }));
+      }
       const res = new Response(
         JSON.stringify({ error: 'session_idle_timeout', error_description: 'Signed out due to inactivity. Sign in again.' }),
         { status: 401, headers: { 'Content-Type': 'application/json' } },
@@ -192,6 +207,8 @@ async function proxy(request, { params }) {
 
   const responseContentType = upstreamRes.headers.get('content-type') ?? 'application/json';
   const touched = session ? touchSessionActivity(session) : null;
+  // Same once-a-minute throttle as the cookie: only when it actually moved.
+  if (touched?.sid) trackInBackground('touch', () => touchSession(touched.sid, touched.lastActivityAt));
   const renewed = session ? renewSessionFromUpstream(touched ?? session, upstreamRes) : null;
   const finalSession = renewed ?? touched;
   const setCookieHeaders = finalSession ? buildSessionCookieHeaders(finalSession) : [];
