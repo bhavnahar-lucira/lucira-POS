@@ -304,30 +304,31 @@ export function useGoldCoinPromoManager() {
     const promoHadEffectThisPass = activeGroup.promotionDetails?.some(
       (row) => row.promotion_code === goldCoinApplied.promoCode
     );
-    // Matched by item_id directly, NOT by a cursor/row-count slice — a
-    // position-based slice assumes "N rows in → N rows out, in cart order"
-    // for the free-gift line, and that assumption is false in TWO confirmed
-    // ways: (1) Invoice bulk-merging — this SKU's own stock (one bag can
-    // hold 65-356 pieces) gets claimed as ONE claim covering MANY pieces
-    // (see claimStockPieces/buildPricedLineItems), so a 12-coin free-gift
-    // line can price down to a SINGLE merged row, not 12; and (2) Order/MTO
-    // promo-trimming — CONFIRMED LIVE 2026-10-22: ApplyPromotions does not
-    // echo back the un-entitled excess of a quantity-discovery probe at all
-    // (sent 25 speculative free-gift candidates, only 2 real free rows came
-    // back — see applyPromotionsToLines' own header for the full capture).
-    // Either way, the row COUNT for this one cart line is unpredictable, but
-    // every row still carries its own item_id — filtering the WHOLE
-    // (already-promoted) lineItems array by that is correct regardless of
-    // how many rows OrnaVerse decided to return. Known limitation, not
-    // solved here: if this exact item is EVER also a separate, genuinely
-    // PAID line in the same cart (not just this promo's free-gift line),
-    // this would count its rows too — accepted given this is a promotional
-    // giveaway item, not something normally bought at full price alongside
-    // its own free version.
+    // OrnaVerse's own warning string ("Free gift covers N pcs. M pcs will be
+    // charged.") is the one AUTHORITATIVE statement of the real entitlement —
+    // read directly via checkoutPricingService's warnings, not re-derived by
+    // guessing from row shapes. That guessing used to live here and broke in
+    // two confirmed, mutually-exclusive ways depending on pricing mode:
+    // Order/MTO prices every candidate row at net_amount 0 regardless of the
+    // true count (so counting "free-looking" rows just counts everything
+    // sent); Invoice mode (a real stock claim) can correctly split free vs
+    // charged PER ROW on its own, so trimming by a row-count derived from the
+    // OTHER mode's behavior silently discarded real, correctly-priced
+    // chargeable rows instead (confirmed live 2026-10-26 — a 25-coin probe
+    // against an in-stock item: 4 rows at net_amount 0, 21 at their real
+    // charged price, and the fix written for Order mode broke this case).
+    // Reading the warning directly works identically across both shapes.
+    // Falls back to counting net_amount<=0.01 rows only when there's no
+    // warning at all — nothing exceeded the entitlement this round, so every
+    // candidate row sent IS the real free count, with nothing to disambiguate.
+    const warningEntry = activeGroup.warnings?.find((w) => w.promoCode === goldCoinApplied.promoCode);
+    const coveredMatch = warningEntry?.message?.match(/covers\s+(\d+)\s*pcs?/i);
     const freeGiftRows = activeGroup.lineItems.filter((r) => r.item_id === GOLD_COIN_FREE_ITEM_ID);
-    const freeCountAtCurrentQty = freeGiftRows
-      .filter((r) => (r.net_amount ?? 0) <= 0.01)
-      .reduce((sum, r) => sum + (r.pieces > 0 ? r.pieces : 1), 0);
+    const freeCountAtCurrentQty = coveredMatch
+      ? Number(coveredMatch[1])
+      : freeGiftRows
+          .filter((r) => (r.net_amount ?? 0) <= 0.01)
+          .reduce((sum, r) => sum + (r.pieces > 0 ? r.pieces : 1), 0);
 
     const settleAtCurrentQty = () => {
       freeGiftDiscoveryRef.current = { key: dedupeKey, phase: 'settled', probedQty: currentQty };

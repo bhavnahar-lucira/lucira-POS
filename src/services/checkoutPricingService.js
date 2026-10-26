@@ -66,17 +66,38 @@ import APP_CONFIG from '@/constants/appConfig';
  *   documentId: number,
  *   exchangeRate?: number,
  * }} params
- * @returns {Promise<{ lineItems: object[], promotionDetails: object[] }>}
+ * @returns {Promise<{ lineItems: object[], promotionDetails: object[], warnings: {promoCode: string, message: string}[] }>}
  */
 export async function applyPromotionsToLines({
   lineItems, appliedPromos, documentId, exchangeRate = 1,
 }) {
-  if (!appliedPromos?.length) return { lineItems, promotionDetails: [] };
+  if (!appliedPromos?.length) return { lineItems, promotionDetails: [], warnings: [] };
 
   let lines = lineItems;
   let promotionDetails = [];
+  const warnings = [];
 
-  for (const promo of appliedPromos) {
+  // A free-gift ("Spend X Get Y Free") promo's own entitlement is computed
+  // by OrnaVerse against whatever `discount_calc_on` component (here, Net
+  // value) the lines it's HANDED already show — not against some fixed,
+  // promo-independent "cart total". Reported directly as critical
+  // (2026-10-26): the gold coin auto-applies before the operator picks any
+  // OTHER promo, so with promos folded in applied-order (as this used to)
+  // its entitlement was always computed against the GROSS value, and never
+  // re-evaluated once other discounts brought the real net value down —
+  // stacking ₹40k of other promos on a ₹1,23,731 bracelet dropped net spend
+  // to ₹82,124 (true entitlement 2 coins) while the coin stayed stuck at 4,
+  // the entitlement its FIRST (gross-value) pass had found. Evaluating every
+  // free-gift promo LAST, after every other discount has already reduced the
+  // lines, means its own ApplyPromotions call always sees the real, final
+  // net value — the same number the operator and the bill both show.
+  const ordered = [...appliedPromos].sort((a, b) => {
+    const aFree = a?.promoDetails?.free_item_id != null ? 1 : 0;
+    const bFree = b?.promoDetails?.free_item_id != null ? 1 : 0;
+    return aFree - bFree;
+  });
+
+  for (const promo of ordered) {
     if (!promo?.promoDetails) continue;
 
     // A component-scoped promotion ("20% Off Diamond") on an item with zero
@@ -108,43 +129,32 @@ export async function applyPromotionsToLines({
       continue;
     }
 
-    let items = response?.data?.items;
+    const items = response?.data?.items;
     const rows  = response?.data?.invoice_promotions ?? [];
 
     // OrnaVerse's own ApplyPromotions schema carries a top-level `warning`
     // string we'd never read otherwise — confirmed live (2026-10-12) it's
     // simply absent (not even null) on an ordinary clean success, so it's
-    // only ever sent when there's something worth flagging (a capped
-    // quantity, a partial match). Logged rather than silently dropped, so a
-    // future occurrence is at least visible instead of invisible.
+    // only ever sent when there's something worth flagging. For a free-gift
+    // promo (promotion_type 6) it's the ONLY authoritative statement of the
+    // real entitlement ("Free gift covers N pcs. M pcs will be charged.") —
+    // confirmed live 2026-10-25/26 that the per-ROW shape of the response is
+    // NOT a reliable way to derive this: Order/MTO mode returns every
+    // candidate row at net_amount 0 regardless of entitlement, while Invoice
+    // mode (a real stock claim) can correctly split free vs charged PER ROW
+    // on its own — two different shapes for the exact same warning text, so
+    // guessing from rows (as this used to) breaks one case to fix the other.
+    // Returned here, untouched, for the one caller that actually knows how
+    // to interpret it for a specific promotion type — useGoldCoinPromoManager
+    // — rather than guessed at and acted on generically for every promo.
     if (response?.data?.warning) {
-      console.warn(`[checkoutPricingService] promotion "${promo.promoCode}" warning`, response.data.warning);
+      warnings.push({ promoCode: promo.promoCode, message: response.data.warning });
     }
 
     // A promotion the server declines to price (not applicable to anything in
     // the basket) comes back with no items. Leave the lines as they were
     // rather than dropping the basket on the floor.
     if (!Array.isArray(items)) continue;
-
-    // A free-gift item has no standalone price, so an "excess, should be
-    // charged" row still prices at net_amount 0 — identical to a genuinely
-    // free one. Confirmed live 2026-10-25: all 25 speculative gold-coin rows
-    // came back instead of OrnaVerse omitting the excess (the case the
-    // "fewer rows" handling below expects); the real count (2) was only in
-    // this warning string. Trim it off manually to the same effect.
-    const freeItemId = promo.promoDetails?.free_item_id;
-    const coveredMatch = typeof response?.data?.warning === 'string'
-      ? response.data.warning.match(/covers\s+(\d+)\s*pcs?/i)
-      : null;
-    if (freeItemId != null && coveredMatch) {
-      const covered = Number(coveredMatch[1]);
-      let kept = 0;
-      items = items.filter((row) => {
-        if (row.item_id !== freeItemId) return true;
-        kept += 1;
-        return kept <= covered;
-      });
-    }
 
     if (items.length > lines.length) {
       // MORE rows back than sent — never observed, genuinely unexplained if
@@ -181,7 +191,7 @@ export async function applyPromotionsToLines({
     promotionDetails = [...promotionDetails, ...rows];
   }
 
-  return { lineItems: lines, promotionDetails };
+  return { lineItems: lines, promotionDetails, warnings };
 }
 
 /**

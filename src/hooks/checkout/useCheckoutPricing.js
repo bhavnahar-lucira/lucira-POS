@@ -137,11 +137,13 @@ export function useCheckoutPricing() {
       cartItems: invoiceData.cartItems,
       lineCounts: invoiceData.lineCounts,
       promotionDetails: invoiceData.promotionDetails ?? [],
+      warnings: invoiceData.warnings ?? [],
       ...summarizeGroup(invoiceData.lineItems),
     } : null,
     order: orderData ? {
       cartItems: orderData.cartItems,
       promotionDetails: orderData.promotionDetails ?? [],
+      warnings: orderData.warnings ?? [],
       ...summarizeGroup(orderData.lineItems),
     } : null,
     promoCodes: appliedPromos.map((p) => p.promoCode),
