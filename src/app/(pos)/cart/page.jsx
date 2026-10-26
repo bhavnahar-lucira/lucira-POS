@@ -26,7 +26,7 @@ export default function CartPage() {
     detachCustomer,
   } = useCart();
   
-  const { invoice, order, isLoading: isPricing } = useCheckoutPricing();
+  const { invoice, order, isLoading: isPricing, error: pricingError } = useCheckoutPricing();
   const displayRows = useMemo(
     () => buildCartDisplayRows(items, { invoice, order }),
     [items, invoice, order]
@@ -53,6 +53,12 @@ export default function CartPage() {
             onDetach={detachCustomer}
           />
           <DiscountSection />
+
+          {pricingError && (
+            <p className="text-sm text-status-error">
+              {pricingError.serverMessage ?? pricingError.message}
+            </p>
+          )}
 
           <div className="rounded-xl border border-border bg-card px-4">
             {displayRows.map((row) => (

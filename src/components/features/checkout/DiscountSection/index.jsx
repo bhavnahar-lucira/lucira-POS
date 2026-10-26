@@ -67,11 +67,14 @@ export default function DiscountSection({ compact = false, onViewCart }) {
             onApply={(code, overrideAmount) => validatePromo({ promoCode: code, overrideAmount, manualEntry: true })}
             isValidating={isValidating}
             disabled={notReadyToCheck}
-            disabledHint={disabledHint}
             triggerClassName="flex-1"
           />
         )}
       </div>
+
+      {!compact && notReadyToCheck && (
+        <p className="text-xs text-muted-foreground">{disabledHint}</p>
+      )}
 
       {appliedPromos.map((promo) => {
         const b = breakdownByCode.get(promo.promoCode);

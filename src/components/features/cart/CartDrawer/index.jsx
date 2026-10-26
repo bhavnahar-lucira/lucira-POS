@@ -35,7 +35,7 @@ export default function CartDrawer({ isOpen, onClose }) {
     updateQuantity,
     detachCustomer,
   } = useCart();
-  const { invoice, order, isLoading: isPricing } = useCheckoutPricing();
+  const { invoice, order, isLoading: isPricing, error: pricingError } = useCheckoutPricing();
   const displayRows = useMemo(
     () => buildCartDisplayRows(items, { invoice, order }),
     [items, invoice, order]
@@ -84,6 +84,11 @@ export default function CartDrawer({ isOpen, onClose }) {
                 router.push('/cart');
               }}
             />
+            {pricingError && (
+              <p className="text-sm text-status-error">
+                {pricingError.serverMessage ?? pricingError.message}
+              </p>
+            )}
           </div>
 
           <div className="flex flex-col">

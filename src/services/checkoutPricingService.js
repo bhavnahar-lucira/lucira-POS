@@ -108,7 +108,7 @@ export async function applyPromotionsToLines({
       continue;
     }
 
-    const items = response?.data?.items;
+    let items = response?.data?.items;
     const rows  = response?.data?.invoice_promotions ?? [];
 
     // OrnaVerse's own ApplyPromotions schema carries a top-level `warning`
@@ -125,6 +125,26 @@ export async function applyPromotionsToLines({
     // the basket) comes back with no items. Leave the lines as they were
     // rather than dropping the basket on the floor.
     if (!Array.isArray(items)) continue;
+
+    // A free-gift item has no standalone price, so an "excess, should be
+    // charged" row still prices at net_amount 0 — identical to a genuinely
+    // free one. Confirmed live 2026-10-25: all 25 speculative gold-coin rows
+    // came back instead of OrnaVerse omitting the excess (the case the
+    // "fewer rows" handling below expects); the real count (2) was only in
+    // this warning string. Trim it off manually to the same effect.
+    const freeItemId = promo.promoDetails?.free_item_id;
+    const coveredMatch = typeof response?.data?.warning === 'string'
+      ? response.data.warning.match(/covers\s+(\d+)\s*pcs?/i)
+      : null;
+    if (freeItemId != null && coveredMatch) {
+      const covered = Number(coveredMatch[1]);
+      let kept = 0;
+      items = items.filter((row) => {
+        if (row.item_id !== freeItemId) return true;
+        kept += 1;
+        return kept <= covered;
+      });
+    }
 
     if (items.length > lines.length) {
       // MORE rows back than sent — never observed, genuinely unexplained if
@@ -488,6 +508,27 @@ export async function buildPricedLineItems({ items, activeStoreId, salesPersonId
   if (priced.length !== expected) {
     throw new Error('Live pricing failed — the server priced a different number of items than were sent.');
   }
+
+  // OrnaVerse silently zeroes the price of any is_gift-flagged item (e.g.
+  // the promotional gold coin) once it has to be priced as a Made-to-Order
+  // booking instead of a real stock claim — confirmed live 2026-10-25: a
+  // real rate sent to SetSalesItems still came back net_amount 0, with no
+  // warning/error field at all. That's correct for an actual free-gift line
+  // (freeGiftPromoCode set); for a genuine purchase that merely exceeded
+  // real stock, it would otherwise look like a silent, unexplained freebie.
+  let cursor = 0;
+  for (const item of items) {
+    const qty = item.quantity ?? 1;
+    const rows = priced.slice(cursor, cursor + qty);
+    cursor += qty;
+    if (item.freeGiftPromoCode != null) continue;
+    if (rows.some((r) => r.is_gift && (r.net_amount ?? 0) <= 0.01)) {
+      throw new Error(
+        `"${item.itemName}" can only be sold from what's currently in stock — reduce the quantity to continue. It can't be booked as a Made-to-Order item.`
+      );
+    }
+  }
+
   return { invoice: null, order: { cartItems: items, lineItems: applySalesPerson(priced) } };
 }
 

@@ -11,12 +11,11 @@ import { Button } from '@/components/ui/button';
  *   onApply: (code: string, overrideAmount: number|null) => void,
  *   isValidating?: boolean,
  *   disabled?: boolean,
- *   disabledHint?: string,
  *   triggerClassName?: string,
  * }} props
  */
 export default function PromoCodeInput({
-  onApply, isValidating, disabled = false, disabledHint, triggerClassName = 'w-full',
+  onApply, isValidating, disabled = false, triggerClassName = 'w-full',
 }) {
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState('');
@@ -62,9 +61,6 @@ export default function PromoCodeInput({
         <Tag className="size-4 shrink-0 text-accent" aria-hidden="true" />
         Enter Promo
       </Button>
-      {disabled && disabledHint && (
-        <p className="px-1 text-xs text-muted-foreground">{disabledHint}</p>
-      )}
 
       <BottomSheet
         isOpen={open}

@@ -132,7 +132,13 @@ export default function CartItemRow({
                   <Loader2 size={12} className="animate-spin" aria-hidden="true" />
                   Calculating offer…
                 </span>
-              ) : readOnly ? (
+              ) : readOnly || item.freeGiftPromoCode != null ? (
+                // A free gift's quantity is entirely the promo engine's own
+                // entitlement, never a customer choice — OrnaVerse's own
+                // costing refuses to price this item at all beyond that
+                // entitlement (confirmed live: is_gift:true, net_amount 0
+                // regardless of quantity), so letting the stepper nudge it up
+                // only produced units that could never actually be charged.
                 <span className="text-xs text-muted-foreground tabular-nums">
                   {displayQuantity} ×
                 </span>
