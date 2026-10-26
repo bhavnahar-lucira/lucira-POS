@@ -383,7 +383,18 @@ export function useGoldCoinPromoManager() {
             probeQty = MAX_FREE_GIFT_PROBE;
           } else {
             const response = await getStockPieces({ itemId: GOLD_COIN_FREE_ITEM_ID, companyId: activeStoreId });
-            const available = (response?.data?.Entities ?? []).filter((r) => !r.is_allocated).length;
+            // Summed by each row's own `pieces` count, not row count — a
+            // bulk/commodity stock row (confirmed live 2026-10-26 at a
+            // second store: one StockJournal row, one bag, many physical
+            // coins) holds several units behind a SINGLE row, the same shape
+            // claimStockPieces' own availablePieces helper already accounts
+            // for. Counting rows instead of pieces undercounted "available"
+            // down to 1 whenever a store's gold-coin stock happened to be
+            // held this way — capping the probe (and so the real entitlement)
+            // at 1 regardless of true stock or true spend-based eligibility.
+            const available = (response?.data?.Entities ?? [])
+              .filter((r) => !r.is_allocated)
+              .reduce((sum, r) => sum + (r.pieces > 0 ? r.pieces : 1), 0);
             probeQty = Math.min(Math.max(1, available), MAX_FREE_GIFT_PROBE);
           }
 
