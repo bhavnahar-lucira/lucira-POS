@@ -31,6 +31,7 @@ import { GENDER_OPTIONS, MARITAL_STATUS_OPTIONS, RELIGION_OPTIONS } from '@/cons
 import LocationSelect from '@/components/shared/LocationSelect';
 import PanDocumentUpload from '@/components/shared/PanDocumentUpload';
 import PillTabs from '@/components/shared/PillTabs';
+import TicketList from '@/components/features/ticketing/TicketList';
 import EmptyState from '@/components/shared/EmptyState';
 import ErrorState from '@/components/shared/ErrorState';
 import InlineLoader from '@/components/shared/InlineLoader';
@@ -57,11 +58,12 @@ import Logo from '@/components/shared/Logo';
 import { formatAmountOrDash } from '@/lib/priceUtils';
 import { formatDateNumeric, todayDateString } from '@/lib/dateUtils';
 import Link from 'next/link';
+import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt = formatAmountOrDash;
 const fmtDate = formatDateNumeric;
-const TABS    = ['profile', 'edit', 'schemes', 'points', '360', 'wishlist', 'RecentlyViewed'];
+const TABS    = ['profile', 'edit', 'schemes', 'points', '360', 'wishlist', 'RecentlyViewed', 'ticketing'];
 const TEXT_TABS = ['profile', 'edit', 'schemes', 'points', '360'];
 const TAB_LABELS = {
   profile:  'Profile',
@@ -71,6 +73,7 @@ const TAB_LABELS = {
   '360':    '360',
   wishlist: 'Wishlist',
   RecentlyViewed: 'Recently Viewed',
+  ticketing: 'Ticketing',
 };
 
 const DOC_TYPES = [
@@ -119,7 +122,7 @@ function ProfileTab({ customer }) {
       {customerMobile && (
         <div className="flex items-center gap-2 text-muted-foreground">
           <Phone size={15} className="shrink-0 text-muted-foreground/70" />
-          {customerMobile}
+          {formatMobileWithCountryCode(customerMobile)}
         </div>
       )}
       {customerEmail && (
@@ -300,7 +303,7 @@ function EditTab({ customer, onSaved }) {
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ep_mobile">Mobile <span className="text-destructive">*</span></Label>
           {isMaskedValue(raw?.mobile) ? (
-            <Input id="ep_mobile" value={raw.mobile} disabled className="h-11" />
+            <Input id="ep_mobile" value={formatMobileWithCountryCode(raw.mobile)} disabled className="h-11" />
           ) : (
             <Controller
               name="mobile"
@@ -316,7 +319,7 @@ function EditTab({ customer, onSaved }) {
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ep_phone">Phone <span className="text-muted-foreground text-xs">(optional)</span></Label>
           {isMaskedValue(raw?.phone) ? (
-            <Input id="ep_phone" value={raw.phone} disabled className="h-11" />
+            <Input id="ep_phone" value={formatMobileWithCountryCode(raw.phone)} disabled className="h-11" />
           ) : (
             <Controller
               name="phone"
@@ -1097,6 +1100,7 @@ export default function CustomerDetailPage() {
             {activeTab === '360'     && isSuperAdmin && <Customer360Tab customerId={customer.customerId} />}
             {activeTab === 'wishlist' && <WishlistTab customerId={customer.customerId} customerMobile={customer.customerMobile} customerEmail={customer.customerEmail} />}
             {activeTab === 'RecentlyViewed' && <RecentlyViewedTab customerId={customer.customerId} customerMobile={customer.customerMobile} customerEmail={customer.customerEmail} />}
+            {activeTab === 'ticketing' && <TicketList partyId={customer.customerId} />}
           </div>
 
         </div>

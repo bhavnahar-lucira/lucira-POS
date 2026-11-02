@@ -11,6 +11,7 @@ import { useSchemeBenefits } from '@/hooks/schemes/useSchemeBenefits';
 import { useCloseSchemeEnrollment } from '@/hooks/schemes/useCloseSchemeEnrollment';
 import { useRedeemSchemeEnrollment } from '@/hooks/schemes/useRedeemSchemeEnrollment';
 import { formatCurrency, formatDate, formatMonthName } from '@/lib/schemeFormat';
+import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
 
 const TABS = [
   { key: 'schedule', label: 'Schedule' },
@@ -386,7 +387,7 @@ export default function EnrollmentDetailSheet({ enrollment, isOpen, onClose }) {
 
         <div className="rounded-xl border border-border bg-muted p-3 text-sm flex flex-col gap-1">
           <p className="font-medium text-foreground">{enrollment.schemeName}</p>
-          <p className="text-muted-foreground">{enrollment.partyName} · {enrollment.mobile}</p>
+          <p className="text-muted-foreground">{enrollment.partyName} · {formatMobileWithCountryCode(enrollment.mobile)}</p>
           <p className="text-muted-foreground">
             Monthly: {formatCurrency(enrollment.schemeAmount)} · Tenure: {enrollment.tenure} months
           </p>

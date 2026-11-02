@@ -49,6 +49,9 @@ next-env.d.ts
 # but listed here too so this repo is safe regardless of whose
 # machine/global config it's cloned onto.
 .claude/
+AGENTS.md
+CLAUDE.md
+docs/
 
 # Playwright MCP live-testing artifacts (console logs, page snapshots) —
 # accumulates real captured network/session data from live-testing against

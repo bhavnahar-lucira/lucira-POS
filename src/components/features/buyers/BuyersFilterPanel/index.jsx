@@ -1,6 +1,6 @@
 'use client';
 
-import { FileText, ClipboardList } from 'lucide-react';
+import { FileText, ClipboardList, UserRound } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import {
@@ -18,6 +18,7 @@ const DOCUMENT_TYPES = [
  *   hasActiveFilters: boolean, onClearFilters: () => void,
  *   isSuperAdmin: boolean, availableStores: object[],
  *   storeFilter: string, onStoreFilterChange: (value: string) => void,
+ *   salesPersons: string[], salesPerson: string, onSalesPersonChange: (value: string) => void,
  * }} props
  */
 export default function BuyersFilterPanel({
@@ -29,6 +30,9 @@ export default function BuyersFilterPanel({
   availableStores,
   storeFilter,
   onStoreFilterChange,
+  salesPersons = [],
+  salesPerson = 'all',
+  onSalesPersonChange,
 }) {
   return (
     <div className="flex flex-col gap-5">
@@ -60,6 +64,29 @@ export default function BuyersFilterPanel({
           </Select>
         </div>
       )}
+
+      <div className="flex flex-col gap-1.5">
+        <span className="text-xs font-medium text-muted-foreground">Sales person</span>
+        <Select value={salesPerson} onValueChange={onSalesPersonChange}>
+          <SelectTrigger className="h-10 w-full" aria-label="Sales person">
+            <SelectValue placeholder="All sales persons" />
+          </SelectTrigger>
+          <SelectContent className="max-h-72 overflow-y-auto">
+            <SelectItem value="all">All sales persons</SelectItem>
+            {salesPersons.map((name) => (
+              <SelectItem key={name} value={name}>
+                <span className="flex items-center gap-2">
+                  <UserRound size={14} className="text-muted-foreground" aria-hidden="true" />
+                  {name}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {salesPersons.length === 0 && (
+          <span className="text-xs text-muted-foreground">No sales person names recorded for this store yet.</span>
+        )}
+      </div>
 
       <div className="flex flex-col gap-1.5">
         <span className="text-xs font-medium text-muted-foreground">Document Type</span>

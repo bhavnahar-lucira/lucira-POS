@@ -9,6 +9,7 @@ import CustomerSessionSheet from '@/components/features/customers/CustomerSessio
 import { useCustomerSession } from '@/hooks/customer/useCustomerSession';
 import { selectCheckoutInProgress } from '@/store/slices/uiSlice';
 import { cn } from '@/lib/utils';
+import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
 
 function getInitials(name) {
   if (!name) return '?';
@@ -83,7 +84,7 @@ export default function HeaderCustomerControl() {
             {customerMobile && (
               <>
                 <span aria-hidden="true">·</span>
-                <span className="tabular-nums">{customerMobile}</span>
+                <span className="tabular-nums">{formatMobileWithCountryCode(customerMobile)}</span>
               </>
             )}
           </span>

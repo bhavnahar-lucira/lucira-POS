@@ -81,7 +81,7 @@ export default function CustomersPage() {
     if (wouldSwitchCustomer(customer.customerId)) {
       cart.detachCustomer();
     }
-    cart.attachCustomer(customer);
+    cart.attachCustomer({ ...customer, customerContactMobile: isMobileSearch ? trimmed : null });
     setSelectedCustomer(null);
   };
 

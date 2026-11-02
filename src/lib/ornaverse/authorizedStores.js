@@ -24,6 +24,7 @@ export async function getUserStores(session) {
     headers,
     body: JSON.stringify({}),
     cache: 'no-store',
+    signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`GetUserStores failed: HTTP ${res.status}`);
 

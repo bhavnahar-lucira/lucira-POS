@@ -53,11 +53,13 @@ export default function CartItemRow({
   const imageSrc = item.image ?? null;
   const showImage = imageSrc && !imgError;
 
+  const canViewProduct = !!item.itemId && !item.customLine;
   const handleViewProduct = () => {
-    if (item.itemId) router.push(`/products/${item.itemId}`);
+    if (canViewProduct) router.push(`/products/${item.itemId}`);
   };
   
   const metaParts = [
+    item.customLine && 'Custom estimate',
     item.sizeName,
     item.attributes?.karat,
     item.attributes?.metal_color,
@@ -75,7 +77,7 @@ export default function CartItemRow({
         <button
           type="button"
           onClick={handleViewProduct}
-          disabled={!item.itemId}
+          disabled={!canViewProduct}
           aria-label={`View ${item.itemName ?? 'product'}`}
           className="relative shrink-0 h-16 w-16 rounded-lg overflow-hidden bg-muted flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
         >
@@ -101,7 +103,7 @@ export default function CartItemRow({
             <button
               type="button"
               onClick={handleViewProduct}
-              disabled={!item.itemId}
+              disabled={!canViewProduct}
               className="text-left text-sm font-semibold text-foreground leading-snug line-clamp-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm disabled:cursor-default disabled:hover:no-underline"
             >
               {item.itemName ?? 'Unknown Product'}
@@ -132,7 +134,7 @@ export default function CartItemRow({
                   <Loader2 size={12} className="animate-spin" aria-hidden="true" />
                   Calculating offer…
                 </span>
-              ) : readOnly || item.freeGiftPromoCode != null ? (
+              ) : readOnly || item.freeGiftPromoCode != null || item.customLine ? (
                 // A free gift's quantity is entirely the promo engine's own
                 // entitlement, never a customer choice — OrnaVerse's own
                 // costing refuses to price this item at all beyond that

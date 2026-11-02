@@ -16,6 +16,7 @@ import { deriveDocumentStatus } from '@/hooks/customer/useCustomerOrders';
 import APP_CONFIG from '@/constants/appConfig';
 import { formatAmountOrNull } from '@/lib/priceUtils';
 import { formatDatePadded } from '@/lib/dateUtils';
+import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
 
 const TABS = [
   { key: 'invoice',  label: 'Invoice',  pluralLabel: 'invoices',   icon: FileText },
@@ -44,7 +45,7 @@ function PurchaseCard({ purchase }) {
             {documentType}
           </Badge>
           {isCancelled && <Badge variant="destructive">Cancelled</Badge>}
-          <span className="text-sm font-medium text-foreground">
+          <span className="text-sm font-medium text-foreground break-all">
             {documentNo || `#${transactionId}`}
           </span>
         </div>
@@ -69,8 +70,10 @@ function PurchaseCard({ purchase }) {
       {items?.length > 0 && (
         <div className="border-t border-dashed border-border pt-3 flex flex-col gap-1.5">
           {items.map((item, idx) => (
-            <div key={`${item.item_id ?? idx}`} className="flex items-center justify-between gap-2 text-sm">
-              <span className="truncate text-foreground">
+            // Not item_id alone: one purchase can carry the same item on two
+            // lines (e.g. a paid + a free gold coin), which collided.
+            <div key={`${item.item_id ?? 'item'}-${idx}`} className="flex items-center justify-between gap-2 text-sm">
+              <span className="min-w-0 truncate text-foreground">
                 {item.item_name || 'Item'}
                 {item.quantity > 1 ? ` × ${item.quantity}` : ''}
               </span>
@@ -86,12 +89,12 @@ function PurchaseCard({ purchase }) {
         <div className="border-t border-dashed border-border pt-3 flex flex-col gap-1.5">
           {promotions.map((promo) => (
             <div key={promo.code} className="flex items-center justify-between gap-2 text-sm">
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <Tag size={12} aria-hidden="true" />
-                {promo.name}
+              <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+                <Tag size={12} className="shrink-0" aria-hidden="true" />
+                <span className="break-words">{promo.name}</span>
               </span>
               {formatAmountOrNull(promo.amount) && (
-                <span className="text-muted-foreground">-{formatAmountOrNull(promo.amount)}</span>
+                <span className="shrink-0 text-muted-foreground">-{formatAmountOrNull(promo.amount)}</span>
               )}
             </div>
           ))}
@@ -102,13 +105,15 @@ function PurchaseCard({ purchase }) {
         <div className="border-t border-dashed border-border pt-3 flex flex-col gap-1.5">
           {payments.map((payment, idx) => (
             <div key={idx} className="flex items-center justify-between gap-2 text-sm">
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <CreditCard size={12} aria-hidden="true" />
-                {payment.modeName || 'Payment'}
-                {payment.refNo ? ` · Ref: ${payment.refNo}` : ''}
+              <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+                <CreditCard size={12} className="shrink-0" aria-hidden="true" />
+                <span className="break-all">
+                  {payment.modeName || 'Payment'}
+                  {payment.refNo ? ` · Ref: ${payment.refNo}` : ''}
+                </span>
               </span>
               {formatAmountOrNull(payment.amount) && (
-                <span className="text-muted-foreground">{formatAmountOrNull(payment.amount)}</span>
+                <span className="shrink-0 text-muted-foreground">{formatAmountOrNull(payment.amount)}</span>
               )}
             </div>
           ))}
@@ -173,9 +178,9 @@ export default function BuyerDetailPage() {
           <ArrowLeft size={18} aria-hidden="true" />
         </Button>
         <div className="flex-1 min-w-0">
-          <h2 className="text-base font-bold text-foreground">{displayName}</h2>
+          <h2 className="text-base font-bold text-foreground break-words">{displayName}</h2>
           {displayMobile && (
-            <p className="text-xs text-muted-foreground/70 mt-0.5">{displayMobile}</p>
+            <p className="text-xs text-muted-foreground/70 mt-0.5">{formatMobileWithCountryCode(displayMobile)}</p>
           )}
         </div>
         <Button

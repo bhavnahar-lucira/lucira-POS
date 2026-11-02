@@ -224,6 +224,9 @@ export const QUERY_KEYS = {
     LEADS:                  ()            => ['crm', 'leads'],
     SOURCES:                ()            => ['crm', 'sources'],
     VISITS:                 (companyId)   => ['crm', 'visits', companyId],
+    // Non-Buyers pages, nested under VISITS(companyId) on purpose: useWalkInLookup/useWalkInRegister
+    // invalidate that prefix, so a new visit refreshes this list too.
+    NON_BUYERS:             (companyId, filters) => ['crm', 'visits', companyId, 'non-buyers', filters],
   },
 
   CUSTOMER_HISTORY: {
@@ -280,10 +283,19 @@ export const QUERY_KEYS = {
     SALES_PERSON_WISE_SALES: (params) => ['reports', 'sales-person-wise-sales', params],
     SKU_VELOCITY:            (params) => ['reports', 'sku-velocity', params],
     OPEN_POS_ORDERS:         (params) => ['reports', 'open-pos-orders', params],
+    STOCK:                   (params) => ['reports', 'stock', params],
+    WALKIN_VISITS:           (params) => ['reports', 'walkin-visits', params],
   },
 
   ADHOC_REPORTS: {
     LIST: () => ['adhoc-reports', 'list'],
     RUN:  (adhocReportId) => ['adhoc-reports', 'run', adhocReportId],
+  },
+
+  TICKETING: {
+    ALL:           () => ['ticketing'],
+    LIST:          (partyId) => ['ticketing', 'list', partyId ?? 'store'],
+    DETAIL:        (ticketNumber) => ['ticketing', 'detail', ticketNumber],
+    NOTIFICATIONS: () => ['ticketing', 'notifications'],
   },
 };

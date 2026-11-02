@@ -39,6 +39,7 @@ export function useCart() {
       sizeId:   item.sizeId,
       styleId:  item.styleId,
       freeGiftPromoCode: item.freeGiftPromoCode ?? null,
+      customLineId: item.customLineId ?? null,
       quantity: removeQuantity,
     }));
     toast.success(TOAST.CART.ITEM_REMOVED(item.itemName ?? 'Item'));
@@ -54,6 +55,7 @@ export function useCart() {
       sizeId:  item.sizeId,
       styleId: item.styleId,
       freeGiftPromoCode: item.freeGiftPromoCode ?? null,
+      customLineId: item.customLineId ?? null,
       quantity,
     }));
   };

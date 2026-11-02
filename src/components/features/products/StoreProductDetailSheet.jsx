@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from '@/components/ui/sheet';
@@ -132,6 +133,21 @@ export default function StoreProductDetailSheet({ isOpen, onClose, itemId, compa
     : [];
   const visibleRows = ROW_DEFS.filter((def) => rows.some((r) => r[def.key] != null));
 
+  const columns = [
+    { id: 'spec', header: 'Spec', accessorFn: (def) => def.label },
+    ...rows.map((row, i) => ({
+      id: `piece-${i}`,
+      header: row.sku ?? `Piece ${i + 1}`,
+      accessorFn: (def) => row[def.key] ?? '—',
+    })),
+  ];
+  const table = useReactTable({
+    data: visibleRows,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    getRowId: (def) => def.key,
+  });
+
   return (
     <Sheet open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto rounded-t-2xl">
@@ -166,21 +182,26 @@ export default function StoreProductDetailSheet({ isOpen, onClose, itemId, compa
           <div className="px-4 pb-4">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead className="sticky left-0 z-10 bg-background">Spec</TableHead>
-                  {rows.map((row, i) => (
-                    <TableHead key={row.sku ?? i}>{row.sku ?? `Piece ${i + 1}`}</TableHead>
-                  ))}
-                </TableRow>
+                {table.getHeaderGroups().map((group) => (
+                  <TableRow key={group.id}>
+                    {group.headers.map((header) => (
+                      <TableHead key={header.id} className={header.column.id === 'spec' ? 'sticky left-0 z-10 bg-background' : undefined}>
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                ))}
               </TableHeader>
               <TableBody>
-                {visibleRows.map((def) => (
-                  <TableRow key={def.key}>
-                    <TableCell className="sticky left-0 z-10 bg-background font-semibold text-muted-foreground">
-                      {def.label}
-                    </TableCell>
-                    {rows.map((row, i) => (
-                      <TableCell key={row.sku ?? i}>{row[def.key] ?? '—'}</TableCell>
+                {table.getRowModel().rows.map((row) => (
+                  <TableRow key={row.id}>
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell
+                        key={cell.id}
+                        className={cell.column.id === 'spec' ? 'sticky left-0 z-10 bg-background font-semibold text-muted-foreground' : undefined}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
                     ))}
                   </TableRow>
                 ))}

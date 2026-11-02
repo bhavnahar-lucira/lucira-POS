@@ -3,6 +3,7 @@
 import { User, Calendar, Store, Phone, Mail } from 'lucide-react';
 import ListItemCard from '@/components/shared/ListItemCard';
 import { formatDateSlashed } from '@/lib/dateUtils';
+import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
 
 /**
  * @param {{
@@ -60,7 +61,7 @@ export default function InvoiceListItem({ invoice, onSelect }) {
       {customerMobile && (
         <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
           <Phone size={13} className="shrink-0 text-muted-foreground/70" aria-hidden="true" />
-          <span className="truncate">{customerMobile}</span>
+          <span className="truncate">{formatMobileWithCountryCode(customerMobile)}</span>
         </div>
       )}
 

@@ -455,6 +455,8 @@ async function buildOrderLineItems({ items, documentId }) {
  *   cart) — never both at once.
  */
 export async function buildPricedLineItems({ items, activeStoreId, salesPersonId }) {
+  if (items.some((item) => item.customLine)) return buildCustomOrderLineItems({ items, salesPersonId });
+
   const claimed = new Set();
 
   // ONE network round trip for every distinct item_id in the cart — see
@@ -540,6 +542,32 @@ export async function buildPricedLineItems({ items, activeStoreId, salesPersonId
   }
 
   return { invoice: null, order: { cartItems: items, lineItems: applySalesPerson(priced) } };
+}
+
+/**
+ * A cart holding a Custom Estimate line is always ONE Order (made to order): the custom line keeps the
+ * row the Estimation screen already priced with OrnaVerse (edited weight, stones, labour), and every
+ * other line is priced from its master as a normal MTO line. Rows stay in cart order.
+ */
+async function buildCustomOrderLineItems({ items, salesPersonId }) {
+  const regular = items.filter((item) => !item.customLine);
+  const pricedRegular = regular.length
+    ? await buildOrderLineItems({ items: regular, documentId: APP_CONFIG.DOCUMENT_TYPES.POS_ORDER })
+    : [];
+
+  const rows = [];
+  let cursor = 0;
+  for (const item of items) {
+    const qty = item.quantity ?? 1;
+    if (item.customLine) {
+      for (let p = 0; p < qty; p += 1) rows.push(item.customLine);
+    } else {
+      rows.push(...pricedRegular.slice(cursor, cursor + qty));
+      cursor += qty;
+    }
+  }
+  const lineItems = salesPersonId == null ? rows : rows.map((row) => ({ ...row, sales_person_id: salesPersonId }));
+  return { invoice: null, order: { cartItems: items, lineItems } };
 }
 
 /**
@@ -703,7 +731,7 @@ export function mapPricedLinesToCart(items, lineItems, lineCounts) {
 // and worse, the findIndex lookups below could resolve to the wrong one of
 // the two, mispricing either row.
 function cartLineKey(item) {
-  return `${item.itemId}-${item.sizeId}-${item.styleId}-${item.freeGiftPromoCode ?? ''}`;
+  return `${item.itemId}-${item.sizeId}-${item.styleId}-${item.freeGiftPromoCode ?? ''}-${item.customLineId ?? ''}`;
 }
 
 /**

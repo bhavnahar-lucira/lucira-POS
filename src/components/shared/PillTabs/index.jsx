@@ -37,7 +37,7 @@ export default function PillTabs({
   return (
     <Tabs value={value} onValueChange={onChange}>
       <TabsList
-        className={`h-auto justify-start ${VARIANT_LIST_WIDTH[variant]} ${VARIANT_LIST[variant]} ${
+        className={`h-auto group-data-horizontal/tabs:h-auto justify-start ${VARIANT_LIST_WIDTH[variant]} ${VARIANT_LIST[variant]} ${
           scrollable ? 'flex-nowrap overflow-x-auto scrollbar-none' : 'flex-wrap'
         } ${className}`}
       >

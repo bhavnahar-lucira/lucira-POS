@@ -47,10 +47,11 @@ export default function StoreSelectModal({ isOpen, onClose }) {
           'fixed z-50 top-[68px] left-4 right-4',
           'sm:left-auto sm:right-4 sm:w-72',
           'rounded-xl border border-border bg-card shadow-lg',
-          'flex flex-col overflow-hidden'
+          // Never taller than the screen below it; the store list scrolls inside (long lists on phones).
+          'flex flex-col overflow-hidden max-h-[calc(100dvh-84px)]'
         )}
       >
-        <div className="flex items-center justify-between border-b px-4 py-3">
+        <div className="flex items-center justify-between border-b px-4 py-3 shrink-0">
           <div className="flex items-center gap-2 text-sm font-medium">
             <Store size={15} aria-hidden="true" />
             Switch Store
@@ -69,7 +70,7 @@ export default function StoreSelectModal({ isOpen, onClose }) {
           </button>
         </div>
 
-        <ul className="flex flex-col py-1" role="listbox" aria-label="Available stores">
+        <ul className="flex flex-col py-1 min-h-0 flex-1 overflow-y-auto overscroll-contain" role="listbox" aria-label="Available stores">
           {availableStores.length === 0 ? (
             <li className="px-4 py-6 text-center text-sm text-muted-foreground">
               No other stores available.

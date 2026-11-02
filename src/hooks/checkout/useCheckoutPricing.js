@@ -69,7 +69,7 @@ export function useCheckoutPricing() {
 
   const debouncedItems = debounced.items;
   const debouncedPromos = debounced.appliedPromos;
-  const cartKey  = debouncedItems.map((i) => `${i.itemId}x${i.quantity}`).join('|');
+  const cartKey  = debouncedItems.map((i) => `${i.itemId}${i.customLineId ? `:${i.customLineId}` : ''}x${i.quantity}`).join('|');
   const promoKey = debouncedPromos.map((p) => `${p.promoCode}:${p.overrideAmount ?? ''}`).join('|');
 
   const query = useQuery({

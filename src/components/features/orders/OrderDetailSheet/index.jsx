@@ -15,6 +15,7 @@ import APP_CONFIG from '@/constants/appConfig';
 import { formatAmountOrNull as formatCurrency } from '@/lib/priceUtils';
 import { formatDateNumeric } from '@/lib/dateUtils';
 import { resolveImageSrc } from '@/lib/resolveImageSrc';
+import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
 
 function Row({ label, value, bold, border }) {
   if (value === null || value === undefined || value === '') return null;
@@ -48,17 +49,20 @@ function OrderContent({ raw, status }) {
       <Row label="Order No." value={raw.document_no} />
       <Row label="Date" value={formatDateNumeric(raw.document_date)} />
       <Row label="Customer" value={raw.party_name} />
-      <Row label="Mobile"   value={raw.mobile} />
+      <Row label="Mobile"   value={formatMobileWithCountryCode(raw.mobile)} />
       <Row label="Email"    value={raw.email} />
       <Row label="Store"    value={raw.company_name} />
       <Row label="Status"   value={STATUS_LABELS[status] ?? null} />
 
       {lineItems.length > 0 && (
         <div className="border-t border-border pt-2 flex flex-col gap-2">
-          <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">Items</span>
+          <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+            Items ({lineItems.reduce((sum, item) => sum + (Number(item.pieces) || 1), 0)})
+          </span>
           {lineItems.map((item, i) => {
             const imageSrc = resolveImageSrc(item.image);
             const specs = [
+              `Qty ${Number(item.pieces) || 1}`,
               item.item_group_name,
               item.karat_name,
               item.metal_color_name,

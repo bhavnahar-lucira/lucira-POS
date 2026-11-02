@@ -20,6 +20,8 @@ import APP_CONFIG from '@/constants/appConfig';
 import TOAST from '@/constants/toastMessages';
 import { trackDocumentPlaced, trackDocumentFailed } from '@/lib/analytics/orderTracking';
 import { recordBuyerPurchase } from '@/lib/checkout/recordBuyerPurchase';
+import { runTicketAction } from '@/services/ticketingService';
+import { QUERY_KEYS } from '@/constants/queryKeys';
 
 function buildOrderEntity({
   lineItems, promotionDetails,
@@ -212,6 +214,13 @@ export function useCreateOrder() {
         salesPersonId:   variables?.salesPersonId,
         salesPersonName: variables?.salesPersonName,
       });
+
+      // An order raised from a ticket's estimate is recorded back on that ticket.
+      for (const ticketNumber of new Set(items.map((i) => i.ticketNumber).filter(Boolean))) {
+        runTicketAction(ticketNumber, { action: 'order_placed', transaction_id: transactionId })
+          .then(() => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.TICKETING.ALL() }))
+          .catch((err) => toast.error(`Order placed, but ticket ${ticketNumber} could not be updated: ${err.message}`));
+      }
 
       // Not clearing the cart here — same reason as useCreateInvoice.js.
       // The screen clears it once the confirmation is on screen.

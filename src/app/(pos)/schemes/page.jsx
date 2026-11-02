@@ -36,6 +36,7 @@ import { Button }  from '@/components/ui/button';
 import { Input }   from '@/components/ui/input';
 import { Label }   from '@/components/ui/label';
 import { formatCurrency, formatDate, MONTH_NAMES } from '@/lib/schemeFormat';
+import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
 
 const STATUS_STYLES = {
   active:    'bg-status-in-stock/10 text-status-in-stock',
@@ -351,14 +352,14 @@ function EnrollmentsTab() {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
       {customerId && (
-        <div className="rounded-xl border border-status-in-stock/30 bg-status-in-stock/10 px-3 py-2 text-sm text-status-in-stock">
+        <div className="col-span-full rounded-xl border border-status-in-stock/30 bg-status-in-stock/10 px-3 py-2 text-sm text-status-in-stock">
           Showing enrollments for <strong>{customerName}</strong>
         </div>
       )}
 
       {enrollments.length === 0 ? (
         <EmptyState
-          className="border-0 py-16"
+          className="col-span-full border-0 py-16"
           icon={LayoutGrid}
           title={customerId ? 'No enrollments for this customer.' : 'No enrollments found.'}
           action={(
@@ -373,7 +374,7 @@ function EnrollmentsTab() {
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="text-sm font-semibold text-foreground">{enrollment.schemeName}</p>
-                <p className="text-xs text-muted-foreground">{enrollment.partyName} · {enrollment.mobile}</p>
+                <p className="text-xs text-muted-foreground">{enrollment.partyName} · {formatMobileWithCountryCode(enrollment.mobile)}</p>
               </div>
               <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${
                 STATUS_STYLES[enrollment.status] ?? STATUS_STYLES.default

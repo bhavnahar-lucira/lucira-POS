@@ -84,6 +84,7 @@ export default function NewCustomerForm({ defaultMobile = '', defaultName = '', 
         customerId:     result.customerId,
         customerName:   result.customerName,
         customerMobile: result.customerMobile,
+        customerContactMobile: values.mobile || null,
       });
     } catch {
       // Error toast handled by useCreateCustomer

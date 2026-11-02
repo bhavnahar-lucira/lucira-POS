@@ -21,6 +21,9 @@ import { todayDateString } from '@/lib/dateUtils';
 
 const PAGE_SIZE = 25;
 const ALL_DOCUMENT_TYPES = ['invoice', 'order'];
+const ALL_SALES_PERSONS = 'all';
+
+const salesPersonKey = (name) => String(name ?? '').trim().toLowerCase();
 
 export default function BuyersPage() {
   const router = useRouter();
@@ -33,12 +36,14 @@ export default function BuyersPage() {
   const [documentTypes, setDocumentTypes] = useState(ALL_DOCUMENT_TYPES);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [salesPerson, setSalesPerson] = useState(ALL_SALES_PERSONS);
   const [pagination, setPagination] = useState({ key: '', visibleCount: PAGE_SIZE });
   const prevActiveStoreIdRef = useRef(activeStoreId);
   useEffect(() => {
     if (activeStoreId !== prevActiveStoreIdRef.current) {
       prevActiveStoreIdRef.current = activeStoreId;
       setStoreFilter(activeStoreId ? String(activeStoreId) : 'all');
+      setSalesPerson(ALL_SALES_PERSONS);
     }
   }, [activeStoreId]);
 
@@ -55,9 +60,26 @@ export default function BuyersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId]);
 
-  const hasActiveFilters = documentTypes.length !== ALL_DOCUMENT_TYPES.length || !!fromDate || !!toDate;
+  // Names of everyone who made a sale at this store, for the Sales person filter.
+  const salesPersons = useMemo(() => {
+    const byKey = new Map();
+    for (const p of purchases) {
+      const name = p.salesPersonName?.trim();
+      if (name && (p.documentType === 'invoice' || p.documentType === 'order')) byKey.set(salesPersonKey(name), name);
+    }
+    return [...byKey.values()].sort((a, b) => a.localeCompare(b));
+  }, [purchases]);
+
+  const hasActiveFilters = documentTypes.length !== ALL_DOCUMENT_TYPES.length || !!fromDate || !!toDate
+    || salesPerson !== ALL_SALES_PERSONS;
   const trimmedSearch = search.trim().toLowerCase();
   const filteredBuyers = useMemo(() => {
+    // With a sales person chosen: only the customers they sold to, and only their sales to them
+    // (that customer's returns/exchanges/buybacks still count as outcomes).
+    const selectedKey = salesPerson === ALL_SALES_PERSONS ? null : salesPersonKey(salesPerson);
+    const attendedCustomers = selectedKey
+      ? new Set(purchases.filter((p) => salesPersonKey(p.salesPersonName) === selectedKey).map((p) => p.customerId))
+      : null;
     const matching = purchases.filter((p) => {
       // The Invoice/Order toggle only ever covers those two types — a
       // return/exchange/buyback row is an OUTCOME against a past purchase,
@@ -67,6 +89,10 @@ export default function BuyersPage() {
       // document types are currently toggled on.
       const isOutcomeType = p.documentType === 'return' || p.documentType === 'exchange' || p.documentType === 'buyback';
       if (!isOutcomeType && !documentTypes.includes(p.documentType)) return false;
+      if (attendedCustomers) {
+        if (!attendedCustomers.has(p.customerId)) return false;
+        if (!isOutcomeType && salesPersonKey(p.salesPersonName) !== selectedKey) return false;
+      }
       const day = p.documentDate ? String(p.documentDate).slice(0, 10) : null;
       if (fromDate && (!day || day < fromDate)) return false;
       if (toDate && (!day || day > toDate)) return false;
@@ -78,8 +104,8 @@ export default function BuyersPage() {
       b.customerName?.toLowerCase().includes(trimmedSearch)
       || b.customerMobile?.includes(trimmedSearch)
     );
-  }, [purchases, documentTypes, fromDate, toDate, trimmedSearch]);
-  const filterKey = `${documentTypes.join(',')}|${fromDate}|${toDate}|${trimmedSearch}|${purchases.length}`;
+  }, [purchases, documentTypes, fromDate, toDate, trimmedSearch, salesPerson]);
+  const filterKey = `${documentTypes.join(',')}|${fromDate}|${toDate}|${salesPerson}|${trimmedSearch}|${purchases.length}`;
   if (pagination.key !== filterKey) {
     setPagination({ key: filterKey, visibleCount: PAGE_SIZE });
   }
@@ -112,6 +138,12 @@ export default function BuyersPage() {
     setDocumentTypes(ALL_DOCUMENT_TYPES);
     setFromDate('');
     setToDate('');
+    setSalesPerson(ALL_SALES_PERSONS);
+  };
+
+  const handleStoreFilterChange = (value) => {
+    setStoreFilter(value);
+    setSalesPerson(ALL_SALES_PERSONS);
   };
 
   return (
@@ -344,12 +376,15 @@ export default function BuyersPage() {
           <BuyersFilterPanel
             documentTypes={documentTypes}
             onToggleDocumentType={toggleDocumentType}
-            hasActiveFilters={documentTypes.length !== ALL_DOCUMENT_TYPES.length}
-            onClearFilters={() => setDocumentTypes(ALL_DOCUMENT_TYPES)}
+            hasActiveFilters={documentTypes.length !== ALL_DOCUMENT_TYPES.length || salesPerson !== ALL_SALES_PERSONS}
+            onClearFilters={() => { setDocumentTypes(ALL_DOCUMENT_TYPES); setSalesPerson(ALL_SALES_PERSONS); }}
             isSuperAdmin={isSuperAdmin}
             availableStores={availableStores}
             storeFilter={storeFilter}
-            onStoreFilterChange={setStoreFilter}
+            onStoreFilterChange={handleStoreFilterChange}
+            salesPersons={salesPersons}
+            salesPerson={salesPerson}
+            onSalesPersonChange={setSalesPerson}
           />
         </div>
       </BottomSheet>

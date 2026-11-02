@@ -42,6 +42,29 @@ async function ornaversePost(path, body, session) {
   return res.json();
 }
 
+async function getSalesPersonNames(companyIds, session, salesPersonIds) {
+  const names = new Map();
+  await Promise.all([...companyIds].map(async (companyId) => {
+    try {
+      const data = await ornaversePost(API.HR.EMPLOYEE_LIST, { Take: 5000, company_id: companyId }, session);
+      for (const e of data?.Entities ?? []) names.set(e.employee_id, e.employee_name);
+    } catch (error) {
+      console.warn(`[buyerSync] employee list for company ${companyId} failed`, error.message);
+    }
+  }));
+  // A sales person can be set up under another company than the store they sell at, so anyone still
+  // unnamed is looked up once in the full employee list.
+  if ([...salesPersonIds].some((id) => !names.has(id))) {
+    try {
+      const data = await ornaversePost(API.HR.EMPLOYEE_LIST, { Take: 5000 }, session);
+      for (const e of data?.Entities ?? []) if (!names.has(e.employee_id)) names.set(e.employee_id, e.employee_name);
+    } catch (error) {
+      console.warn('[buyerSync] full employee list failed', error.message);
+    }
+  }
+  return names;
+}
+
 async function runWithConcurrency(items, worker, concurrency) {
   const results = [];
   let nextIndex = 0;
@@ -55,7 +78,7 @@ async function runWithConcurrency(items, worker, concurrency) {
   return results;
 }
 
-function shapeRecord(kind, entity) {
+function shapeRecord(kind, entity, salesPersonNames) {
   const items = (entity.line_items ?? []).map((row) => ({
     item_id:     row.item_id != null ? String(row.item_id) : undefined,
     item_name:   row.item_name ?? undefined,
@@ -93,7 +116,7 @@ function shapeRecord(kind, entity) {
     companyId:       entity.company_id,
     storeName:       entity.company_name ?? null,
     salesPersonId:   entity.sales_person_id ?? null,
-    salesPersonName: null, // not resolvable from the retrieved entity alone
+    salesPersonName: salesPersonNames.get(entity.sales_person_id) ?? null, // not resolvable from the retrieved entity alone
     items,
     promotions: [...promoByCode.values()],
     payments,
@@ -107,11 +130,14 @@ function shapeRecord(kind, entity) {
   };
 }
 
-async function upsertEntities(kind, entities) {
+async function upsertEntities(kind, entities, session) {
+  const withSalesPerson = entities.filter((e) => e?.sales_person_id != null);
+  const companyIds = new Set(withSalesPerson.map((e) => e.company_id));
+  const salesPersonNames = await getSalesPersonNames(companyIds, session, new Set(withSalesPerson.map((e) => e.sales_person_id)));
   let synced = 0;
   for (const entity of entities) {
     if (entity?.party_id == null) continue; // guest sale — nothing to retarget
-    await upsertPurchase(shapeRecord(kind, entity));
+    await upsertPurchase(shapeRecord(kind, entity, salesPersonNames));
     synced += 1;
   }
   return synced;
@@ -205,7 +231,7 @@ export async function syncStorePurchases({ companyId, session }) {
     STORE_SYNC_KINDS.map((kind) => fetchStoreDocuments(kind, companyId, session)),
   );
   const syncedByKind = await Promise.all(
-    STORE_SYNC_KINDS.map((kind, i) => upsertEntities(kind, entitiesByKind[i])),
+    STORE_SYNC_KINDS.map((kind, i) => upsertEntities(kind, entitiesByKind[i], session)),
   );
   const [invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced] = syncedByKind;
   return { invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced };
@@ -232,7 +258,7 @@ async function syncCustomerKind(kind, rows, session) {
       return null;
     }
   }, CONCURRENCY);
-  return upsertEntities(kind, entities.filter(Boolean));
+  return upsertEntities(kind, entities.filter(Boolean), session);
 }
 
 /**

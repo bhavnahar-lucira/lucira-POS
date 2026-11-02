@@ -6,6 +6,7 @@ import {
 import { getCachedRead, setCachedRead, isCacheableReadPath } from '@/lib/security/proxyReadCache';
 import { checkRateLimit } from '@/lib/security/rateLimit';
 import { touchSession, endSession } from '@/lib/mongo/posSessions';
+import { getAuthorizedCompanyIds } from '@/lib/ornaverse/authorizedStores';
 import APP_CONFIG from '@/constants/appConfig';
 import { after } from 'next/server';
 
@@ -16,6 +17,32 @@ function trackInBackground(label, work) {
 }
 
 const PUBLIC_PATH_PREFIXES = ['upload/'];
+
+// OrnaVerse doesn't scope these to the operator's stores (confirmed live 2026-10-27:
+// a store login got other stores' stock + cost), so they're only served via /api/reports/*.
+const BLOCKED_REPORT_PATHS = new Set([
+  'services/reports/stockreport/list',
+  'services/reports/posdashbaord/list',
+  'services/reports/categorywisesalesreport/list',
+  'services/pos/salespersonwisesales/list',
+  'services/analytics/skuvelocity',
+  'services/reports/openposordersreport/list',
+]);
+
+// The store the operator is logged into, kept in the signed session so report
+// routes can pin non-super-admins to it without trusting the client.
+const SWITCH_COMPANY_PATH = 'account/switchcompany';
+
+async function resolveSwitchedCompanyId(session, body) {
+  try {
+    const companyId = Number(JSON.parse(Buffer.from(body).toString('utf-8')).company_id);
+    const authorized = await getAuthorizedCompanyIds(session);
+    return authorized.has(companyId) ? companyId : null;
+  } catch (err) {
+    console.error('[api proxy] could not record switched company', err);
+    return null;
+  }
+}
 
 // Security audit finding (Medium, 2026-10-05): this proxy forwarded ANY
 // request body of ANY size/type to OrnaVerse with zero validation,
@@ -91,6 +118,13 @@ async function proxy(request, { params }) {
   const resolvedPath = path.join('/');
   const targetUrl = `${UPSTREAM}/${resolvedPath}${request.nextUrl.search}`;
   const isPublicPath = PUBLIC_PATH_PREFIXES.some((prefix) => resolvedPath.startsWith(prefix));
+
+  if (BLOCKED_REPORT_PATHS.has(resolvedPath.toLowerCase().replace(/\/+$/, ''))) {
+    return new Response(
+      JSON.stringify({ error: 'forbidden', error_description: 'Use the Reports page for this report.' }),
+      { status: 403, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
 
   const headers = new Headers();
   const contentType = request.headers.get('content-type');
@@ -210,7 +244,10 @@ async function proxy(request, { params }) {
   // Same once-a-minute throttle as the cookie: only when it actually moved.
   if (touched?.sid) trackInBackground('touch', () => touchSession(touched.sid, touched.lastActivityAt));
   const renewed = session ? renewSessionFromUpstream(touched ?? session, upstreamRes) : null;
-  const finalSession = renewed ?? touched;
+  let finalSession = renewed ?? touched;
+  if (session && upstreamRes.ok && resolvedPath.toLowerCase() === SWITCH_COMPANY_PATH) {
+    finalSession = { ...(finalSession ?? session), companyId: await resolveSwitchedCompanyId(session, body) };
+  }
   const setCookieHeaders = finalSession ? buildSessionCookieHeaders(finalSession) : [];
 
   if (cacheKey && upstreamRes.ok) {

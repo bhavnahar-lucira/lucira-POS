@@ -24,6 +24,7 @@ import { useRetrieveCustomer } from '@/hooks/customer/useRetrieveCustomer';
 import { useUpdateCustomer } from '@/hooks/customer/useUpdateCustomer';
 import { useCountries, useStates, useCities } from '@/hooks/settings/useLocation';
 import { selectIsSuperAdmin } from '@/store/slices/authSlice';
+import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
 
 const TAB_LABELS = { profile: 'Profile', edit: 'Edit' };
 function ProfileTab({ customer, onAttach, isAttached, onClose }) {
@@ -40,13 +41,13 @@ function ProfileTab({ customer, onAttach, isAttached, onClose }) {
         {customerMobile && (
           <div className="flex items-center gap-2 text-muted-foreground">
             <Phone size={15} className="shrink-0 text-muted-foreground/70" />
-            {customerMobile}
+            {formatMobileWithCountryCode(customerMobile)}
           </div>
         )}
         {customerPhone && (
           <div className="flex items-center gap-2 text-muted-foreground">
             <Phone size={15} className="shrink-0 text-muted-foreground/70" />
-            {customerPhone} <span className="text-xs">(phone)</span>
+            {formatMobileWithCountryCode(customerPhone)} <span className="text-xs">(phone)</span>
           </div>
         )}
         {customerEmail && (
@@ -220,7 +221,7 @@ function EditTab({ customer }) {
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ds_mobile">Mobile <span className="text-destructive">*</span></Label>
           {isMaskedValue(raw?.mobile) ? (
-            <Input id="ds_mobile" value={raw.mobile} disabled className="h-11" />
+            <Input id="ds_mobile" value={formatMobileWithCountryCode(raw.mobile)} disabled className="h-11" />
           ) : (
             <Controller
               name="mobile"
@@ -236,7 +237,7 @@ function EditTab({ customer }) {
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ds_phone">Phone <span className="text-muted-foreground text-xs">(optional)</span></Label>
           {isMaskedValue(raw?.phone) ? (
-            <Input id="ds_phone" value={raw.phone} disabled className="h-11" />
+            <Input id="ds_phone" value={formatMobileWithCountryCode(raw.phone)} disabled className="h-11" />
           ) : (
             <Controller
               name="phone"

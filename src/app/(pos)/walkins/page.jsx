@@ -17,6 +17,7 @@ import WalkInRegisterForm from '@/components/features/customers/WalkInRegisterFo
 import { useCrmVisits } from '@/hooks/customer/useCrmVisits';
 import { selectActiveStoreId, selectActiveStoreName } from '@/store/slices/storeSlice';
 import { todayDateString } from '@/lib/dateUtils';
+import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
 
 const TABS = [
   { key: 'visits', label: 'Visit Log' },
@@ -41,7 +42,7 @@ function VisitRow({ visit }) {
           {visit.customerName ?? 'Unknown customer'}
         </p>
         <p className="text-xs text-muted-foreground mt-0.5">
-          {visit.mobile ?? '—'}{visit.source ? ` · ${visit.source}` : ''}
+          {formatMobileWithCountryCode(visit.mobile) || '—'}{visit.source ? ` · ${visit.source}` : ''}
         </p>
       </div>
       <p className="text-xs text-muted-foreground shrink-0 text-right">

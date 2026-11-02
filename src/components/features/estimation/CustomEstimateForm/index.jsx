@@ -1,7 +1,7 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { useSelector } from 'react-redux';
+import { useEffect, useRef, useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
 import { toast } from 'sonner';
 import { Plus, X, PauseCircle, History, Share2, ImagePlus } from 'lucide-react';
 
@@ -12,14 +12,11 @@ import { calculateItemRates } from '@/services/pricingService';
 import {
   getStoneRate, getLabourRate, applyLabourToLine, getMetalRateForItem, createEstimationTempVoucher,
 } from '@/services/customEstimateService';
-import { createOrder, postOrder } from '@/services/orderService';
-import { useOrderHeaderConfig } from '@/hooks/checkout/useOrderHeaderConfig';
-import { buildTransactionHeaderFields } from '@/services/transactionHeaderService';
 import { listHeldEstimates, holdEstimate, removeHeldEstimate } from '@/lib/estimation/heldEstimates';
+import { prefillFromTicket, isMetalOnPureWeight, STONE_COSTING_DEFAULTS } from '@/lib/estimation/prefillFromTicket';
 import { isMaskedValue } from '@/lib/normalizers/customer';
 import { uploadTemporaryFile } from '@/services/fileUploadService';
 import { resolveImageSrc } from '@/lib/resolveImageSrc';
-import SalesPersonSelect from '@/components/features/checkout/SalesPersonSelect';
 import CustomerAttachedBanner from '@/components/shared/CustomerAttachedBanner';
 import InlineLoader from '@/components/shared/InlineLoader';
 import InvoiceReportButton from '@/components/features/checkout/InvoiceReportButton';
@@ -31,7 +28,7 @@ import {
 } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
-import { selectCartCustomerId, selectCartCustomerName, selectCartCustomerMobile } from '@/store/slices/cartSlice';
+import { addItem, selectCartCustomerId, selectCartCustomerName, selectCartCustomerMobile } from '@/store/slices/cartSlice';
 import { selectAuthUser } from '@/store/slices/authSlice';
 import APP_CONFIG from '@/constants/appConfig';
 import { formatAmountOrDash as formatINR } from '@/lib/priceUtils';
@@ -78,21 +75,64 @@ function Section({ title, children }) {
   );
 }
 
-const STONE_COSTING_DEFAULTS = {
-  112: { baseItemId: 13, salesCostingId: 10, purchaseCostingId: 10 },
-};
-
 function emptyStoneDraft() {
   return { itemGroupId: '', shapeId: '', stoneColorId: '', qualityId: '', typeId: '', pieces: 1, weight: '' };
 }
 
-export default function CustomEstimateForm({ onDone }) {
+function TicketComparison({ ticketNumber, final, live, warnings }) {
+  const rows = [
+    ['Metal rate (₹/g)', final.metal?.rate, live.metalRate],
+    ['Metal amount', final.metal?.amount, live.metalAmount],
+    ['Diamonds / stones', (final.stones ?? []).reduce((sum, s) => sum + (s.amount || 0), 0), live.stonesTotal],
+    ['Labour', final.labour?.amount, live.labourAmount],
+    ['Sub total', final.subTotal, live.subTotal],
+    ['Tax', final.taxAmount, live.taxAmount],
+    ['Net', final.netAmount, live.netAmount],
+  ];
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-sky-300 bg-sky-50/60 p-4 dark:border-sky-800 dark:bg-sky-950/30">
+      <p className="text-sm text-foreground">
+        Loaded from ticket <strong>{ticketNumber}</strong>. Prices are OrnaVerse&apos;s live rates; differences from the workflow team&apos;s figures are highlighted.
+      </p>
+      {warnings.length > 0 && (
+        <ul className="list-disc pl-5 text-sm text-amber-800 dark:text-amber-200">
+          {warnings.map((w) => <li key={w}>{w}</li>)}
+        </ul>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs text-muted-foreground">
+              <th className="py-1 text-left font-medium" />
+              <th className="py-1 text-right font-medium">Workflow team</th>
+              <th className="py-1 text-right font-medium">OrnaVerse (used)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(([label, theirs, ours]) => {
+              const differs = theirs != null && Math.abs((Number(theirs) || 0) - (Number(ours) || 0)) > 1;
+              return (
+                <tr key={label} className={differs ? 'text-amber-800 dark:text-amber-200' : ''}>
+                  <td className="py-1">{label}</td>
+                  <td className="py-1 text-right tabular-nums">{theirs != null ? formatINR(theirs) : '—'}</td>
+                  <td className={`py-1 text-right tabular-nums ${differs ? 'font-semibold' : ''}`}>{formatINR(ours)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export default function CustomEstimateForm({ onDone, ticket = null }) {
   const storeId        = useSelector(selectActiveStoreId);
   const customerId     = useSelector(selectCartCustomerId);
   const customerName   = useSelector(selectCartCustomerName);
   const customerMobile = useSelector(selectCartCustomerMobile);
   const authUser       = useSelector(selectAuthUser);
-  const headerConfig   = useOrderHeaderConfig(APP_CONFIG.DOCUMENT_TYPES.POS_ORDER);
+  const dispatch       = useDispatch();
 
   const { items: customEstimateItems, isLoading: itemsLoading } = useCustomEstimateItems();
   const { data: itemGroupsRaw } = useItemGroups();
@@ -110,6 +150,7 @@ export default function CustomEstimateForm({ onDone }) {
   const [weight, setWeight]             = useState('');
   const [baseRow, setBaseRow]           = useState(null);
   const [taxTemplate, setTaxTemplate]   = useState(null);
+  const [metalOnPure, setMetalOnPure]   = useState(false);
   const [isPricingItem, setIsPricingItem] = useState(false);
   const { sizes } = useItemSizesByType(selectedItem?.type_id);
 
@@ -120,6 +161,7 @@ export default function CustomEstimateForm({ onDone }) {
   // key on the Entity (sibling of document_id, not inside item_components).
   const [imagePath, setImagePath]       = useState(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isImageOpen, setIsImageOpen] = useState(false);
   const imageInputRef = useRef(null);
 
   const [stoneDraft, setStoneDraft]   = useState(emptyStoneDraft());
@@ -131,8 +173,6 @@ export default function CustomEstimateForm({ onDone }) {
   const [appliedLabour, setAppliedLabour]   = useState(null);
   const [isLabourBusy, setIsLabourBusy]     = useState(false);
 
-  const [salesPersonId, setSalesPersonId] = useState('');
-  const [isSubmitting, setIsSubmitting]   = useState(false);
 
   const [isHoldOpen, setIsHoldOpen]       = useState(false);
   const [holdReason, setHoldReason]       = useState('');
@@ -142,6 +182,43 @@ export default function CustomEstimateForm({ onDone }) {
   const [isShareOpen, setIsShareOpen]   = useState(false);
   const [shareMobile, setShareMobile]   = useState('');
   const [shareEmail, setShareEmail]     = useState('');
+
+  const [ticketWarnings, setTicketWarnings] = useState([]);
+  const [isPrefilling, setIsPrefilling] = useState(false);
+  const prefillStartedRef = useRef(false);
+  const final = ticket?.final_details ?? null;
+  const lookupsReady = customEstimateItems.length > 0 && karatOptions.length > 0 && metalColorOptions.length > 0
+    && stoneItemGroups.length > 0 && shapeOptions.length > 0 && colorOptions.length > 0 && qualityOptions.length > 0;
+
+  const applySnapshot = (record) => {
+    setSelectedItem(record.selectedItem);
+    setSizeId(record.sizeId);
+    setWeight(record.weight);
+    setBaseRow(record.baseRow);
+    setTaxTemplate(record.taxTemplate);
+    setMetalOnPure(record.metalOnPure ?? isMetalOnPureWeight(record.baseRow));
+    setStones(record.stones);
+    setLabourProposal(record.labourProposal);
+    setAppliedLabour(record.appliedLabour);
+    setImagePath(record.imagePath ?? null);
+  };
+
+  useEffect(() => {
+    if (!final || !lookupsReady || prefillStartedRef.current) return;
+    prefillStartedRef.current = true;
+    setIsPrefilling(true);
+    prefillFromTicket(final, {
+      items: customEstimateItems, karatOptions, metalColorOptions, stoneItemGroups,
+      shapeOptions, colorOptions, qualityOptions, storeId,
+    })
+      .then(({ snapshot, warnings }) => {
+        applySnapshot(snapshot);
+        setTicketWarnings(warnings);
+      })
+      .catch((err) => toast.error(getErrorMessage(err)))
+      .finally(() => setIsPrefilling(false));
+  }, [final, lookupsReady, customEstimateItems, karatOptions, metalColorOptions, stoneItemGroups, shapeOptions, colorOptions, qualityOptions, storeId]);
+
 
   const handleSelectItem = async (itemIdStr) => {
     const item = customEstimateItems.find((i) => i.item_id === Number(itemIdStr));
@@ -161,6 +238,7 @@ export default function CustomEstimateForm({ onDone }) {
       if (!priced) throw new Error('Could not price this item.');
       setBaseRow(priced);
       setTaxTemplate(priced.item_taxes ?? []);
+      setMetalOnPure(isMetalOnPureWeight(priced));
     } catch (err) {
       toast.error(getErrorMessage(err));
       setSelectedItem(null);
@@ -190,7 +268,7 @@ export default function CustomEstimateForm({ onDone }) {
   const metalRate = metalComponent?.rate ?? 0;
   const weightNum = Number(weight) || 0;
   const pureWeight  = +(weightNum * purity).toFixed(3);
-  const metalAmount = +(pureWeight * metalRate).toFixed(2);
+  const metalAmount = +((metalOnPure ? pureWeight : weightNum) * metalRate).toFixed(2);
 
   // Karat change re-fetches Rate (GetMetalRate) — Purity comes from the
   // Karat option's own std_purity, no network call needed for it. Color
@@ -268,7 +346,10 @@ export default function CustomEstimateForm({ onDone }) {
         salesCostingId: defaults.salesCostingId,
         purchaseCostingId: defaults.purchaseCostingId,
       });
-      const amount = +(Number(stoneWeight) * (rate || 0)).toFixed(2);
+      if (!(rate > 0)) {
+        return toast.error('OrnaVerse has no rate for this stone (type / colour / quality). Choose a combination that is priced, e.g. Labgrown Diamond · EF · VVS.');
+      }
+      const amount = +(Number(stoneWeight) * rate).toFixed(2);
       setStones((prev) => [...prev, {
         itemGroupId: Number(itemGroupId), shapeId: Number(shapeId),
         stoneColorId: Number(stoneColorId), qualityId: Number(qualityId), typeId: Number(typeId),
@@ -308,7 +389,11 @@ export default function CustomEstimateForm({ onDone }) {
         purity,
         baseItemId: selectedItem.base_item_id,
       });
-      if (!proposal.length) return toast.error('No labour rate available for this item.');
+      if (!proposal.length) {
+        return toast.error(stones.length
+          ? 'No labour rate available for this item.'
+          : "No labour rate available — this item's labour rule needs its diamonds added first.");
+      }
       setLabourProposal(proposal);
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -396,50 +481,29 @@ export default function CustomEstimateForm({ onDone }) {
     };
   };
 
-  const handleSubmit = async () => {
-    if (!customerId) return toast.error('Assign a customer to the session before submitting.');
+  // The estimate goes through the normal cart and checkout (offers, advance, sales person, payment) as one MTO line.
+  const handleProceedToCheckout = () => {
     if (!selectedItem || !baseRow) return toast.error('Select a custom estimate item first.');
-    if (!salesPersonId) return toast.error('Select a sales person.');
-    if (!headerConfig.isReady) {
-      if (headerConfig.isError) headerConfig.refetch();
-      return toast.error(
-        headerConfig.isConfigMissing
-          ? "Orders aren't set up for your store yet — contact OrnaVerse support."
-          : headerConfig.isError
-            ? 'Store configuration failed to load — retrying now, try again in a moment.'
-            : 'Store configuration is still loading — try again in a moment.'
-      );
-    }
-    setIsSubmitting(true);
-    try {
-      const lineItem = buildLineItem();
-      const createRes = await createOrder({
-        ...buildTransactionHeaderFields({
-          subTotal, taxableAmount: subTotal, taxAmount, netAmount,
-          pieces: 1, weight: weightNum, netWeight: weightNum,
-          customerId, customerName, customerMobile,
-          activeStoreId: storeId,
-          headerConfig,
-          documentTypeId: APP_CONFIG.DOCUMENT_TYPES.POS_ORDER,
-          receiptAmount: 0,
-        }),
-        sales_person_id: Number(salesPersonId),
-        line_items: [lineItem],
-        receipt_details: [],
-        promotion_details: [],
-      });
-      const transactionId = createRes?.EntityId;
-      if (!transactionId) throw new Error('Creation failed — no EntityId returned.');
-      if (!headerConfig.autoPosting) {
-        await postOrder(transactionId);
-      }
-      toast.success('Custom order placed.');
-      onDone(transactionId);
-    } catch (err) {
-      toast.error(getErrorMessage(err));
-    } finally {
-      setIsSubmitting(false);
-    }
+    if (!(weightNum > 0)) return toast.error('Enter the metal weight.');
+    const chosenSize = sizes.find((s) => s.item_size_id === Number(sizeId));
+    dispatch(addItem({
+      itemId:       selectedItem.item_id,
+      itemCode:     selectedItem.item_code,
+      itemName:     selectedItem.item_name,
+      quantity:     1,
+      unitPrice:    subTotal,
+      sizeId:       sizeId ? Number(sizeId) : null,
+      sizeName:     chosenSize?.item_size_name ?? null,
+      attributes:   { karat: metalComponent?.karat_name, metal_color: metalComponent?.metal_color_name },
+      image:        imagePath ? resolveImageSrc(imagePath) : null,
+      productUrl:   null,
+      hasStock:     false,
+      customLineId: crypto.randomUUID(),
+      customLine:   buildLineItem(),
+      ticketNumber: ticket?.ticket_number ?? null,
+    }));
+    toast.success('Estimate added to the cart.');
+    onDone();
   };
 
   const handleConfirmHold = () => {
@@ -448,7 +512,7 @@ export default function CustomEstimateForm({ onDone }) {
     holdEstimate(storeId, {
       reason: holdReason.trim(),
       heldBy: authUser?.username ?? null,
-      selectedItem, sizeId, weight, baseRow, taxTemplate, stones, labourProposal, appliedLabour, salesPersonId,
+      selectedItem, sizeId, weight, baseRow, taxTemplate, metalOnPure, stones, labourProposal, appliedLabour,
       imagePath, netAmount,
     });
     // Confirmed live 2026-10-14 against OrnaVerse's own Estimation > Custom
@@ -467,16 +531,7 @@ export default function CustomEstimateForm({ onDone }) {
   };
 
   const handleSelectHeld = (record) => {
-    setSelectedItem(record.selectedItem);
-    setSizeId(record.sizeId);
-    setWeight(record.weight);
-    setBaseRow(record.baseRow);
-    setTaxTemplate(record.taxTemplate);
-    setStones(record.stones);
-    setLabourProposal(record.labourProposal);
-    setAppliedLabour(record.appliedLabour);
-    setSalesPersonId(record.salesPersonId);
-    setImagePath(record.imagePath ?? null);
+    applySnapshot(record);
     removeHeldEstimate(storeId, record.id);
     setIsRetrieveOpen(false);
   };
@@ -579,21 +634,22 @@ export default function CustomEstimateForm({ onDone }) {
           />
           {imagePath ? (
             <div className="flex items-center gap-2">
-              {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary uploaded file, not a next/image-optimizable asset */}
-              <img
-                src={resolveImageSrc(imagePath)}
-                alt="Reference"
-                className="h-10 w-10 shrink-0 rounded-lg border border-border object-cover"
-              />
+              <button type="button" onClick={() => setIsImageOpen(true)} className="shrink-0" aria-label="View reference image">
+                {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary uploaded file, not a next/image-optimizable asset */}
+                <img
+                  src={resolveImageSrc(imagePath)}
+                  alt="Reference"
+                  className="h-10 w-10 rounded-lg border border-border object-cover"
+                />
+              </button>
               <div className="flex flex-col gap-1 min-w-0">
-                <a
-                  href={resolveImageSrc(imagePath)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-sm text-accent hover:underline truncate"
+                <button
+                  type="button"
+                  onClick={() => setIsImageOpen(true)}
+                  className="text-left text-sm text-accent hover:underline truncate"
                 >
                   View image
-                </a>
+                </button>
                 <Button
                   type="button"
                   variant="ghost"
@@ -620,7 +676,17 @@ export default function CustomEstimateForm({ onDone }) {
         </FormField>
       </div>
 
+      {isPrefilling && <InlineLoader label={`Loading the final details of ${ticket.ticket_number} at OrnaVerse live rates…`} />}
       {isPricingItem && <InlineLoader label="Pricing item…" />}
+
+      {final && selectedItem && baseRow && !isPrefilling && (
+        <TicketComparison
+          ticketNumber={ticket.ticket_number}
+          final={final}
+          warnings={ticketWarnings}
+          live={{ metalRate, metalAmount, stonesTotal, labourAmount, subTotal, taxAmount, netAmount }}
+        />
+      )}
 
       {selectedItem && baseRow && (
         <>
@@ -762,10 +828,6 @@ export default function CustomEstimateForm({ onDone }) {
             )}
           </Section>
 
-          <FormField label="Sales Person" required>
-            <SalesPersonSelect companyId={storeId} value={salesPersonId} onChange={setSalesPersonId} />
-          </FormField>
-
           <Section title="Estimate Summary">
             <div className="flex flex-col gap-1.5 text-sm">
               <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatINR(subTotal)}</span></div>
@@ -790,12 +852,24 @@ export default function CustomEstimateForm({ onDone }) {
               <PauseCircle size={18} aria-hidden="true" /> Hold Estimate
             </Button>
 
-            <Button type="button" disabled={isSubmitting} className="h-12 w-full" onClick={handleSubmit}>
-              {isSubmitting ? 'Placing Order…' : 'Proceed to Order'}
+            <Button type="button" className="h-12 w-full" onClick={handleProceedToCheckout}>
+              Proceed to Checkout
             </Button>
           </div>
         </>
       )}
+
+      <Dialog open={isImageOpen && !!imagePath} onOpenChange={setIsImageOpen}>
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Reference image</DialogTitle>
+          </DialogHeader>
+          {imagePath && (
+            // eslint-disable-next-line @next/next/no-img-element -- arbitrary uploaded file, not a next/image-optimizable asset
+            <img src={resolveImageSrc(imagePath)} alt="Reference" className="max-h-[75vh] w-full rounded-lg object-contain" />
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isShareOpen} onOpenChange={setIsShareOpen}>
         <DialogContent>

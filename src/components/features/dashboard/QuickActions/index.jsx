@@ -16,6 +16,7 @@ import {
   FileSpreadsheet,
   ScanLine,
   BarChart3,
+  Ticket,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useBarcodeLookup } from '@/hooks/catalog/useBarcodeLookup';
@@ -105,6 +106,14 @@ const QUICK_ACTIONS = [
     description: 'Custom Estimation',
     icon:        FileSpreadsheet,
     href:        '/estimation',
+    accent:      'bg-card text-foreground border border-border shadow-sm hover:shadow-md hover:border-accent/40 hover:text-accent',
+  },
+  {
+    id:          'ticketing',
+    label:       'New Ticket',
+    description: 'Custom design request',
+    icon:        Ticket,
+    href:        '/ticketing/new',
     accent:      'bg-card text-foreground border border-border shadow-sm hover:shadow-md hover:border-accent/40 hover:text-accent',
   },
   {

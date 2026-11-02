@@ -5,7 +5,18 @@
 import { createSlice } from '@reduxjs/toolkit';
 
 const initialState = {
+  // Below md: whether the overlay nav drawer is open (Header's hamburger).
+  // Always starts closed so a phone never loads with the page covered.
   sidebarOpen:   false,
+  // md and up: whether the sidebar is squeezed to its icon-only rail.
+  //   null  → the viewport decides (Sidebar's CSS): rail on a tablet
+  //           (md..lg, where a 224px column costs too much of the page),
+  //           expanded with labels on a laptop/desktop (lg+).
+  //   true/false → the operator clicked Collapse/Expand; applies at every
+  //           md+ size until the next reload (this slice isn't persisted).
+  // Reported directly (2026-10-28/29): bare icons were hard to tell apart on
+  // a laptop, but the open sidebar ate too much space on a tablet.
+  sidebarCollapsed: null,
   globalLoading: false,
   cartOpen:      false,
   // Deliberately kept in this NOT-persisted slice rather than cartSlice: a
@@ -35,6 +46,7 @@ const uiSlice = createSlice({
     openSidebar:  (state) => { state.sidebarOpen = true;  },
     closeSidebar: (state) => { state.sidebarOpen = false; },
     toggleSidebar:(state) => { state.sidebarOpen = !state.sidebarOpen; },
+    setSidebarCollapsed: (state, action) => { state.sidebarCollapsed = action.payload; },
 
     openCart:  (state) => { state.cartOpen = true;  },
     closeCart: (state) => { state.cartOpen = false; },
@@ -56,6 +68,7 @@ export const {
   openSidebar,
   closeSidebar,
   toggleSidebar,
+  setSidebarCollapsed,
   openCart,
   closeCart,
   setGlobalLoading,
@@ -64,6 +77,7 @@ export const {
 } = uiSlice.actions;
 
 export const selectSidebarOpen   = (state) => state.ui.sidebarOpen;
+export const selectSidebarCollapsed = (state) => state.ui.sidebarCollapsed;
 export const selectGlobalLoading = (state) => state.ui.globalLoading;
 export const selectCartOpen      = (state) => state.ui.cartOpen;
 export const selectCheckoutInProgress = (state) => state.ui.checkoutInProgress;

@@ -7,16 +7,42 @@ import { ChevronLeft, ChevronRight, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSidebar } from '@/hooks/ui/useSidebar';
 import { useAuth } from '@/hooks/auth/useAuth';
+import { useMediaQuery } from '@/hooks/ui/useMediaQuery';
+import { useHasMounted } from '@/hooks/ui/useHasMounted';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import { NAV_ITEMS, BOTTOM_ITEMS } from '@/constants/navItems';
 
+// Tailwind's default `lg` breakpoint — the laptop/desktop cut-off above
+// which the sidebar is expanded by default (see uiSlice.sidebarCollapsed).
+const LAPTOP_QUERY = '(min-width: 1024px)';
+
 function getInitial(name) {
   return name?.trim()?.[0]?.toUpperCase() ?? '?';
 }
 
-function SidebarNavItem({ item, collapsed, onNavigate }) {
+/**
+ * The md+ sidebar has three visual modes, all resolved in CSS so the server
+ * render and the first client render always agree (no media-query JS in the
+ * class names):
+ *   'rail'     — operator collapsed it: icon rail at every md+ size
+ *   'expanded' — operator expanded it: labels at every md+ size
+ *   'auto'     — nobody has clicked yet: icon rail on a tablet (md..lg),
+ *                expanded on a laptop/desktop (lg+)
+ * Below md none of this applies — the overlay drawer is always full width.
+ *
+ * `rail` are md: classes, `expanded` the explicit-expanded ones, and
+ * `autoExpanded` the lg: overrides that undo `rail` on a laptop; 'auto'
+ * applies `rail` at md and `autoExpanded` again at lg.
+ */
+function railClasses(mode, { rail, expanded = '', autoExpanded = '' }) {
+  if (mode === 'rail')     return rail;
+  if (mode === 'expanded') return expanded;
+  return cn(rail, autoExpanded);
+}
+
+function SidebarNavItem({ item, mode, isRail, onNavigate }) {
   const pathname = usePathname();
   const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
   const Icon = item.icon;
@@ -31,23 +57,31 @@ function SidebarNavItem({ item, collapsed, onNavigate }) {
         isActive
           ? 'bg-sidebar-primary text-sidebar-primary-foreground'
           : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground',
-        collapsed && 'justify-center px-2'
+        railClasses(mode, {
+          rail:         'md:justify-center md:px-2',
+          autoExpanded: 'lg:justify-start lg:px-3',
+        })
       )}
       aria-current={isActive ? 'page' : undefined}
     >
       <Icon size={20} aria-hidden="true" className="shrink-0" />
-      {!collapsed && (
-        <span className='flex items-center gap-2 truncate'>
-          <span className='truncate'>{item.label}</span>
-          {item.comingSoon && (
-            <span className="shrink-0 rounded-full bg-sidebar-accent px-1.5 py-0.5 text-[10px] font-semibold leading-none text-sidebar-foreground/60">Soon</span>
-          )}
-        </span>
-      )}
+      <span
+        className={cn(
+          'flex items-center gap-2 truncate',
+          railClasses(mode, { rail: 'md:hidden', autoExpanded: 'lg:flex' })
+        )}
+      >
+        <span className='truncate'>{item.label}</span>
+        {item.comingSoon && (
+          <span className="shrink-0 rounded-full bg-sidebar-accent px-1.5 py-0.5 text-[10px] font-semibold leading-none text-sidebar-foreground/60">Soon</span>
+        )}
+      </span>
     </Link>
   );
 
-  if (collapsed) {
+  // Tooltip only while the label is actually hidden (a JS decision, so it
+  // uses the post-mount effective state rather than the CSS mode).
+  if (isRail) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
@@ -62,9 +96,23 @@ function SidebarNavItem({ item, collapsed, onNavigate }) {
 }
 
 export default function Sidebar() {
-  const { sidebarOpen, toggle, close } = useSidebar();
+  // sidebarOpen → the below-md overlay drawer; collapsed → the md+ icon rail.
+  // Independent on purpose: expanding the desktop rail by default must not
+  // also pop the drawer open over the page on a phone (see uiSlice).
+  const { sidebarOpen, collapsed, close, setCollapsed } = useSidebar();
   const { user, logout } = useAuth();
-  const collapsed = !sidebarOpen;
+
+  const mode = collapsed === null ? 'auto' : collapsed ? 'rail' : 'expanded';
+
+  // Effective rail state for the few things CSS can't gate (tooltips, the
+  // toggle's aria-label and what the toggle does next). Only meaningful
+  // after mount — before that it mirrors the server render ('expanded'
+  // visuals are what the laptop, the common case, sees anyway).
+  const isLaptop   = useMediaQuery(LAPTOP_QUERY);
+  const hasMounted = useHasMounted();
+  const isRail = collapsed ?? (hasMounted ? !isLaptop : false);
+
+  const toggleRail = () => setCollapsed(!isRail);
 
   return (
     <>
@@ -82,30 +130,33 @@ export default function Sidebar() {
           'fixed inset-y-0 left-0 z-50 w-64 transition-transform duration-300 ease-in-out',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full',
           'md:relative md:inset-auto md:z-auto md:translate-x-0 md:transition-[width] md:duration-300 md:ease-in-out',
-          sidebarOpen ? 'md:w-56' : 'md:w-16'
+          railClasses(mode, { rail: 'md:w-16', expanded: 'md:w-56', autoExpanded: 'lg:w-56' })
         )}
         aria-label="Main navigation"
       >
         <div
           className={cn(
             'flex items-center border-b border-sidebar-border min-h-[64px] px-4 gap-3',
-            !sidebarOpen && 'md:justify-center md:px-2'
+            railClasses(mode, {
+              rail:         'md:justify-center md:px-2',
+              autoExpanded: 'lg:justify-start lg:px-4',
+            })
           )}
         >
-          <span className={cn(!sidebarOpen && 'md:hidden')}>
+          <span className={railClasses(mode, { rail: 'md:hidden', autoExpanded: 'lg:inline' })}>
             <Logo variant="full" color="white" height={32} width={110} />
           </span>
-          <span className={cn('hidden', !sidebarOpen && 'md:inline')}>
+          <span className={cn('hidden', railClasses(mode, { rail: 'md:inline', autoExpanded: 'lg:hidden' }))}>
             <Logo variant="icon" color="white" height={24} width={24} />
           </span>
         </div>
 
         <nav
-          className="flex flex-col gap-1 flex-1 overflow-y-auto p-2"
+          className="flex flex-col gap-1 flex-1 overflow-y-auto scrollbar-none p-2"
           aria-label="Primary"
         >
           {NAV_ITEMS.map((item) => (
-            <SidebarNavItem key={item.href} item={item} collapsed={collapsed} onNavigate={close} />
+            <SidebarNavItem key={item.href} item={item} mode={mode} isRail={isRail} onNavigate={close} />
           ))}
         </nav>
 
@@ -113,7 +164,7 @@ export default function Sidebar() {
 
         <nav className="hidden flex-col gap-1 p-2" aria-label="Secondary">
           {BOTTOM_ITEMS.map((item) => (
-            <SidebarNavItem key={item.href} item={item} collapsed={collapsed} onNavigate={close} />
+            <SidebarNavItem key={item.href} item={item} mode={mode} isRail={isRail} onNavigate={close} />
           ))}
         </nav>
 
@@ -137,25 +188,45 @@ export default function Sidebar() {
           </Button>
         </div>
 
-        {/* Collapses to icon-rail at md+, closes the drawer below md */}
+        {/* md+: expand/collapse the icon rail. Below md: close the drawer.
+            Two buttons gated by CSS rather than one driven by a JS media
+            query, so the server and first client render always agree. */}
         <div className="p-2">
           <Button
             variant="ghost"
             size="sm"
-            onClick={toggle}
+            onClick={toggleRail}
             className={cn(
-              'w-full min-h-[44px] text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent',
-              !sidebarOpen && 'md:px-0 md:justify-center'
+              'hidden md:flex w-full min-h-[44px] text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent',
+              railClasses(mode, {
+                rail:         'md:px-0 md:justify-center',
+                autoExpanded: 'lg:px-3',
+              })
             )}
-            aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            aria-label={isRail ? 'Expand sidebar' : 'Collapse sidebar'}
           >
-            <span className={cn('flex items-center gap-2', !sidebarOpen && 'md:hidden')}>
+            <span
+              className={cn(
+                'flex items-center gap-2',
+                railClasses(mode, { rail: 'md:hidden', autoExpanded: 'lg:flex' })
+              )}
+            >
               <ChevronLeft size={16} aria-hidden="true" />
               <span className="text-xs">Collapse</span>
             </span>
-            <span className={cn('hidden', !sidebarOpen && 'md:inline')}>
+            <span className={cn('hidden', railClasses(mode, { rail: 'md:inline', autoExpanded: 'lg:hidden' }))}>
               <ChevronRight size={16} aria-hidden="true" />
             </span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={close}
+            className="flex md:hidden w-full min-h-[44px] gap-2 text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+            aria-label="Close navigation menu"
+          >
+            <ChevronLeft size={16} aria-hidden="true" />
+            <span className="text-xs">Close</span>
           </Button>
         </div>
       </aside>

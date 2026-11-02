@@ -74,8 +74,9 @@ export async function upsertPurchase(record) {
         environment:     record.environment ?? ACTIVE_ENV,
         storeName:       record.storeName ?? null,
         salesPersonId:   record.salesPersonId   ?? null,
-        salesPersonName: record.salesPersonName ?? null,
-        items:           record.items       ?? [],
+        // Only written when known, so a sync without the name never wipes one saved at checkout.
+        ...(record.salesPersonName != null && { salesPersonName: record.salesPersonName }),
+        items:          record.items       ?? [],
         promotions:      record.promotions  ?? [],
         payments:        record.payments    ?? [],
         totalAmount:     record.totalAmount ?? 0,
@@ -113,6 +114,22 @@ export async function listPurchases({ companyId } = {}) {
   const db = await getDb();
   const match = { ...environmentMatch(), ...(companyId != null ? { companyId } : {}) };
   return db.collection(COLLECTION).find(match).sort({ documentDate: -1 }).toArray();
+}
+
+/** One store's invoices and orders, only the fields the Non-Buyers matching needs. */
+export async function listStoreSales(companyId) {
+  const db = await getDb();
+  return db.collection(COLLECTION)
+    .find(
+      { ...environmentMatch(), companyId, documentType: { $in: ['invoice', 'order'] } },
+      {
+        projection: {
+          documentType: 1, documentNo: 1, documentDate: 1, documentStatus: 1,
+          balanceAmount: 1, receiptAmount: 1, totalAmount: 1, customerName: 1, customerMobile: 1,
+        },
+      },
+    )
+    .toArray();
 }
 
 /**

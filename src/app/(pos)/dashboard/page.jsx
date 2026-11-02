@@ -11,6 +11,8 @@ import TodaysActivityStrip  from '@/components/features/dashboard/TodaysActivity
 import MetalRatesTicker     from '@/components/features/dashboard/MetalRatesTicker';
 import UpcomingEventsCard   from '@/components/features/dashboard/UpcomingEventsCard';
 import SchemeRemindersCard  from '@/components/features/dashboard/SchemeRemindersCard';
+import TicketNotificationsCard from '@/components/features/dashboard/TicketNotificationsCard';
+import LapsedBuyersCard     from '@/components/features/dashboard/LapsedBuyersCard';
 import InlineLoader         from '@/components/shared/InlineLoader';
 import ErrorState           from '@/components/shared/ErrorState';
 
@@ -76,6 +78,8 @@ function DashboardScreen() {
 
       <div className="flex flex-col gap-6 max-w-[1600px] mx-auto w-full px-4 py-4 md:px-6">
 
+        <TicketNotificationsCard />
+
         {/* ── ROW 1: KPI cards ───────────────────────────────────── */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <KPICard
@@ -125,6 +129,8 @@ function DashboardScreen() {
             <SchemeRemindersCard due={schemesDue} maturing={schemesMaturing} isLoading={schemesLoading} />
           </div>
         </div>
+
+        <LapsedBuyersCard />
 
         {/* ── ROW 4: Today's activity ────────────────────────────── */}
         <TodaysActivityStrip

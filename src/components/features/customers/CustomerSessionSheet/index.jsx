@@ -98,7 +98,7 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
   };
 
   const handleAttachFound = () => {
-    performAttach(customer);
+    performAttach({ ...customer, customerContactMobile: isMobileSearch ? trimmed : null });
   };
 
   const handleSelectNameResult = (selected) => {
