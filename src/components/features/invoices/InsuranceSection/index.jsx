@@ -1,12 +1,14 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { AlertTriangle, ExternalLink, ShieldCheck, ShieldPlus } from 'lucide-react';
+import { AlertTriangle, Clock, ExternalLink, ShieldCheck, ShieldPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useInvoiceInsurance } from '@/hooks/invoices/useInvoiceInsurance';
 import { useGenerateInsurance } from '@/hooks/invoices/useGenerateInsurance';
 import { lineItemKey } from '@/lib/olocker/buildTagList';
+import { getInsuranceWindow, formatWindowDate } from '@/lib/olocker/insuranceWindow';
+import { INSURANCE_WINDOW_DAYS } from '@/lib/olocker/constants';
 import { formatAmountOrNull as formatCurrency } from '@/lib/priceUtils';
 
 /**
@@ -51,9 +53,17 @@ function PolicyRow({ policy, showLink }) {
  * the invoice itself — the customer decides when the bill is in front of
  * them, and nothing about the invoice has to change to record it.
  *
- * @param {{ raw: object }} props — the Invoice/Retrieve Entity
+ * Only offered within INSURANCE_WINDOW_DAYS of the invoice date. Past that
+ * the button stays visible but disabled, with the reason, so the operator
+ * knows why rather than wondering where it went. The API enforces the same
+ * rule independently.
+ *
+ * @param {{
+ *   raw: object,          // the Invoice/Retrieve Entity
+ *   autoOpen?: boolean,   // open the item picker as soon as it can be shown
+ * }} props
  */
-export default function InsuranceSection({ raw }) {
+export default function InsuranceSection({ raw, autoOpen = false }) {
   const transactionId = raw?.transaction_id ?? null;
   const { policies, unattributed, isLoading } = useInvoiceInsurance(transactionId);
   const generate = useGenerateInsurance();
@@ -65,12 +75,30 @@ export default function InsuranceSection({ raw }) {
     [policies],
   );
 
+  const insuranceWindow = useMemo(
+    () => getInsuranceWindow(raw?.document_date),
+    [raw?.document_date],
+  );
+
   const uninsured = useMemo(() => {
     const lines = Array.isArray(raw?.line_items) ? raw.line_items : [];
     return lines
       .map((item, index) => ({ item, index, key: lineItemKey(item, index) }))
       .filter((line) => !insuredKeys.has(line.key));
   }, [raw, insuredKeys]);
+
+  const canGenerate = insuranceWindow.isOpen && !unattributed && uninsured.length > 0;
+
+  // Opened from the post-sale nudge: jump straight to the picker, once,
+  // as soon as the policy lookup has settled and there is something to pick.
+  // Adjusted during render rather than in an effect, so the picker appears
+  // in the same paint instead of flashing the plain button first.
+  const [autoOpened, setAutoOpened] = useState(false);
+  if (autoOpen && !autoOpened && !isLoading && canGenerate) {
+    setAutoOpened(true);
+    setSelected(new Set(uninsured.map((line) => line.key)));
+    setIsPicking(true);
+  }
 
   if (!transactionId || isLoading) return null;
 
@@ -129,13 +157,30 @@ export default function InsuranceSection({ raw }) {
       )}
 
       {uninsured.length > 0 && !isPicking && !unattributed && (
-        <Button variant="outline" className="w-full gap-2" onClick={openPicker}>
-          <ShieldPlus size={16} />
-          Generate Insurance
-        </Button>
+        <div className="flex flex-col gap-1.5">
+          <Button
+            variant="outline"
+            className="w-full gap-2"
+            onClick={openPicker}
+            disabled={!insuranceWindow.isOpen}
+          >
+            <ShieldPlus size={16} />
+            Generate Insurance
+          </Button>
+          <p className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
+            <Clock size={12} />
+            {insuranceWindow.isOpen
+              ? insuranceWindow.daysLeft === 0
+                ? 'Last day to generate insurance for this invoice.'
+                : `Available until ${formatWindowDate(insuranceWindow.lastDay)}.`
+              : insuranceWindow.lastDay
+                ? `Insurance closes ${INSURANCE_WINDOW_DAYS} days after purchase. This invoice's window ended on ${formatWindowDate(insuranceWindow.lastDay)}.`
+                : 'This invoice has no valid purchase date, so insurance is unavailable.'}
+          </p>
+        </div>
       )}
 
-      {isPicking && (
+      {isPicking && insuranceWindow.isOpen && (
         <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
           <p className="text-sm font-semibold text-foreground">Generate Insurance</p>
           <p className="text-xs text-muted-foreground">

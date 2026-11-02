@@ -67,3 +67,11 @@ export function metalFromKaratName(karatName) {
 
   return { type: 'GOLD', fineness: FINENESS_BY_KARAT[digits] ?? null };
 }
+
+// ── INSURANCE WINDOW ──────────────────────────────────────────────────────
+// A policy can only be issued within this many calendar days of the
+// purchase (invoice) date. The purchase day itself is day 0, so an invoice
+// dated 2 Nov stays insurable through the end of 9 Nov and closes on 10 Nov.
+// Days are counted in IST, because that is the date printed on the invoice
+// and the server may well be running in UTC.
+export const INSURANCE_WINDOW_DAYS = 7;

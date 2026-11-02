@@ -1,11 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CheckCircle2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Confetti from '@/components/shared/Confetti';
 import InvoiceReportButton from '@/components/features/checkout/InvoiceReportButton';
+import InsuranceSection from '@/components/features/invoices/InsuranceSection';
+import ConfirmDialog from '@/components/shared/ConfirmDialog';
+import { useInvoiceInsurance } from '@/hooks/invoices/useInvoiceInsurance';
+import { getInsuranceWindow } from '@/lib/olocker/insuranceWindow';
+import { INSURANCE_WINDOW_DAYS } from '@/lib/olocker/constants';
+import tracker from '@/lib/analytics/tracker';
+import EVENTS from '@/lib/analytics/events';
 import { useInvoiceDetail } from '@/hooks/checkout/useInvoiceDetail';
 import { useOrderDetail } from '@/hooks/checkout/useOrderDetail';
 import { sumRealGst } from '@/lib/gst';
@@ -44,6 +51,35 @@ export default function OrderConfirmationScreen({
   const gst         = sumRealGst(invoice?.line_items);
   const roundOffAmt = invoice?.round_off ?? null;
   const payments    = invoice?.receipt_details ?? [];
+
+  // ── Insurance nudge ────────────────────────────────────────────────────
+  // Right after a sale is the one moment the customer is still at the
+  // counter, so the salesperson is asked once whether to insure it. Only
+  // for invoices (an order has nothing to insure yet), and only when there
+  // is actually something left to insure inside the window.
+  const insurance = useInvoiceInsurance(isOrder ? null : transactionId);
+  const [nudgeOpen, setNudgeOpen] = useState(false);
+  const [nudgeShown, setNudgeShown] = useState(false);
+  const [insuranceAccepted, setInsuranceAccepted] = useState(false);
+
+  const canNudge = !isOrder
+    && !!invoice
+    && !insurance.isLoading
+    && !insurance.isError
+    && !insurance.unattributed
+    && (invoice.line_items?.length ?? 0) > insurance.policies.length
+    && getInsuranceWindow(invoice.document_date).isOpen;
+
+  useEffect(() => {
+    if (!canNudge || nudgeShown) return;
+    // Let the confetti land before a dialog covers it.
+    const timer = setTimeout(() => {
+      setNudgeShown(true);
+      setNudgeOpen(true);
+      tracker.track(EVENTS.INSURANCE_NUDGE_SHOWN, { transactionId });
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [canNudge, nudgeShown, transactionId]);
 
   const handleNewSale = () => {
     router.push('/catalog');
@@ -168,7 +204,13 @@ export default function OrderConfirmationScreen({
           <p className="text-sm text-muted-foreground text-center py-4">Invoice details unavailable.</p>
         )}
       </div>
-      <div className="flex w-full max-w-md flex-col gap-2">
+      <div className="flex w-full max-w-md flex-col gap-2 text-left">
+        {/* Same section the invoice sheet uses. "Not now" on the nudge
+            leaves the plain Generate Insurance button here, so the
+            salesperson can still change their mind before leaving. */}
+        {!isOrder && invoice && (
+          <InsuranceSection raw={invoice} autoOpen={insuranceAccepted} />
+        )}
         <InvoiceReportButton
           transactionId={transactionId}
           documentId={isOrder
@@ -184,6 +226,21 @@ export default function OrderConfirmationScreen({
           New Sale
         </Button>
       </div>
+
+      <ConfirmDialog
+        isOpen={nudgeOpen}
+        onOpenChange={setNudgeOpen}
+        title="Generate insurance for this sale?"
+        description={`Ask the customer if they want Olocker insurance for their jewellery. It can only be generated within ${INSURANCE_WINDOW_DAYS} days of purchase, and they'll receive the policy by email and WhatsApp.`}
+        confirmLabel="Generate Insurance"
+        cancelLabel="Not now"
+        confirmVariant="default"
+        onConfirm={() => {
+          setInsuranceAccepted(true);
+          tracker.track(EVENTS.INSURANCE_NUDGE_ACCEPTED, { transactionId });
+        }}
+        onCancel={() => tracker.track(EVENTS.INSURANCE_NUDGE_DISMISSED, { transactionId })}
+      />
     </div>
   );
 }

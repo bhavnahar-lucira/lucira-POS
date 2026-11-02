@@ -51,6 +51,9 @@ const RAW_EVENTS = {
 
   INSURANCE_GENERATED:    'insurance_generated',
   INSURANCE_FAILED:       'insurance_failed',
+  INSURANCE_NUDGE_SHOWN:     'insurance_nudge_shown',
+  INSURANCE_NUDGE_ACCEPTED:  'insurance_nudge_accepted',
+  INSURANCE_NUDGE_DISMISSED: 'insurance_nudge_dismissed',
 
   RETURN_CREATED:         'return_created',
   RETURN_POSTED:          'return_posted',

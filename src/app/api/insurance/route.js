@@ -16,6 +16,8 @@ import { postUpstream } from '@/lib/reports/serverAccess';
 import { generatePolicies, OlockerError } from '@/lib/olocker/client';
 import { buildTagList, lineItemKey } from '@/lib/olocker/buildTagList';
 import { getInvoicePolicies, appendInvoicePolicies } from '@/lib/mongo/insurancePolicies';
+import { getInsuranceWindow, formatWindowDate } from '@/lib/olocker/insuranceWindow';
+import { INSURANCE_WINDOW_DAYS } from '@/lib/olocker/constants';
 import API from '@/constants/apiEndpoints';
 
 function parseTransactionId(value) {
@@ -68,6 +70,23 @@ export async function POST(request) {
     const invoice = detail?.Entity;
     if (!invoice) {
       return Response.json({ error: 'Invoice not found' }, { status: 404 });
+    }
+
+    // Olocker only insures within a fixed window after purchase. Enforced
+    // here, not just by the disabled button, so a stale sheet left open
+    // overnight or a direct API call can't buy a policy outside it.
+    const insuranceWindow = getInsuranceWindow(invoice.document_date);
+    if (!insuranceWindow.isOpen) {
+      return Response.json(
+        {
+          error: insuranceWindow.lastDay
+            ? `Insurance can only be generated within ${INSURANCE_WINDOW_DAYS} days of purchase. `
+              + `The window for this invoice closed after ${formatWindowDate(insuranceWindow.lastDay)}.`
+            : 'This invoice has no valid purchase date, so insurance cannot be generated.',
+          code: 'WINDOW_CLOSED',
+        },
+        { status: 422 },
+      );
     }
 
     const { items: existing, unattributed: alreadyUnattributed } =
