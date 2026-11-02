@@ -15,6 +15,7 @@ import { useCustomerSearch } from '@/hooks/customer/useCustomerSearch';
 import { useCustomerSession } from '@/hooks/customer/useCustomerSession';
 import { useWalkInLookup } from '@/hooks/customer/useWalkInLookup';
 import { useCart } from '@/hooks/cart/useCart';
+import { useEndCustomerVisit } from '@/components/features/voc/VocEndVisitProvider';
 import TOAST from '@/constants/toastMessages';
 import APP_CONFIG from '@/constants/appConfig';
 
@@ -32,6 +33,7 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
 
   const session = useCustomerSession();
   const { isEmpty } = useCart();
+  const { endVisit } = useEndCustomerVisit();
 
   const trimmed = (searchQuery ?? '').trim();
   const isMobileSearch = MOBILE_REGEX.test(trimmed);
@@ -83,18 +85,23 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
   };
 
   const performAttach = (customerToAttach, options) => {
-    if (wouldSwitchCustomer(customerToAttach.customerId)) {
-      session.detach();
-    }
-    session.attach(customerToAttach, options);
-    // The single point a customer actually becomes "the one in the
-    // session" — recording here (not just on search keystrokes) covers
-    // every attach path, including a freshly-created customer, which
-    // otherwise never recorded a visit at all.
-    if (customerToAttach.customerMobile) {
-      walkIn.lookup(customerToAttach.customerMobile);
-    }
+    const attachNow = () => {
+      if (wouldSwitchCustomer(customerToAttach.customerId)) {
+        session.detach();
+      }
+      session.attach(customerToAttach, options);
+      // The single point a customer actually becomes "the one in the
+      // session" — recording here (not just on search keystrokes) covers
+      // every attach path, including a freshly-created customer, which
+      // otherwise never recorded a visit at all.
+      if (customerToAttach.customerMobile) {
+        walkIn.lookup(customerToAttach.customerMobile);
+      }
+    };
     handleClose();
+    // Switching to another customer ends the current one's visit, so offer their feedback first.
+    if (session.isAttached && session.customerId !== customerToAttach.customerId) endVisit(attachNow);
+    else attachNow();
   };
 
   const handleAttachFound = () => {
@@ -114,8 +121,8 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
   };
 
   const handleDetach = () => {
-    session.detach();
     handleClose();
+    endVisit(session.detach);
   };
 
   return (

@@ -303,4 +303,11 @@ export const QUERY_KEYS = {
     DETAIL:        (ticketNumber) => ['ticketing', 'detail', ticketNumber],
     NOTIFICATIONS: () => ['ticketing', 'notifications'],
   },
+
+  VOC: {
+    ALL:    () => ['voc'],
+    LIST:   (filters) => ['voc', 'list', filters],
+    DETAIL: (id) => ['voc', 'detail', id],
+    TODAY:  (partyId) => ['voc', 'today', partyId],
+  },
 };

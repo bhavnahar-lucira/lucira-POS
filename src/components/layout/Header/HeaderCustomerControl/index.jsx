@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import CustomerSessionSheet from '@/components/features/customers/CustomerSessionSheet';
 import { useCustomerSession } from '@/hooks/customer/useCustomerSession';
+import { useEndCustomerVisit } from '@/components/features/voc/VocEndVisitProvider';
 import { selectCheckoutInProgress } from '@/store/slices/uiSlice';
 import { cn } from '@/lib/utils';
 import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
@@ -23,6 +24,7 @@ export default function HeaderCustomerControl() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const { isAttached, customerName, customerMobile, detach } = useCustomerSession();
   const checkoutInProgress = useSelector(selectCheckoutInProgress);
+  const { endVisit, checking } = useEndCustomerVisit();
 
   const guardedSheetOpen = () => {
     if (checkoutInProgress) {
@@ -37,7 +39,7 @@ export default function HeaderCustomerControl() {
       toast.error('A sale is being processed — please wait for it to finish before removing this customer.');
       return;
     }
-    detach();
+    endVisit(detach);
   };
 
   if (!isAttached) {
@@ -92,6 +94,7 @@ export default function HeaderCustomerControl() {
         <button
           type="button"
           onClick={guardedDetach}
+          disabled={checking}
           aria-label={`Remove customer ${customerName}`}
           className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-status-in-stock/70 hover:bg-status-in-stock/20 hover:text-status-in-stock focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >

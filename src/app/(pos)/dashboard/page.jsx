@@ -13,6 +13,7 @@ import UpcomingEventsCard   from '@/components/features/dashboard/UpcomingEvents
 import SchemeRemindersCard  from '@/components/features/dashboard/SchemeRemindersCard';
 import TicketNotificationsCard from '@/components/features/dashboard/TicketNotificationsCard';
 import LapsedBuyersCard     from '@/components/features/dashboard/LapsedBuyersCard';
+import VocTodayCard         from '@/components/features/dashboard/VocTodayCard';
 import InlineLoader         from '@/components/shared/InlineLoader';
 import ErrorState           from '@/components/shared/ErrorState';
 
@@ -130,7 +131,10 @@ function DashboardScreen() {
           </div>
         </div>
 
-        <LapsedBuyersCard />
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <VocTodayCard />
+          <LapsedBuyersCard />
+        </div>
 
         {/* ── ROW 4: Today's activity ────────────────────────────── */}
         <TodaysActivityStrip

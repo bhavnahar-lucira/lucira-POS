@@ -17,7 +17,7 @@ import {
   BarChart3,
   UserX,
   Ticket,
-
+  MessageSquareHeart,
 } from 'lucide-react';
 
 export const NAV_ITEMS = [
@@ -36,6 +36,7 @@ export const NAV_ITEMS = [
   { label: 'Walk-ins',     href: '/walkins',      icon: Footprints      },
   { label: 'Buyers',       href: '/buyers',       icon: UserCheck       },
   { label: 'Non-Buyers',   href: '/non-buyers',   icon: UserX           },
+  { label: 'Voice of Lucira', href: '/voc',     icon: MessageSquareHeart },
   { label: 'Reports',      href: '/reports',      icon: BarChart3       },
 ];
 

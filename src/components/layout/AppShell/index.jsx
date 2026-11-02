@@ -10,6 +10,7 @@ import PageLoader from '@/components/shared/PageLoader';
 import PageTransition from '@/components/shared/PageTransition';
 import ScrollToTopButton from '@/components/shared/ScrollToTopButton';
 import { NavigationGuardProvider } from '@/contexts/NavigationGuardContext';
+import VocEndVisitProvider from '@/components/features/voc/VocEndVisitProvider';
 import { useAllCatalog } from '@/hooks/catalog/useAllCatalog';
 import { useGoldCoinPromoManager } from '@/hooks/checkout/useGoldCoinPromoManager';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
@@ -33,6 +34,7 @@ export default function AppShell({ children }) {
   return (
     <TooltipProvider delayDuration={300}>
       <NavigationGuardProvider>
+        <VocEndVisitProvider>
         <div className="flex h-screen w-screen overflow-hidden bg-background">
           <Sidebar />
           <div className="flex flex-col flex-1 overflow-hidden">
@@ -49,6 +51,7 @@ export default function AppShell({ children }) {
           <PageLoader />
           <ScrollToTopButton key={pathname} />
         </div>
+        </VocEndVisitProvider>
       </NavigationGuardProvider>
     </TooltipProvider>
   );

@@ -2,6 +2,7 @@
 
 import { User, X } from 'lucide-react';
 import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
+import { useEndCustomerVisit } from '@/components/features/voc/VocEndVisitProvider';
 
 /**
  * @param {{
@@ -11,6 +12,7 @@ import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
  * }} props
  */
 export default function CartCustomerTag({ customerName, customerMobile, onDetach }) {
+  const { endVisit, checking } = useEndCustomerVisit();
   if (!customerName) return null;
 
   return (
@@ -26,7 +28,8 @@ export default function CartCustomerTag({ customerName, customerMobile, onDetach
       </div>
       <button
         type="button"
-        onClick={onDetach}
+        onClick={() => endVisit(onDetach)}
+        disabled={checking}
         aria-label={`Remove customer ${customerName}`}
         className="shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
       >

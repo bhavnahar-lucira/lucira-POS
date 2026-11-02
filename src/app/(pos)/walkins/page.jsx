@@ -14,6 +14,7 @@ import PillTabs from '@/components/shared/PillTabs';
 import ErrorBoundary from '@/components/shared/ErrorBoundary';
 import CrmLeadsList from '@/components/features/customers/CrmLeadsList';
 import WalkInRegisterForm from '@/components/features/customers/WalkInRegisterForm';
+import TakeFeedbackButton from '@/components/features/voc/TakeFeedbackButton';
 import { useCrmVisits } from '@/hooks/customer/useCrmVisits';
 import { selectActiveStoreId, selectActiveStoreName } from '@/store/slices/storeSlice';
 import { todayDateString } from '@/lib/dateUtils';
@@ -45,9 +46,12 @@ function VisitRow({ visit }) {
           {formatMobileWithCountryCode(visit.mobile) || '—'}{visit.source ? ` · ${visit.source}` : ''}
         </p>
       </div>
-      <p className="text-xs text-muted-foreground shrink-0 text-right">
-        {fmtVisitedAt(visit.visitedAt)}
-      </p>
+      <div className="flex shrink-0 flex-col items-end gap-1.5">
+        <p className="text-xs text-muted-foreground text-right">
+          {fmtVisitedAt(visit.visitedAt)}
+        </p>
+        <TakeFeedbackButton mobile={visit.mobile} name={visit.customerName} size="sm" className="h-9" />
+      </div>
     </div>
   );
 }

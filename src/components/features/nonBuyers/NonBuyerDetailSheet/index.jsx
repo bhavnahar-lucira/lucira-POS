@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { formatDatePadded } from '@/lib/dateUtils';
 import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
 import { daysAgoLabel } from '@/components/features/nonBuyers/NonBuyerListItem';
+import TakeFeedbackButton from '@/components/features/voc/TakeFeedbackButton';
 
 function fmtVisitedAt(iso) {
   if (!iso) return '—';
@@ -40,13 +41,18 @@ export default function NonBuyerDetailSheet({ nonBuyer, isOpen, onClose }) {
       isOpen={isOpen}
       onClose={onClose}
       title={nonBuyer?.name || 'Unknown visitor'}
-      footer={telHref ? (
-        <Button asChild className="w-full min-h-11 gap-2">
-          <a href={telHref}>
-            <Phone size={16} aria-hidden="true" />
-            Call {formatMobileWithCountryCode(nonBuyer.mobile)}
-          </a>
-        </Button>
+      footer={nonBuyer?.mobile ? (
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <TakeFeedbackButton mobile={nonBuyer.mobile} name={nonBuyer.name} className="min-h-11 w-full sm:flex-1" />
+          {telHref && (
+            <Button asChild className="w-full min-h-11 gap-2 sm:flex-1">
+              <a href={telHref}>
+                <Phone size={16} aria-hidden="true" />
+                Call {formatMobileWithCountryCode(nonBuyer.mobile)}
+              </a>
+            </Button>
+          )}
+        </div>
       ) : null}
     >
       {nonBuyer && (
