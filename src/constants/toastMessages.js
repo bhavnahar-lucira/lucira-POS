@@ -75,6 +75,16 @@ const TOAST = {
     RECEIPT_FAILED:'Failed to record payment. Please try again.',
   },
 
+  // Olocker jewellery insurance, issued against a posted invoice.
+  INSURANCE: {
+    GENERATED: (count) =>
+      count === 1 ? 'Insurance policy generated.' : `${count} insurance policies generated.`,
+    NONE_ISSUED:    'Olocker did not issue a policy. Check the item details and try again.',
+    ALREADY_INSURED:'These items are already insured.',
+    FAILED:         'Failed to generate insurance. Please try again.',
+    LOAD_FAILED:    'Failed to load insurance details.',
+  },
+
   RETURNS: {
     CREATED:      'Return created successfully.',
     CREATE_FAILED:'Failed to create return. Please try again.',

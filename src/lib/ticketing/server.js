@@ -56,9 +56,35 @@ export function newFileId() {
   return randomBytes(16).toString('hex');
 }
 
+const isLocalHost = (origin) => /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$/i.test(new URL(origin).hostname);
+
+/**
+ * The public address of the site the user is on (UAT or Live). Behind a proxy the request's own URL is the
+ * internal one (https://localhost:3000), so the configured, forwarded or browser-sent address wins.
+ */
+export function publicOrigin(request) {
+  const headers = request.headers;
+  const forwardedHost = headers.get('x-forwarded-host')?.split(',')[0].trim();
+  const forwardedProto = headers.get('x-forwarded-proto')?.split(',')[0].trim() || 'https';
+  const candidates = [
+    process.env.APP_BASE_URL,
+    forwardedHost && `${forwardedProto}://${forwardedHost}`,
+    headers.get('origin'),
+    new URL(request.url).origin,
+  ];
+  const origins = candidates.flatMap((c) => {
+    try {
+      const { protocol, origin } = new URL(c);
+      return protocol === 'https:' || protocol === 'http:' ? [origin] : [];
+    } catch {
+      return [];
+    }
+  });
+  return origins.find((o) => !isLocalHost(o)) ?? origins.at(-1);
+}
+
 export function fileUrl(request, fileId) {
-  const base = process.env.APP_BASE_URL || new URL(request.url).origin;
-  return `${base.replace(/\/$/, '')}/api/ticketing/files/${fileId}`;
+  return `${publicOrigin(request)}/api/ticketing/files/${fileId}`;
 }
 
 /**

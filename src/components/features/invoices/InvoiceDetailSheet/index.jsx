@@ -8,6 +8,7 @@ import { AlertTriangle, CreditCard } from 'lucide-react';
 import BottomSheet from '@/components/shared/BottomSheet';
 import { sumRealGst } from '@/lib/gst';
 import InvoiceReportButton from '@/components/features/checkout/InvoiceReportButton';
+import InsuranceSection from '@/components/features/invoices/InsuranceSection';
 import PaymentModeSelect from '@/components/shared/PaymentModeSelect';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -286,6 +287,14 @@ export default function InvoiceDetailSheet({ invoice, isOpen, onClose }) {
             </div>
 
             <InvoiceReportButton transactionId={raw.transaction_id} />
+
+            {/* Olocker insurance — offered once the invoice exists, since a
+                policy is issued against a real invoice number and its line
+                serial. Hidden entirely while the cancel/payment panels are
+                open so the sheet never shows two competing actions. */}
+            {!showCancelConfirm && !showCollectPayment && (
+              <InsuranceSection raw={raw} />
+            )}
 
             {hasBalance && !showCollectPayment && !showCancelConfirm && (
               <Button

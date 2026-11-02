@@ -134,6 +134,11 @@ export const QUERY_KEYS = {
     DETAIL: (invoiceId) => ['invoices', 'detail', invoiceId],
   },
 
+  // ── INSURANCE (Olocker policies issued against an invoice) ────────────────
+  INSURANCE: {
+    BY_INVOICE: (transactionId) => ['insurance', 'invoice', transactionId],
+  },
+
   // ── INVOICE HELPERS (checkout available balances) ─────────────────────────
   INVOICE_HELPERS: {
     RECEIPTS:        (partyId)            => ['invoice-helpers', 'receipts',   partyId],
