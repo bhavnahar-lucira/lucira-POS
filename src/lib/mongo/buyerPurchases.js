@@ -132,7 +132,23 @@ export async function listStoreSales(companyId) {
     .toArray();
 }
 
-const missingName = { $or: [{ salesPersonName: null }, { salesPersonName: { $exists: false } }] };
+/** Every store's invoices and orders, only the fields the Repeat Customers report needs. */
+export async function listAllSalesForRepeatReport() {
+  const db = await getDb();
+  return db.collection(COLLECTION)
+    .find(
+      { ...environmentMatch(), documentType: { $in: ['invoice', 'order'] } },
+      {
+        projection: {
+          _id: 0, customerId: 1, customerName: 1, customerMobile: 1, companyId: 1, documentType: 1,
+          documentNo: 1, documentDate: 1, documentStatus: 1, totalAmount: 1, payments: 1, 'items.item_name': 1,
+        },
+      },
+    )
+    .toArray();
+}
+
+const missingName ={ $or: [{ salesPersonName: null }, { salesPersonName: { $exists: false } }] };
 
 /** Sales person ids at a store that still have records without a name. */
 export async function unnamedSalesPersonIds(companyId) {

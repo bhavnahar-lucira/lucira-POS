@@ -45,6 +45,8 @@ export function useInvoiceHelpers({ partyId, companyId }) {
     queryFn:   () => getPartyReceipts({ party_id: partyId }),
     enabled:   !!partyId,
     staleTime: 0,
+
+    gcTime: 0,
     retry:     false,
   });
 
@@ -53,6 +55,8 @@ export function useInvoiceHelpers({ partyId, companyId }) {
     queryFn:   () => getPartyDailyCash({ party_id: partyId, company_id: companyId }),
     enabled,
     staleTime: 0,
+
+    gcTime: 0,
     retry:     false,
   });
 

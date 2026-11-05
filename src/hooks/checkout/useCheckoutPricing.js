@@ -88,6 +88,8 @@ export function useCheckoutPricing() {
     // must always reflect live state; this query is never worth serving
     // stale for the sake of avoiding one extra round trip.
     staleTime: 0,
+
+    gcTime: 0,
     retry: false,
     queryFn: async () => {
       const split = await buildPricedLineItems({ items: debouncedItems, activeStoreId });
@@ -147,7 +149,8 @@ export function useCheckoutPricing() {
       ...summarizeGroup(orderData.lineItems),
     } : null,
     promoCodes: appliedPromos.map((p) => p.promoCode),
-    isLoading: query.isLoading || isDebouncePending,
+    // isFetching, not isLoading: a background re-price must not be treated as done on the previous result.
+    isLoading: query.isFetching || isDebouncePending,
     error:     query.error ?? null,
   };
 }

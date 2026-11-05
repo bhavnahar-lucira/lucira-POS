@@ -1,9 +1,9 @@
 'use client';
 
 // Centralizes ALL automatic/reactive management of the gold-coin
-// "Spend X Get Y Free" promotion — the generic no-longer-applies cleanup,
-// the gold coin's own eligibility re-validation, auto-apply, and the
-// free-gift quantity auto-discovery — so it runs from exactly ONE place
+// "Spend X Get Y Free" promotion once it has been applied (by the JC, from
+// Apply Offer) — the generic no-longer-applies cleanup, the gold coin's own
+// eligibility re-validation, and the free-gift quantity auto-discovery — so it runs from exactly ONE place
 // (mounted once from AppShell) instead of once per DiscountSection render
 // surface. DiscountSection itself is rendered independently, and
 // simultaneously mountable, in THREE places: the header's CartDrawer (mini
@@ -32,7 +32,6 @@ import { useDispatch, useSelector } from 'react-redux';
 import { toast } from 'sonner';
 import { useCart } from '@/hooks/cart/useCart';
 import { useCheckoutPricing } from '@/hooks/checkout/useCheckoutPricing';
-import { usePromoValidation } from '@/hooks/checkout/usePromoValidation';
 import { useActivePromotions } from '@/hooks/checkout/useActivePromotions';
 import { getPromoBreakdown } from '@/services/checkoutPricingService';
 import { getStockPieces } from '@/services/inventoryService';
@@ -72,7 +71,7 @@ const MAX_FREE_GIFT_PROBE = 25;
 export function useGoldCoinPromoManager() {
   const dispatch = useDispatch();
   const activeStoreId = useSelector(selectActiveStoreId);
-  const { appliedPromos, isEmpty } = useCart();
+  const { appliedPromos } = useCart();
   const { invoice, order, isLoading: isPricing } = useCheckoutPricing();
   // Whichever pricing group currently holds priced lines — never both at
   // once (buildPricedLineItems is strictly all-or-nothing; see its own
@@ -89,12 +88,12 @@ export function useGoldCoinPromoManager() {
     ...(invoice?.promotionDetails ?? []),
     ...(order?.promotionDetails ?? []),
   ];
-  const { validatePromo } = usePromoValidation({ invoice, order });
   const { data: activePromotions = [] } = useActivePromotions();
   const breakdown = getPromoBreakdown(appliedPromos, promotionDetails);
 
   useEffect(() => {
-    if (isPricing) return;
+    // No pricing result yet (e.g. right after a page reload) is not "no effect" — wait for one.
+    if (isPricing || (!invoice && !order)) return;
     breakdown.forEach((b) => {
       if (!b.hasEffect) {
         dispatch(removePromoAction(b.promoCode));
@@ -170,56 +169,7 @@ export function useGoldCoinPromoManager() {
     toast.error(TOAST.CART.PROMO_NO_LONGER_APPLIES(livePromo?.promotion_name ?? goldCoinApplied.promoCode));
   }, [isPricing, activeGroup, appliedPromos, activePromotions, dispatch]);
 
-  // Auto-apply the gold coin promotion — Invoice (real stock) and Order
-  // (made-to-order) alike. Previously Invoice-only on the theory that
-  // handing out a physical coin against a booking with no stock in hand yet
-  // didn't make sense; that restriction has been lifted by request — the
-  // free-gift line is priced through the SAME path (Invoice or Order) the
-  // rest of the cart resolves to, so there's nothing left stock-specific
-  // here. Final eligibility is still OrnaVerse's own ApplyPromotions call
-  // inside validatePromo — this just finds the promotion and triggers the
-  // same flow a manual pick would, skipping it entirely for a cart that
-  // obviously can't qualify (wrong category, or net value below the
-  // promotion's own `minimum_sales_amount` — confirmed live 2026-10-08: a
-  // ₹7,645 Diamond Jewellery cart auto-applied the coin, then OrnaVerse's
-  // ApplyPromotions 400'd it with "Minimum Net required is 30000", and it
-  // flickered back out) so it doesn't flicker the free coin in and back out
-  // on every cart that's merely in the right category but too small.
-  const autoAppliedCartKeyRef = useRef(null);
-  useEffect(() => {
-    if (isPricing) return;
-    // Cart emptying entirely (neither Invoice nor Order has lines) clears
-    // the memory of what was already tried — reported directly (2026-10-07,
-    // re-confirmed for Order mode): without this, leaving and returning to
-    // the exact same composition never re-applied, since the ref still
-    // remembered it as "already attempted" from before it left.
-    if (!activeGroup?.lineItems?.length || isEmpty) {
-      autoAppliedCartKeyRef.current = null;
-      return;
-    }
-
-    const goldCoinPromo = activePromotions.find(
-      (p) => p.promotion_type === 6 && p.free_item_id === GOLD_COIN_FREE_ITEM_ID
-    );
-    if (!goldCoinPromo) return;
-    if (appliedPromos.some((p) => p.promoCode === goldCoinPromo.promotion_code)) return;
-
-    const eligibleGroupIds = (goldCoinPromo.promotion_details ?? []).map((d) => d.item_group_id);
-    if (eligibleGroupIds.length > 0) {
-      const hasEligibleLine = activeGroup.lineItems.some((li) => eligibleGroupIds.includes(li.item_group_id));
-      if (!hasEligibleLine) return;
-    }
-
-    const minSpend = Number(goldCoinPromo.minimum_sales_amount) || 0;
-    if (minSpend > 0 && activeGroup.totals.netAmount < minSpend) return;
-
-    const cartKey = activeGroup.lineItems.map((li) => `${li.item_id}-${li.sku}`).join('|');
-    if (autoAppliedCartKeyRef.current === cartKey) return;
-    autoAppliedCartKeyRef.current = cartKey;
-
-    validatePromo(goldCoinPromo.promotion_code);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPricing, activeGroup, isEmpty, activePromotions, appliedPromos]);
+  // No auto-apply: the gold coin offer is applied only when the JC picks it from Apply Offer (2026-11-05).
 
   // Auto-aligns the gold coin free-gift line's QUANTITY to what the customer
   // is actually entitled to, instead of leaving it at applyPromo's starting

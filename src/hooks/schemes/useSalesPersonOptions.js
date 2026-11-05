@@ -14,6 +14,8 @@ export function useSalesPersonOptions(companyId) {
     // live state (see useCheckoutPricing/useActivePromotions/
     // useRetrieveCustomer for the same reasoning elsewhere in checkout).
     staleTime: 0,
+
+    gcTime: 0,
   });
 
   return {

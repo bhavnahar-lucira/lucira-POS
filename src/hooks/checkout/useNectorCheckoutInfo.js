@@ -31,6 +31,8 @@ export function useNectorCheckoutInfo(
     // preview query below (see useCheckoutPricing/useActivePromotions/
     // useRetrieveCustomer for the same reasoning elsewhere in checkout).
     staleTime: 0,
+
+    gcTime: 0,
   });
 
   const settings = settingsQuery.data;
@@ -60,6 +62,8 @@ export function useNectorCheckoutInfo(
     }),
     enabled: readyForPreview,
     staleTime: 0,
+
+    gcTime: 0,
   });
 
   const preview = previewQuery.data;

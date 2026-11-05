@@ -39,7 +39,7 @@ export function recordBuyerPurchase({
   const payments = (paymentModes ?? []).map((p) => ({
     modeName: p.modeCode ?? p.modeName ?? null,
     amount:   p.amount ?? 0,
-    refNo:    p.refNo ?? null,
+    refNo:    p.refNo || p.creditRef?.document_no || null, // advance/credit rows carry their source document here
   }));
 
   const body = {

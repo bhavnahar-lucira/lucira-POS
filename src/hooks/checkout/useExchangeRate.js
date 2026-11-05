@@ -19,6 +19,8 @@ export function useExchangeRate(currencyId = APP_CONFIG.CURRENCY.INR_ID) {
     // nothing in checkout's own data should ever be served stale (same
     // reasoning as useCheckoutPricing/useActivePromotions/useRetrieveCustomer).
     staleTime: 0,
+
+    gcTime: 0,
   });
 
   return {

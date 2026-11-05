@@ -55,7 +55,7 @@ function FacetFilter({ column }) {
     .filter((v) => !isBlank(v))
     .sort(compareValues)
     .map((v) => ({ value: String(v), label: String(displayValue(meta, v)) }));
-  if (options.length < 2) return null;
+  if (options.length < (meta.filterAlways ? 1 : 2)) return null;
 
   return (
     <Select
@@ -75,14 +75,16 @@ function FacetFilter({ column }) {
 
 /**
  * Searchable, sortable, paginated report table with per-column filters and a
- * Columns menu. `columns`: { key, label, align?, format?, total?, filter?, mobile?, hidden? }.
+ * Columns menu. `columns`: { key, label, align?, format?, total?, filter?, filterAlways?, mobile?, hidden? }.
+ * A `filter` dropdown appears once the column has 2+ values, or 1+ with `filterAlways`.
  * `hidden` columns start unticked in the Columns menu, so they show only when chosen there.
  * Below md only `mobile` columns are shown (default: first two); the rest open
  * from each row's expand button. onViewChange receives the filtered + sorted
  * rows and the visible columns, for exports that should match the screen.
  * onRowClick(row) makes each row open something (keep a real link in a cell for keyboard users).
+ * `toolbar` (leading) and `actions` (trailing) put the caller's own controls in the table's toolbar row.
  */
-export default function DataTable({ columns, rows, isLoading, isError, onRetry, emptyMessage, onViewChange, onRowClick }) {
+export default function DataTable({ columns, rows, isLoading, isError, onRetry, emptyMessage, onViewChange, onRowClick, toolbar, actions }) {
   const [sorting, setSorting] = useState([]);
   const [globalFilter, setGlobalFilter] = useState('');
   const [columnFilters, setColumnFilters] = useState([]);
@@ -141,20 +143,31 @@ export default function DataTable({ columns, rows, isLoading, isError, onRetry, 
     });
   }, [onViewChange, viewRows, visibleColumns]);
 
+  // The caller's own filters (toolbar/actions) stay visible while loading or empty, so the range can still be changed.
+  const withOuterToolbar = (content) => (toolbar || actions ? (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center">
+        {toolbar}
+        {actions && <div className="flex gap-2 md:ml-auto">{actions}</div>}
+      </div>
+      {content}
+    </div>
+  ) : content);
+
   if (isLoading) {
-    return (
+    return withOuterToolbar(
       <div className="rounded-xl border border-border overflow-hidden">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="flex items-center gap-4 px-4 py-3 border-b border-border last:border-0">
             {columns.slice(0, 6).map((c) => <Skeleton key={c.key} className="h-4 flex-1" />)}
           </div>
         ))}
-      </div>
+      </div>,
     );
   }
 
-  if (isError) return <ErrorState title="Failed to load this report." onRetry={onRetry} />;
-  if (!rows.length) return <EmptyState title={emptyMessage ?? 'No records for this range.'} />;
+  if (isError) return withOuterToolbar(<ErrorState title="Failed to load this report." onRetry={onRetry} />);
+  if (!rows.length) return withOuterToolbar(<EmptyState title={emptyMessage ?? 'No records for this range.'} />);
 
   const facetColumns = visibleColumns.filter((c) => c.columnDef.meta.filter);
   const isFiltered = !!globalFilter || columnFilters.length > 0;
@@ -167,6 +180,7 @@ export default function DataTable({ columns, rows, isLoading, isError, onRetry, 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center">
+        {toolbar}
         <div className="relative w-full md:w-64">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input
@@ -221,6 +235,7 @@ export default function DataTable({ columns, rows, isLoading, isError, onRetry, 
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+          {actions}
         </div>
       </div>
 

@@ -30,6 +30,8 @@ export function useRetrieveCustomer(partyId, { enabled = true } = {}) {
     // number" despite the operator having uploaded it correctly earlier.
     // A customer's own compliance fields must always reflect live state.
     staleTime: 0,
+
+    gcTime: 0,
   });
 
   return {

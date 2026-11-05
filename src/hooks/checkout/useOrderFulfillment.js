@@ -16,6 +16,8 @@ export function useOrderFulfillment({ partyId, enabled = true }) {
     queryFn:   () => getReadyToInvoiceLines({ partyId }),
     enabled:   isEnabled,
     staleTime: 0,
+
+    gcTime: 0,
   });
 
   const allOpenQuery = useQuery({
@@ -23,6 +25,8 @@ export function useOrderFulfillment({ partyId, enabled = true }) {
     queryFn:   () => getAllOpenOrderLines({ partyId }),
     enabled:   isEnabled,
     staleTime: 0,
+
+    gcTime: 0,
   });
 
   return {

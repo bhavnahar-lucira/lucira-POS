@@ -82,6 +82,10 @@ function CheckoutScreen() {
   const isSubmitting = isPlacingInvoice || isPlacingOrder;
   const payableTotal = doc?.amountDue ?? 0;
   const creditApplied = payments.find((p) => p.modeType === LOYALTY_MODE_TYPE)?.amount ?? 0;
+  // Loyalty coins and applied balances (return/advance credits) are never taken on the terminal.
+  const terminalAmount = payments
+    .filter((p) => !p.nectorPromotion && !p.creditRef)
+    .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
   const [isConfirmed, setIsConfirmed] = useState(false);
 
   const backGuard = useCallback(() => {
@@ -347,8 +351,8 @@ function CheckoutScreen() {
       title="Confirm payment on terminal"
       description={
         documentType === 'order'
-          ? `Has the advance of ${formatAmount(amountCollected)} been completed on the payment terminal? Confirming will place the order — declining will not save anything.`
-          : `Has the payment of ${formatAmount(payableTotal)} been completed on the payment terminal? Confirming will generate the invoice — declining will not save anything.`
+          ? `Has the advance of ${formatAmount(terminalAmount)} been completed on the payment terminal? Confirming will place the order — declining will not save anything.`
+          : `Has the payment of ${formatAmount(terminalAmount)} been completed on the payment terminal? Confirming will generate the invoice — declining will not save anything.`
       }
       confirmLabel="Yes, Payment Received"
       cancelLabel="No, Declined"

@@ -17,6 +17,8 @@ export function useActivePromotions() {
     // then legitimately rejects it. Same reasoning as useCheckoutPricing's
     // own staleTime: this must always reflect live state.
     staleTime: 0,
+
+    gcTime: 0,
     select: (response) => {
       const entities = response?.data?.Entities ?? [];
       return entities.filter((p) => isPromotionActive(p) && !p.code_required);

@@ -29,6 +29,7 @@ import { useSkuVelocityReport } from '@/hooks/reports/useSkuVelocityReport';
 import { useOpenPosOrdersReport } from '@/hooks/reports/useOpenPosOrdersReport';
 import { useStockReport } from '@/hooks/reports/useStockReport';
 import { useWalkinVisitsReport } from '@/hooks/reports/useWalkinVisitsReport';
+import { useRepeatCustomersReport } from '@/hooks/reports/useRepeatCustomersReport';
 import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
 import { useAdhocReportsList } from '@/hooks/reports/useAdhocReportsList';
 import { useAdhocReportRun } from '@/hooks/reports/useAdhocReportRun';
@@ -48,6 +49,7 @@ const BASE_TABS = [
   { key: 'openOrders',  label: 'Open Orders' },
   { key: 'stock',       label: 'Stock' },
   { key: 'walkins',     label: 'Walk-in Visits' },
+  { key: 'repeat',      label: 'Repeat Customers' },
 ];
 const ADHOC_TAB = { key: 'adhoc', label: 'Ad-hoc Reports' };
 
@@ -77,7 +79,7 @@ function getAdhocColumnConfig(info) {
 // Browse + run one of OrnaVerse's 111 user-built ad-hoc reports. Unlike the
 // curated tabs, these aren't store/date-scoped — Run is called with an empty
 // FilterOverrides, same as OrnaVerse's own default view.
-function AdhocReportsTab({ reportsList, selectedReportId, selectedReport, onSelectReport, runReport, onViewChange }) {
+function AdhocReportsTab({ reportsList, selectedReportId, selectedReport, onSelectReport, runReport, onViewChange, toolbar, actions }) {
   const [search, setSearch] = useState('');
   const columns = useMemo(() => runReport.columns.map(getAdhocColumnConfig), [runReport.columns]);
 
@@ -100,6 +102,7 @@ function AdhocReportsTab({ reportsList, selectedReportId, selectedReport, onSele
 
     return (
       <div className="flex flex-col gap-3">
+        <div className="hidden md:flex">{toolbar}</div>
         <Input
           type="text"
           placeholder="Search reports by name or description"
@@ -179,6 +182,7 @@ function AdhocReportsTab({ reportsList, selectedReportId, selectedReport, onSele
         isError={runReport.isError}
         onRetry={runReport.refetch}
         onViewChange={onViewChange}
+        actions={actions}
         emptyMessage="This report returned no rows."
       />
     </div>
@@ -339,6 +343,104 @@ const WALKIN_COLUMNS = [
   { key: 'notes',            label: 'Notes' },
 ];
 
+const formatPct = (v) => `${(v ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 1 })}%`;
+
+const FIRST_REPORT_YEAR = 2025;
+const ALL_MONTHS = 'all';
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  .map((label, i) => ({ value: String(i + 1).padStart(2, '0'), label }));
+
+const formatMonth = (yyyyMm) => (yyyyMm
+  ? new Date(`${yyyyMm}-01T00:00:00Z`).toLocaleString('en-IN', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+  : '—');
+
+// One row per repeat purchase; the customer's first purchase rides along on each row.
+const REPEAT_COLUMNS = [
+  { key: 'purchased_on',            label: 'Date', format: formatDatePadded, mobile: true },
+  { key: 'month',                   label: 'Month', format: formatMonth },
+  { key: 'year',                    label: 'Year' },
+  { key: 'customer_name',           label: 'Customer', mobile: true },
+  { key: 'mobile',                  label: 'Mobile', format: (v) => (v ? formatMobileWithCountryCode(v) : '—'), hidden: true },
+  { key: 'repeat_count',            label: 'Repeat Count', align: 'right' },
+  { key: 'products',                label: 'Products Purchased' },
+  { key: 'value',                   label: 'Sale Value', align: 'right', format: formatAmountOrDash, total: true, mobile: true },
+  { key: 'exchange_credit',         label: 'Exchange Credit Used', align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'documents',               label: 'Documents' },
+  { key: 'first_purchase_on',       label: 'First Purchase Date', format: formatDatePadded },
+  { key: 'first_purchase_year',     label: 'First Purchase Year', filter: true, filterAlways: true },
+  { key: 'first_purchase_store',    label: 'First Purchase Store' },
+  { key: 'first_purchase_products', label: 'First Purchase Products' },
+];
+
+// Counts over exactly the rows given, so on-screen figures and the export always agree with the table.
+function summarizeRepeatRows(rows) {
+  return {
+    customers: new Set(rows.map((r) => r.customer_id)).size,
+    sales: Math.round(rows.reduce((s, r) => s + (Number(r.value) || 0), 0) * 100) / 100,
+  };
+}
+
+function RepeatCustomersTab({ data, columns, rows, isLoading, isError, onRetry, onViewChange, tableKey, toolbar, actions }) {
+  const [viewRows, setViewRows] = useState(null);
+  const handleViewChange = useCallback((view) => {
+    setViewRows(view.rows);
+    onViewChange(view);
+  }, [onViewChange]);
+
+  // Both figures are counted from the table's current rows, so they always match the table and the export.
+  const t = data?.total;
+  const shown = viewRows ?? rows;
+  const s = summarizeRepeatRows(shown);
+  const isFiltered = shown.length !== rows.length;
+  const context = (text) => ({ type: 'neutral', text: isFiltered ? 'For the filtered rows below' : text });
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" aria-live="polite">
+        {isError ? null : isLoading || !t ? (
+          <>
+            <KPICard isLoading />
+            <KPICard isLoading />
+          </>
+        ) : (
+          <>
+            <KPICard
+              accent
+              label="Total Repeat Customer Count"
+              value={s.customers.toLocaleString('en-IN')}
+              trend={context(`${formatPct(t.repeat_customer_pct)} of ${t.purchasing_customers.toLocaleString('en-IN')} customers who bought`)}
+            />
+            <KPICard
+              accent
+              label="Total Repeat Sale"
+              value={formatAmount(s.sales)}
+              trend={context(`${formatPct(t.repeat_sales_pct)} of total sales ${formatAmount(t.sales)}`)}
+            />
+          </>
+        )}
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        Repeat = bought at any Lucira store on an earlier day. An MTO order and its final invoice count as one purchase,
+        same-day purchases at a store count as one, and return/exchange credit is excluded from sales. Amounts include GST.
+      </p>
+
+      <DataTable
+        key={tableKey}
+        columns={columns}
+        rows={rows}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={onRetry}
+        onViewChange={handleViewChange}
+        toolbar={toolbar}
+        actions={actions}
+        emptyMessage="No repeat customers in this range."
+      />
+    </div>
+  );
+}
+
 const normalizeName = (name) => String(name ?? '').trim().toLowerCase();
 
 // Rows identify their store differently per endpoint (company_id, company_code,
@@ -365,8 +467,9 @@ export default function ReportsPage() {
   const isSuperAdmin = useSelector(selectIsSuperAdmin);
 
   const [activeTab, setActiveTab] = useState('summary');
-  // Super admin only: null = the active store, 'all', or a company_id string. Store logins are always pinned to their active store.
-  const [storeFilter, setStoreFilter] = useState(null);
+  // Super admin only: 'all' (default) or a company_id string. Store logins are always pinned to their active store.
+  const [chosenStore, setStoreFilter] = useState(null);
+  const storeFilter = isSuperAdmin ? chosenStore ?? 'all' : null;
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
   const [fromDate, setFromDate] = useState(() => firstOfMonthDateString());
   const [toDate, setToDate]     = useState(() => todayDateString());
@@ -402,6 +505,7 @@ export default function ReportsPage() {
   const openOrdersReport  = useOpenPosOrdersReport({ ...range, enabled: activeTab === 'openOrders' });
   const stockReport       = useStockReport({ companyIds: selectedCompanyIds, toDate, enabled: activeTab === 'stock' });
   const walkinReport      = useWalkinVisitsReport({ ...range, enabled: activeTab === 'walkins' });
+  const repeatReport      = useRepeatCustomersReport({ ...range, enabled: activeTab === 'repeat' });
 
   const companyKey = selectedCompanyIds.join(',');
   const tableKey = `${activeTab}-${companyKey}-${fromDate}-${toDate}`;
@@ -421,6 +525,10 @@ export default function ReportsPage() {
     const ids = companyKey ? companyKey.split(',').map(Number) : [];
     const scope = (rows) => scopeRowsToStores(rows, availableStores, ids);
     const withStoreColumns = (columns) => (isAllStores ? [...STORE_COLUMNS, ...columns] : columns);
+    const withFirstStore = (row) => {
+      const store = availableStores.find((s) => s.company_id === row.first_purchase_company_id);
+      return { ...row, first_purchase_store: store ? `${store.company_code} — ${store.mailing_name}` : 'Another Lucira store' };
+    };
     return {
       category:    { columns: withStoreColumns(CATEGORY_COLUMNS),    rows: scope(categoryReport.rows),    filenamePrefix: 'category-wise-sales' },
       salesperson: { columns: withStoreColumns(SALESPERSON_COLUMNS), rows: scope(salesPersonReport.rows), filenamePrefix: 'salesperson-wise-sales' },
@@ -428,8 +536,13 @@ export default function ReportsPage() {
       openOrders:  { columns: withStoreColumns(OPEN_ORDERS_COLUMNS), rows: scope(openOrdersReport.rows),  filenamePrefix: 'open-pos-orders' },
       stock:       { columns: [...STORE_COLUMNS, ...STOCK_COLUMNS],  rows: scope(stockReport.rows),       filenamePrefix: 'jewellery-stock' },
       walkins:     { columns: withStoreColumns(WALKIN_COLUMNS),      rows: scope(walkinReport.rows),      filenamePrefix: 'walk-in-visits' },
+      repeat: {
+        columns: withStoreColumns(REPEAT_COLUMNS),
+        rows: scope((repeatReport.data?.purchases ?? []).map(withFirstStore)),
+        filenamePrefix: 'repeat-customers',
+      },
     };
-  }, [companyKey, availableStores, isAllStores, categoryReport.rows, salesPersonReport.rows, velocityReport.rows, openOrdersReport.rows, stockReport.rows, walkinReport.rows]);
+  }, [companyKey, availableStores, isAllStores, categoryReport.rows, salesPersonReport.rows, velocityReport.rows, openOrdersReport.rows, stockReport.rows, walkinReport.rows, repeatReport.data]);
 
   // The on-screen table's filtered + sorted rows and visible columns, so Export Excel matches what's shown.
   const exportViewRef = useRef(null);
@@ -437,6 +550,8 @@ export default function ReportsPage() {
 
   const canExport = activeTab === 'summary'
     ? !!summaryReport.data
+    : activeTab === 'repeat'
+      ? !!repeatReport.data
     : activeTab === 'adhoc'
       ? adhocReportRun.rows.length > 0
       : (TAB_REPORTS[activeTab]?.rows.length ?? 0) > 0;
@@ -454,6 +569,31 @@ export default function ReportsPage() {
           name: 'Payment Collections',
           columns: [{ key: 'mode_type', label: 'Payment Mode' }, { key: 'sales', label: 'Amount' }],
           rows: (summaryReport.data.total_collections ?? []).filter((c) => c.sales),
+        },
+      ]);
+      return;
+    }
+    if (activeTab === 'repeat') {
+      if (!repeatReport.data) return;
+      const view = exportViewRef.current ?? TAB_REPORTS.repeat;
+      // The summary is counted from the exported rows themselves, so it always matches the sheet.
+      const byStore = new Map();
+      for (const r of view.rows) {
+        const store = r.store_name ?? selectedStoreName;
+        byStore.set(store, [...(byStore.get(store) ?? []), r]);
+      }
+      const summaryRows = [...byStore].map(([store, storeRows]) => ({ store, ...summarizeRepeatRows(storeRows) }));
+      if (byStore.size > 1) summaryRows.push({ store: 'Total', ...summarizeRepeatRows(view.rows) });
+      downloadXlsx(`repeat-customers_${fromDate}_to_${toDate}.xlsx`, [
+        { name: 'Repeat Purchases', columns: view.columns, rows: view.rows },
+        {
+          name: 'Summary',
+          columns: [
+            { key: 'store', label: 'Store' },
+            { key: 'customers', label: 'Total Repeat Customer Count' },
+            { key: 'sales', label: 'Total Repeat Sale' },
+          ],
+          rows: summaryRows,
         },
       ]);
       return;
@@ -520,8 +660,54 @@ export default function ReportsPage() {
     </div>
   );
 
+  // Year / Month quick picks just set From–To, so the fetched range is always what the inputs show.
+  const today = todayDateString();
+  const rangeFor = (year, month) => {
+    const from = month === ALL_MONTHS ? `${year}-01-01` : `${year}-${month}-01`;
+    const end = month === ALL_MONTHS
+      ? `${year}-12-31`
+      : `${year}-${month}-${String(new Date(Date.UTC(Number(year), Number(month), 0)).getUTCDate()).padStart(2, '0')}`;
+    return [from, end < today ? end : today];
+  };
+  const pickedYear = fromDate.slice(0, 4) === toDate.slice(0, 4) ? fromDate.slice(0, 4) : '';
+  const pickedMonth = !pickedYear ? ''
+    : rangeFor(pickedYear, ALL_MONTHS).join() === `${fromDate},${toDate}` ? ALL_MONTHS
+      : rangeFor(pickedYear, fromDate.slice(5, 7)).join() === `${fromDate},${toDate}` ? fromDate.slice(5, 7)
+        : '';
+  const applyPeriod = (year, month) => {
+    const [from, to] = rangeFor(year, month);
+    setFromDate(from);
+    setToDate(to);
+  };
+  const periodPicker = activeTab === 'repeat' && (
+    <div className="flex items-center gap-2 w-full md:w-auto">
+      <Select value={pickedYear} onValueChange={(y) => applyPeriod(y, pickedMonth || ALL_MONTHS)}>
+        <SelectTrigger className="h-11 flex-1 md:h-9 md:w-28 md:flex-none" aria-label="Year">
+          <SelectValue placeholder="Year" />
+        </SelectTrigger>
+        <SelectContent>
+          {Array.from({ length: Number(today.slice(0, 4)) - FIRST_REPORT_YEAR + 1 }, (_, i) => String(Number(today.slice(0, 4)) - i))
+            .map((y) => <SelectItem key={y} value={y}>{y}</SelectItem>)}
+        </SelectContent>
+      </Select>
+      <Select
+        value={pickedMonth}
+        onValueChange={(m) => applyPeriod(pickedYear || today.slice(0, 4), m)}
+      >
+        <SelectTrigger className="h-11 flex-1 md:h-9 md:w-36 md:flex-none" aria-label="Month">
+          <SelectValue placeholder="Custom range" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL_MONTHS}>Whole year</SelectItem>
+          {MONTHS.filter((m) => `${pickedYear || today.slice(0, 4)}-${m.value}` <= today.slice(0, 7))
+            .map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
   const storeSelect = isSuperAdmin && activeTab !== 'adhoc' && (
-    <Select value={storeFilter ?? String(companyId)} onValueChange={setStoreFilter}>
+    <Select value={storeFilter} onValueChange={setStoreFilter}>
       <SelectTrigger className="h-11 w-full md:h-9 md:w-56" aria-label="Store">
         <SelectValue placeholder="Select store" />
       </SelectTrigger>
@@ -571,6 +757,18 @@ export default function ReportsPage() {
     </Button>
   );
 
+  // Desktop: each tab's own filters sit in its table's toolbar row (mobile keeps them in the bottom sheet).
+  const tabFilters = (
+    <div className="hidden md:contents">
+      {dateInputs}
+      {periodPicker}
+      {storeSelect}
+      {rangeButtons}
+    </div>
+  );
+  const tabExport = <div className="hidden md:contents">{exportButton('')}</div>;
+  const filterBar = { toolbar: tabFilters, actions: tabExport };
+
   return (
     <div className="flex flex-col gap-4 w-full p-4 pb-28 md:p-6 md:pb-6">
       <div className="sticky top-0 z-10 -mx-4 -mt-4 flex flex-col gap-2 border-b border-border bg-background px-4 pt-4 pb-3 md:-mx-6 md:-mt-6 md:px-6 md:pt-6">
@@ -586,15 +784,6 @@ export default function ReportsPage() {
                 <span className="text-muted-foreground"> · {rangeSummary}</span>
               </p>
               {exportButton('h-10 w-full')}
-            </div>
-
-            <div className="hidden md:flex flex-wrap items-center gap-2">
-              {dateInputs}
-              <div className="flex items-center gap-2 ml-auto">
-                {storeSelect}
-                {rangeButtons}
-                {exportButton('')}
-              </div>
             </div>
 
             <div className="hidden md:block">
@@ -655,6 +844,7 @@ export default function ReportsPage() {
               {activeTab === 'stock' ? 'Date' : 'Date range'}
             </span>
             {dateInputs}
+            {periodPicker}
             {rangeButtons && <div className="flex gap-2">{rangeButtons}</div>}
           </div>
 
@@ -674,12 +864,18 @@ export default function ReportsPage() {
       ) : (
         <>
           {activeTab === 'summary' && (
-            <SalesSummaryTab
-              data={summaryReport.data}
-              isLoading={summaryReport.isLoading}
-              isError={summaryReport.isError}
-              onRetry={summaryReport.refetch}
-            />
+            <>
+              <div className="hidden md:flex flex-wrap items-center gap-2">
+                {tabFilters}
+                <div className="ml-auto flex">{tabExport}</div>
+              </div>
+              <SalesSummaryTab
+                data={summaryReport.data}
+                isLoading={summaryReport.isLoading}
+                isError={summaryReport.isError}
+                onRetry={summaryReport.refetch}
+              />
+            </>
           )}
 
           {activeTab === 'category' && (
@@ -691,6 +887,7 @@ export default function ReportsPage() {
               isError={categoryReport.isError}
               onRetry={categoryReport.refetch}
               onViewChange={handleViewChange}
+              {...filterBar}
               emptyMessage="No category sales in this range."
             />
           )}
@@ -704,6 +901,7 @@ export default function ReportsPage() {
               isError={salesPersonReport.isError}
               onRetry={salesPersonReport.refetch}
               onViewChange={handleViewChange}
+              {...filterBar}
               emptyMessage="No salesperson sales in this range."
             />
           )}
@@ -717,6 +915,7 @@ export default function ReportsPage() {
               isError={velocityReport.isError}
               onRetry={velocityReport.refetch}
               onViewChange={handleViewChange}
+              {...filterBar}
               emptyMessage="No SKU velocity data in this range."
             />
           )}
@@ -730,6 +929,7 @@ export default function ReportsPage() {
               isError={openOrdersReport.isError}
               onRetry={openOrdersReport.refetch}
               onViewChange={handleViewChange}
+              {...filterBar}
               emptyMessage="No open orders in this range."
             />
           )}
@@ -743,6 +943,7 @@ export default function ReportsPage() {
               isError={stockReport.isError}
               onRetry={stockReport.refetch}
               onViewChange={handleViewChange}
+              {...filterBar}
               emptyMessage="No stock for this store on this date."
             />
           )}
@@ -756,7 +957,22 @@ export default function ReportsPage() {
               isError={walkinReport.isError}
               onRetry={walkinReport.refetch}
               onViewChange={handleViewChange}
+              {...filterBar}
               emptyMessage="No walk-in visits in this range."
+            />
+          )}
+
+          {activeTab === 'repeat' && (
+            <RepeatCustomersTab
+              data={repeatReport.data}
+              rows={TAB_REPORTS.repeat.rows}
+              columns={TAB_REPORTS.repeat.columns}
+              isLoading={repeatReport.isLoading}
+              isError={repeatReport.isError}
+              onRetry={repeatReport.refetch}
+              onViewChange={handleViewChange}
+              {...filterBar}
+              tableKey={tableKey}
             />
           )}
 
@@ -768,6 +984,7 @@ export default function ReportsPage() {
               onSelectReport={setSelectedAdhocReportId}
               runReport={adhocReportRun}
               onViewChange={handleViewChange}
+              {...filterBar}
             />
           )}
         </>

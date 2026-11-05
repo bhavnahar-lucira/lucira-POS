@@ -38,6 +38,11 @@ export async function getSkuVelocity(params) {
   return (await runSalesReport('velocity', params)).rows ?? [];
 }
 
+/** @returns {Promise<{ total: object, stores: object[], customers: object[] }>} repeat-customer metrics per store */
+export async function getRepeatCustomers(params) {
+  return runSalesReport('repeat', params);
+}
+
 /** @returns {Promise<object[]>} open POS order lines */
 export async function getOpenPosOrders(params) {
   return (await runSalesReport('openOrders', params)).rows ?? [];

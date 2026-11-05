@@ -14,6 +14,8 @@ export function useInvoiceDetail(invoiceId) {
     // checkout data must always reflect live state (see
     // useCheckoutPricing/useActivePromotions/useRetrieveCustomer).
     staleTime: 0,
+
+    gcTime: 0,
   });
 
   return {

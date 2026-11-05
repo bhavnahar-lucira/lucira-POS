@@ -5,13 +5,15 @@ import { getStockByStores } from '@/services/inventoryService';
 
 /**
  * @param {number} itemId
+ * @param {{ noCache?: boolean }} [options] — noCache: always fetch live (cart)
  */
-export function useStockByStores(itemId) {
+export function useStockByStores(itemId, { noCache = false } = {}) {
   const query = useQuery({
     queryKey:  QUERY_KEYS.CATALOG.STOCK_BY_STORES(itemId),
     queryFn:   () => getStockByStores(itemId),
     enabled:   !!itemId,
-    staleTime: APP_CONFIG.STALE_TIME.STOCK,
+    staleTime: noCache ? 0 : APP_CONFIG.STALE_TIME.STOCK,
+    ...(noCache && { gcTime: 0 }),
     select: (response) => {
       const entities = response?.data?.Entities;
       if (!Array.isArray(entities)) return [];

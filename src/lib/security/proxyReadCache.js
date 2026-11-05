@@ -11,10 +11,8 @@
 // Never applied to anything that creates or mutates a document — only a
 // small, explicit allowlist of List/Retrieve-style reads.
 
+// Payment modes, document numbering and sales persons were removed (2026-11-05): checkout must always read them live.
 const CACHEABLE_PATHS = new Map([
-  ['Services/Administration/PaymentReceiptMode/List', 5 * 60 * 1000],
-  ['Services/Administration/DocumentNumbering/List',  5 * 60 * 1000],
-  ['Services/HR/Employee/List',                       5 * 60 * 1000],
   ['Services/Common/Common/CheckMetalRateForToday',   2 * 60 * 1000],
 ]);
 

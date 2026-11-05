@@ -3,8 +3,9 @@ import { getSessionFromRequest } from '@/lib/ornaverse/session';
 import {
   DATE_RE, isValidCompanyIds, getAuthorizedStores, postUpstream, toRfc1123,
 } from '@/lib/reports/serverAccess';
-import { salesPersonDocumentTotals } from '@/lib/mongo/buyerPurchases';
+import { salesPersonDocumentTotals, listAllSalesForRepeatReport } from '@/lib/mongo/buyerPurchases';
 import { syncStoreInBackground } from '@/lib/nonBuyers/server';
+import { deriveRepeatCustomers } from '@/lib/reports/repeatCustomers';
 
 const normalizeName = (name) => String(name ?? '').trim().toLowerCase();
 
@@ -112,6 +113,14 @@ const REPORTS = {
         return companyId ? [{ ...row, company_id: companyId }] : [];
       }),
     };
+  },
+
+  // Repeat = bought at any Lucira store on an earlier day, so every store's history is read; only the
+  // selected stores' rows are returned.
+  async repeat(session, { companyIds, fromDate, toDate }) {
+    for (const companyId of companyIds) syncStoreInBackground(session, companyId);
+    const docs = await listAllSalesForRepeatReport();
+    return deriveRepeatCustomers(docs, { companyIds, fromDate, toDate });
   },
 
   async openOrders(session, { companyIds, fromDate, toDate }) {

@@ -37,7 +37,7 @@ export default function CartItemRow({
   const [stockPanelOpen, setStockPanelOpen] = useState(false);
   const {
     data: storeStocks, isLoading: stockLoading, isError: stockError, refetch: refetchStock,
-  } = useStockByStores(showStockAcrossStores && stockPanelOpen ? item.itemId : null);
+  } = useStockByStores(showStockAcrossStores && stockPanelOpen ? item.itemId : null, { noCache: true });
 
   // While DiscountSection is still working out this free-gift line's real
   // entitlement (see its own quantity-discovery effect), showing its

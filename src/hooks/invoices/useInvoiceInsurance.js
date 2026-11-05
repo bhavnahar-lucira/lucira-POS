@@ -16,6 +16,8 @@ export function useInvoiceInsurance(transactionId) {
     queryFn:  () => getInsurancePolicies(transactionId),
     enabled:  !!transactionId,
     staleTime: 0,
+
+    gcTime: 0,
   });
 
   return {

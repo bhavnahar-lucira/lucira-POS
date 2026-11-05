@@ -290,6 +290,7 @@ export const QUERY_KEYS = {
     OPEN_POS_ORDERS:         (params) => ['reports', 'open-pos-orders', params],
     STOCK:                   (params) => ['reports', 'stock', params],
     WALKIN_VISITS:           (params) => ['reports', 'walkin-visits', params],
+    REPEAT_CUSTOMERS:        (params) => ['reports', 'repeat-customers', params],
   },
 
   ADHOC_REPORTS: {
