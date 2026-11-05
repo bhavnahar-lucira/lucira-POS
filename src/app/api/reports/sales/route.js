@@ -3,6 +3,8 @@ import { getSessionFromRequest } from '@/lib/ornaverse/session';
 import {
   DATE_RE, isValidCompanyIds, getAuthorizedStores, postUpstream, toRfc1123,
 } from '@/lib/reports/serverAccess';
+import { salesPersonDocumentTotals } from '@/lib/mongo/buyerPurchases';
+import { syncStoreInBackground } from '@/lib/nonBuyers/server';
 
 const normalizeName = (name) => String(name ?? '').trim().toLowerCase();
 
@@ -15,7 +17,7 @@ const CATEGORY_COLUMNS = [
   'total_other_pieces', 'total_other_weight', 'total_other_amount',
 ];
 const SALES_PERSON_COLUMNS = [
-  'document_date', 'employee_code', 'employee_name', 'pieces', 'weight', 'net_weight',
+  'document_date', 'sales_person_id', 'employee_code', 'employee_name', 'pieces', 'weight', 'net_weight',
   'diamond_pieces', 'diamond_weight', 'diamond_amount',
   'color_stone_pieces', 'color_stone_weight', 'color_stone_amount',
   'sub_total', 'net_amount', 'company_code', 'mailing_name',
@@ -49,18 +51,54 @@ const REPORTS = {
     return { rows: perStore.flat() };
   },
 
+  // OrnaVerse's report covers invoices only; invoice/MTO counts come from our POS DB copy of
+  // every store's sales (refreshed in the background, at most every 15 minutes per store).
   async salesperson(session, { companyIds, fromDate, toDate }, stores) {
-    const data = await postUpstream(session, API.REPORTS.SALES_PERSON_WISE_SALES, {
-      document_status: 1, company_ids: companyIds, from_date: fromDate, to_date: toDate,
-      IncludeColumns: SALES_PERSON_COLUMNS,
-    });
-    const byCode = new Map(stores.map((s) => [s.company_code, s.company_id]));
-    return {
-      rows: (data?.Entities ?? []).flatMap((row) => {
-        const companyId = byCode.get(row.company_code);
-        return companyId ? [{ ...row, company_id: companyId }] : [];
+    for (const companyId of companyIds) syncStoreInBackground(session, companyId);
+    const [data, documents] = await Promise.all([
+      postUpstream(session, API.REPORTS.SALES_PERSON_WISE_SALES, {
+        document_status: 1, company_ids: companyIds, from_date: fromDate, to_date: toDate,
+        IncludeColumns: SALES_PERSON_COLUMNS,
       }),
-    };
+      salesPersonDocumentTotals({ companyIds, fromDate, toDate }).catch((err) => {
+        console.error('[api/reports/sales] salesperson document totals failed', err?.message);
+        return null;
+      }),
+    ]);
+    const byCode = new Map(stores.map((s) => [s.company_code, s]));
+    // The report has a separate "(Return/Exchange/Buyback/URD)" row per sales person; counts go on the sales row.
+    const isReturnsRow = (row) => /\(Return/i.test(String(row.employee_code ?? ''));
+    const zero = documents ? { invoice_count: 0, invoice_value: 0, mto_count: 0, mto_value: 0 } : {};
+    const rows = [];
+    const salesRowByPerson = new Map();
+    for (const row of data?.Entities ?? []) {
+      const store = byCode.get(row.company_code);
+      if (!store) continue;
+      const out = {
+        ...row, ...(isReturnsRow(row) ? {} : zero), company_id: store.company_id,
+        employee_name: row.employee_name ?? `Former employee #${row.sales_person_id}`,
+      };
+      rows.push(out);
+      if (!isReturnsRow(row)) salesRowByPerson.set(`${store.company_id}|${row.sales_person_id}`, out);
+    }
+    for (const d of documents ?? []) {
+      const counts = {
+        invoice_count: d.invoices, invoice_value: d.invoiceValue, mto_count: d.orders, mto_value: d.orderValue,
+      };
+      const salesRow = salesRowByPerson.get(`${d.companyId}|${d.salesPersonId}`);
+      if (salesRow) {
+        Object.assign(salesRow, counts);
+      } else {
+        // Sales people with invoices/MTO orders but no sales row in OrnaVerse's report still get a row.
+        const store = stores.find((s) => s.company_id === d.companyId);
+        rows.push({
+          company_id: d.companyId, company_code: store?.company_code, mailing_name: store?.mailing_name,
+          sales_person_id: d.salesPersonId, employee_name: d.salesPersonName ?? (d.salesPersonId ? `Employee #${d.salesPersonId}` : 'No sales person'),
+          ...counts,
+        });
+      }
+    }
+    return { rows, documentCountsAvailable: documents != null };
   },
 
   async velocity(session, { companyIds, fromDate, toDate }, stores) {

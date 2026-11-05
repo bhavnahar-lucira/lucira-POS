@@ -258,6 +258,10 @@ const CATEGORY_COLUMNS = [
 const SALESPERSON_COLUMNS = [
   { key: 'employee_name', label: 'Sales Person', mobile: true },
   { key: 'employee_code', label: 'Code' },
+  { key: 'invoice_count', label: 'Invoices',      align: 'right', total: true },
+  { key: 'invoice_value', label: 'Invoice Value', align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'mto_count',     label: 'MTO Orders',    align: 'right', total: true },
+  { key: 'mto_value',     label: 'MTO Value',     align: 'right', format: formatAmountOrDash, total: true },
   { key: 'pieces',        label: 'Pieces',     align: 'right', total: true },
   { key: 'weight',        label: 'Weight (g)', align: 'right', total: true },
   { key: 'sub_total',     label: 'Subtotal',   align: 'right', format: formatAmountOrDash, total: true },
@@ -330,6 +334,7 @@ const WALKIN_COLUMNS = [
   { key: 'mobile',           label: 'Mobile',   format: (v) => (v ? formatMobileWithCountryCode(v) : '—'), hidden: true },
   { key: 'email',            label: 'Email' },
   { key: 'source',           label: 'Source',   filter: true },
+  { key: 'jewelry_consultant', label: 'Jewelry Consultant', format: (v) => v ?? '—', filter: true },
   { key: 'visits_in_period', label: 'Visits in period', align: 'right', filter: true },
   { key: 'notes',            label: 'Notes' },
 ];

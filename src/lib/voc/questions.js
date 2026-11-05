@@ -196,7 +196,7 @@ export function answerLabel(questionId, value, otherText = {}) {
 // NPS = Net Promoter Score: how likely customers are to recommend Lucira, from Q9 (0-10).
 // NPS = % promoters (9-10) minus % detractors (0-6); passives (7-8) count in the total only. Range -100 to +100.
 export const NPS_LABEL = 'Net Promoter Score (NPS)';
-export const NPS_HELP = 'How likely customers are to recommend Lucira (Q9). % who scored 9‑10 minus % who scored 0‑6.';
+export const NPS_HELP = 'How likely customers are to recommend Lucira.';
 
 /** Net Promoter Score group for a 0-10 score: 9-10 promoter, 7-8 passive, 0-6 detractor. */
 export const npsGroup = (score) => (score >= 9 ? 'promoter' : score >= 7 ? 'passive' : 'detractor');

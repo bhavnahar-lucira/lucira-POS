@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  listVoc, getVoc, createVoc, updateVoc, deleteVoc, getVocToday,
+  listVoc, getVoc, createVoc, updateVoc, deleteVoc, getVocToday, listVocReferrals, listVocSkips,
 } from '@/services/vocService';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 
@@ -48,6 +48,24 @@ export function useVocToday(partyId, { enabled = true } = {}) {
     queryFn: () => getVocToday(partyId),
     enabled: enabled && !!partyId,
     staleTime: 0,
+  });
+}
+
+export function useVocReferrals(filters, { enabled = true } = {}) {
+  return useQuery({
+    queryKey: QUERY_KEYS.VOC.REFERRALS(filters),
+    queryFn: () => listVocReferrals(filters),
+    enabled,
+    staleTime: VOC_STALE_MS,
+  });
+}
+
+export function useVocSkips(filters, { enabled = true } = {}) {
+  return useQuery({
+    queryKey: QUERY_KEYS.VOC.SKIPS(filters),
+    queryFn: () => listVocSkips(filters),
+    enabled,
+    staleTime: VOC_STALE_MS,
   });
 }
 

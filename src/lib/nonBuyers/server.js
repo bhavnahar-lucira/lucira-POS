@@ -62,7 +62,7 @@ function toMatchingDocument(sale) {
 }
 
 /** Refreshes our POS DB copy of the store's sales from OrnaVerse in the background, at most every 15 minutes. */
-function syncStoreInBackground(session, companyId) {
+export function syncStoreInBackground(session, companyId) {
   const key = `${session.env}|${companyId}`;
   if (Date.now() - (lastSyncAt.get(key) ?? 0) < SYNC_INTERVAL_MS) return;
   lastSyncAt.set(key, Date.now());

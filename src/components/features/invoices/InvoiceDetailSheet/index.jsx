@@ -254,6 +254,9 @@ function CancelConfirmBanner({ onConfirm, onDismiss, isPending }) {
  *   onClose: () => void,
  * }} props
  */
+// Cancel Invoice is hidden for now; set to true to bring the button back (the cancel flow below is unchanged).
+const SHOW_CANCEL_INVOICE = false;
+
 export default function InvoiceDetailSheet({ invoice, isOpen, onClose }) {
   const { invoice: invoiceDetail } = useInvoiceDetail(invoice?.raw?.transaction_id ?? null);
   const raw = invoiceDetail ?? invoice?.raw;
@@ -269,7 +272,7 @@ export default function InvoiceDetailSheet({ invoice, isOpen, onClose }) {
   };
 
   const hasBalance = !!(raw && (raw.balance_amount ?? 0) > 0 && raw.transaction_id);
-  const isCancellable = !!(raw && raw.transaction_id);
+  const isCancellable = SHOW_CANCEL_INVOICE && !!(raw && raw.transaction_id);
 
   const handleConfirmCancel = async () => {
     if (!raw?.transaction_id) return;

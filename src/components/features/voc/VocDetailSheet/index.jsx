@@ -83,6 +83,19 @@ export default function VocDetailSheet({ response, onClose, canManage }) {
                 </li>
               ))}
             </ol>
+            {response.referrals?.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Referrals</p>
+                <ul className="flex flex-col divide-y divide-border rounded-xl border border-border">
+                  {response.referrals.map((r) => (
+                    <li key={`${r.name}-${r.mobile}`} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                      <span className="min-w-0 truncate text-foreground">{r.name}</span>
+                      <a href={`tel:${r.mobile}`} className="shrink-0 tabular-nums text-primary underline-offset-2 hover:underline">{r.mobile}</a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
       </BottomSheet>

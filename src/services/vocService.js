@@ -40,4 +40,17 @@ export function getVocToday(partyId) {
   return request(`/api/voc/today?partyId=${encodeURIComponent(partyId)}`);
 }
 
-export const vocExportUrl = (filters) => `/api/voc/export?${vocQuery(filters)}`;
+export function listVocReferrals(filters) {
+  return request(`/api/voc/referrals?${vocQuery(filters)}`);
+}
+
+export function listVocSkips(filters) {
+  return request(`/api/voc/skips?${vocQuery(filters)}`);
+}
+
+/** @param {{ customer: { party_id, name, mobile }, stage: 'prompt'|'form' }} payload */
+export function recordVocSkip(payload) {
+  return request('/api/voc/skips', jsonBody('POST', payload));
+}
+
+export const vocExportUrl =(filters) => `/api/voc/export?${vocQuery(filters)}`;

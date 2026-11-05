@@ -13,7 +13,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useVocResponses } from '@/hooks/voc/useVoc';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useVocResponses, useVocReferrals, useVocSkips } from '@/hooks/voc/useVoc';
 import { useSalesPersonOptions } from '@/hooks/schemes/useSalesPersonOptions';
 import { vocExportUrl } from '@/services/vocService';
 import { QUESTIONS, answerLabel } from '@/lib/voc/questions';
@@ -34,6 +35,26 @@ const currentMonth = () => todayDateString().slice(0, 7);
 
 const timeOf = (date) => new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }).format(new Date(date));
 const dayLabel = (day) => new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${day}T00:00:00Z`));
+
+const REFERRAL_COLUMNS = (isSuperAdmin) => [
+  { key: 'when', label: 'Date', mobile: true },
+  { key: 'name', label: 'Referral', mobile: true },
+  { key: 'mobile', label: 'Mobile', mobile: true },
+  { key: 'referred_by', label: 'Referred by' },
+  ...(isSuperAdmin ? [{ key: 'store', label: 'Store', filter: true }] : []),
+  { key: 'jc', label: 'Jewelry Consultant', filter: true },
+];
+
+const SKIP_COLUMNS = (isSuperAdmin) => [
+  { key: 'when', label: 'Date', mobile: true },
+  { key: 'customer', label: 'Customer', mobile: true },
+  { key: 'mobile', label: 'Mobile' },
+  ...(isSuperAdmin ? [{ key: 'store', label: 'Store', filter: true }] : []),
+  { key: 'stage', label: 'How', filter: true },
+  { key: 'times', label: 'Times that day', align: 'right' },
+  { key: 'feedback_later', label: 'Gave feedback later', filter: true },
+  { key: 'by', label: 'Staff login' },
+];
 
 function FilterField({ label, children, className }) {
   return (
@@ -57,6 +78,7 @@ export default function VocPage() {
   const [purchased, setPurchased] = useState(ALL);
   const [showMobiles, setShowMobiles] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [tab, setTab] = useState('feedback');
 
   const scopedStoreId = isSuperAdmin ? (storeFilter === ALL ? null : Number(storeFilter)) : activeStoreId;
   const { salesPersons } = useSalesPersonOptions(scopedStoreId);
@@ -100,6 +122,29 @@ export default function VocPage() {
     purchased: answerLabel('q7', r.answers.q7),
     nps: r.answers.q9,
     response: r,
+  }));
+
+  const referrals = useVocReferrals(filters, { enabled: isSuperAdmin || !!activeStoreId });
+  const skips = useVocSkips(filters, { enabled: isSuperAdmin || !!activeStoreId });
+  const referralRows = (referrals.data?.rows ?? []).map((r) => ({
+    id: `${r.response_id}-${r.index}`,
+    when: `${dayLabel(r.day)}, ${timeOf(r.submitted_at)}`,
+    name: r.referral.name,
+    mobile: r.referral.mobile,
+    referred_by: r.customer.name,
+    store: r.store.name,
+    jc: r.jc.name,
+  }));
+  const skipRows = (skips.data?.rows ?? []).map((s) => ({
+    id: s.id,
+    when: `${dayLabel(s.day)}, ${timeOf(s.last_skipped_at)}`,
+    customer: s.customer.name,
+    mobile: s.customer.mobile,
+    store: s.store.name,
+    stage: s.stage === 'form' ? 'Closed the form' : 'Skipped at prompt',
+    times: s.times,
+    feedback_later: s.feedback_later ? 'Yes' : 'No',
+    by: s.skipped_by,
   }));
 
   if (!isSuperAdmin && !activeStoreId) {
@@ -165,7 +210,7 @@ export default function VocPage() {
             </Select>
           </FilterField>
         )}
-        <FilterField label="Jewelry Consultant">
+        {tab !== 'skipped' && <FilterField label="Jewelry Consultant">
           <Select value={jcFilter} onValueChange={setJcFilter} disabled={!scopedStoreId}>
             <SelectTrigger className="h-11 w-full" aria-label="Jewelry Consultant">
               <SelectValue placeholder={scopedStoreId ? 'All' : 'Pick a store first'} />
@@ -177,8 +222,8 @@ export default function VocPage() {
               ))}
             </SelectContent>
           </Select>
-        </FilterField>
-        <FilterField label="Purchased">
+        </FilterField>}
+        {tab !== 'skipped' && <FilterField label="Purchased">
           <Select value={purchased} onValueChange={setPurchased}>
             <SelectTrigger className="h-11 w-full" aria-label="Purchased"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -186,10 +231,36 @@ export default function VocPage() {
               {PURCHASE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
             </SelectContent>
           </Select>
-        </FilterField>
+        </FilterField>}
       </div>
 
-      {isLoading ? (
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="w-full sm:w-fit">
+          <TabsTrigger value="feedback" className="px-3">Feedback{isLoading ? '' : ` (${total})`}</TabsTrigger>
+          <TabsTrigger value="referrals" className="px-3">Referrals{referrals.data ? ` (${referrals.data.total})` : ''}</TabsTrigger>
+          <TabsTrigger value="skipped" className="px-3">Skipped{skips.data ? ` (${skips.data.total})` : ''}</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {tab === 'referrals' ? (
+        <DataTable
+          columns={REFERRAL_COLUMNS(isSuperAdmin)}
+          rows={referralRows}
+          isLoading={referrals.isLoading}
+          isError={referrals.isError}
+          onRetry={referrals.refetch}
+          emptyMessage="No referrals for these filters."
+        />
+      ) : tab === 'skipped' ? (
+        <DataTable
+          columns={SKIP_COLUMNS(isSuperAdmin)}
+          rows={skipRows}
+          isLoading={skips.isLoading}
+          isError={skips.isError}
+          onRetry={skips.refetch}
+          emptyMessage="No skipped feedback for these filters."
+        />
+      ) : isLoading ? (
         <p className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
           <Loader2 size={16} className="animate-spin" aria-hidden="true" /> Loading feedback…
         </p>

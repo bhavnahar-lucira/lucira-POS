@@ -309,5 +309,7 @@ export const QUERY_KEYS = {
     LIST:   (filters) => ['voc', 'list', filters],
     DETAIL: (id) => ['voc', 'detail', id],
     TODAY:  (partyId) => ['voc', 'today', partyId],
+    REFERRALS: (filters) => ['voc', 'referrals', filters],
+    SKIPS:  (filters) => ['voc', 'skips', filters],
   },
 };

@@ -24,6 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { usePaymentModes } from '@/hooks/checkout/usePaymentModes';
 import { useOrderHeaderConfig } from '@/hooks/checkout/useOrderHeaderConfig';
 import { createAdvanceReceipt } from '@/services/advanceReceiptService';
+import AdvanceReceiptLink from '@/components/features/ticketing/AdvanceReceiptLink';
 import { paymentRequiresBank } from '@/lib/checkout/paymentModeRules';
 import { resolveDocumentDateTime } from '@/lib/dateUtils';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
@@ -727,7 +728,7 @@ export default function TicketDetail({ ticket, partyId }) {
                     ['Amount received', formatAmountOrDash(orderDetails.amount_received)],
                     ['Advance received', formatProfileDate(orderDetails.advance_received_on)],
                     ['Payment mode', orderDetails.payment_mode ?? '—'],
-                    ['Advance receipt', orderDetails.advance_receipt?.document_no ?? '—'],
+                    ['Advance receipt', <AdvanceReceiptLink key="advance-receipt" receipt={orderDetails.advance_receipt} customerName={ticket.customer_name} />],
                     ['Reference no.', orderDetails.reference_no ?? '—'],
                     ...advanceModeFields(orderDetails.payment_mode)
                       .filter((f) => orderDetails.payment_details?.[f.key])

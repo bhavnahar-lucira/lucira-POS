@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, Loader2 } from 'lucide-react';
+import { Check, Loader2, Plus, Trash2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 
 import SalesPersonSelect from '@/components/features/checkout/SalesPersonSelect';
@@ -20,6 +20,8 @@ const NPS_TONE = {
 };
 const npsTone = (n) => NPS_TONE[n >= 9 ? 'high' : n >= 7 ? 'mid' : 'low'];
 const questionNumber = (q) => q.id.slice(1);
+const REFERRALS_MAX = 5;
+const MOBILE_RE = /^[6-9]\d{9}$/;
 
 // Scrolls only the app's content area (scrollIntoView would also shift the fixed app shell), stopping below the sticky progress bar.
 function scrollToId(id, scrollerId) {
@@ -97,7 +99,7 @@ function QuestionCard({ question, value, otherText, answered, highlighted, hint,
     <div
       id={`voc-${question.id}`}
       className={cn(
-        'scroll-mt-40 flex flex-col gap-3 rounded-2xl border bg-card p-4 sm:p-5 transition-shadow',
+        'relative scroll-mt-40 flex flex-col gap-3 rounded-2xl border bg-card p-4 sm:p-5 transition-shadow',
         highlighted ? 'border-status-error ring-2 ring-status-error/25' : 'border-border',
       )}
     >
@@ -163,6 +165,7 @@ export default function VocForm({
   const [answers, setAnswers] = useState(initial.answers ?? {});
   const [otherText, setOtherText] = useState(initial.other_text ?? {});
   const [highlight, setHighlight] = useState(null);
+  const [referrals, setReferrals] = useState(() => (initial.referrals ?? []).map((r) => ({ name: r.name, mobile: r.mobile })));
 
   const visible = visibleQuestions(answers);
   const { answered, total, percent } = progress(answers, otherText);
@@ -174,8 +177,13 @@ export default function VocForm({
   const jcName = salesPersons.find((p) => p.employee_id === jcId)?.employee_name
     ?? (initial.jc?.id === jcId ? initial.jc.name : null);
 
+  const setReferral = (i, field, value) => setReferrals((prev) => prev.map((r, j) => (j === i ? { ...r, [field]: value } : r)));
+
   const handleSubmit = (event) => {
     event.preventDefault();
+    const filledReferrals = referrals
+      .map((r) => ({ name: r.name.trim(), mobile: r.mobile.replace(/\D/g, '').slice(-10) }))
+      .filter((r) => r.name || r.mobile);
     if (!jcId || !jcName) {
       setHighlight('jc');
       scrollTo('voc-jc');
@@ -189,7 +197,13 @@ export default function VocForm({
         ? `Please type the "Other" answer for question ${questionNumber(missing)}.`
         : `Please answer question ${questionNumber(missing)}.`);
     }
-    onSubmit({ jc: { id: jcId, name: jcName }, answers, other_text: otherText });
+    const badReferral = filledReferrals.findIndex((r) => !r.name || !MOBILE_RE.test(r.mobile));
+    if (badReferral >= 0) {
+      setHighlight('referrals');
+      scrollTo('voc-referrals');
+      return toast.error(`Referral ${badReferral + 1}: enter a name and a valid 10-digit mobile.`);
+    }
+    onSubmit({ jc: { id: jcId, name: jcName }, answers, other_text: otherText, referrals: filledReferrals });
   };
 
   return (
@@ -267,6 +281,70 @@ export default function VocForm({
           ))}
         </section>
       ))}
+
+      <section
+        id="voc-referrals"
+        aria-labelledby="voc-referrals-title"
+        className={cn(
+          'scroll-mt-40 flex flex-col gap-3 rounded-2xl border bg-card p-4 sm:p-5',
+          highlight === 'referrals' ? 'border-status-error ring-2 ring-status-error/25' : 'border-border',
+        )}
+      >
+        <div className="flex gap-3">
+          <span aria-hidden="true" className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <UserPlus size={14} />
+          </span>
+          <div>
+            <p id="voc-referrals-title" className="pt-0.5 text-sm font-semibold leading-snug text-foreground sm:text-base">
+              Would you like to refer friends or family to Lucira?
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">Optional · up to {REFERRALS_MAX} people</p>
+          </div>
+        </div>
+
+        {referrals.map((r, i) => (
+          <div key={i} className="grid grid-cols-[1fr_auto] gap-2 sm:grid-cols-[1fr_1fr_auto]">
+            <Input
+              value={r.name}
+              onChange={(e) => setReferral(i, 'name', e.target.value)}
+              maxLength={100}
+              placeholder="Name"
+              aria-label={`Referral ${i + 1} name`}
+              className="h-11"
+            />
+            <Input
+              value={r.mobile}
+              onChange={(e) => setReferral(i, 'mobile', e.target.value.replace(/[^\d+ ]/g, ''))}
+              inputMode="tel"
+              maxLength={14}
+              placeholder="10-digit mobile"
+              aria-label={`Referral ${i + 1} mobile`}
+              className="order-3 col-span-2 h-11 sm:order-0 sm:col-span-1"
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-11 text-muted-foreground"
+              onClick={() => setReferrals((prev) => prev.filter((_, j) => j !== i))}
+              aria-label={`Remove referral ${i + 1}`}
+            >
+              <Trash2 size={16} aria-hidden="true" />
+            </Button>
+          </div>
+        ))}
+
+        {referrals.length < REFERRALS_MAX && (
+          <Button
+            type="button"
+            variant="outline"
+            className="h-11 gap-1.5 self-start"
+            onClick={() => setReferrals((prev) => [...prev, { name: '', mobile: '' }])}
+          >
+            <Plus size={16} aria-hidden="true" /> Add referral
+          </Button>
+        )}
+      </section>
 
       <div className="sticky bottom-0 z-20 -mx-4 -mb-8 mt-2 border-t border-border bg-background/95 px-4 py-3 backdrop-blur md:-mx-6 md:-mb-6 md:px-6">
         <div className="flex items-center justify-between gap-3">

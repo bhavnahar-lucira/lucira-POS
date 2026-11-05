@@ -10,9 +10,27 @@ const jcSchema = z.object({
   name: text(200).min(1, 'Select the Jewelry Consultant'),
 });
 
+export const REFERRALS_MAX = 5;
+
+export const referralSchema = z.object({
+  name:   text(100).min(1, 'Enter the referral’s name'),
+  mobile: z.string().trim().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit mobile for each referral'),
+});
+
 const answersSchema = z.object({
   answers:    z.record(z.string(), z.union([z.string().max(50), z.number()])),
   other_text: z.record(z.string(), text(OTHER_TEXT_MAX)).default({}),
+  referrals:  z.array(referralSchema).max(REFERRALS_MAX, `Up to ${REFERRALS_MAX} referrals`).default([]),
+});
+
+/** A customer who skipped the feedback (at the prompt, or by closing the form). */
+export const vocSkipSchema = z.object({
+  customer: z.object({
+    party_id: z.coerce.number().int().positive(),
+    name:     text(200).min(1),
+    mobile:   optionalText(30),
+  }),
+  stage: z.enum(['prompt', 'form']),
 });
 
 // Every visible question must be properly answered; unknown questions are refused; hidden answers are dropped.

@@ -132,6 +132,61 @@ export async function listStoreSales(companyId) {
     .toArray();
 }
 
+const missingName = { $or: [{ salesPersonName: null }, { salesPersonName: { $exists: false } }] };
+
+/** Sales person ids at a store that still have records without a name. */
+export async function unnamedSalesPersonIds(companyId) {
+  const db = await getDb();
+  return db.collection(COLLECTION).distinct('salesPersonId', {
+    ...environmentMatch(), companyId, salesPersonId: { $gt: 0 }, ...missingName,
+  });
+}
+
+/** Fills in missing sales person names only; never changes a name that is already set. Returns records updated. */
+export async function fillSalesPersonNames(companyId, namesById) {
+  const ops = [...namesById].filter(([, name]) => name).map(([salesPersonId, name]) => ({
+    updateMany: {
+      filter: { ...environmentMatch(), companyId, salesPersonId, ...missingName },
+      update: { $set: { salesPersonName: name } },
+    },
+  }));
+  if (!ops.length) return 0;
+  const db = await getDb();
+  const result = await db.collection(COLLECTION).bulkWrite(ops, { ordered: false });
+  return result.modifiedCount;
+}
+
+/**
+ * Posted invoices and orders per store + sales person in a date range (IST days, inclusive):
+ * [{ companyId, salesPersonId, salesPersonName, invoices, invoiceValue, orders, orderValue }].
+ */
+export async function salesPersonDocumentTotals({ companyIds, fromDate, toDate }) {
+  const db = await getDb();
+  const sum = (type, field) => ({ $sum: { $cond: [{ $eq: ['$documentType', type] }, field, 0] } });
+  const rows = await db.collection(COLLECTION).aggregate([
+    {
+      $match: {
+        ...environmentMatch(),
+        companyId: { $in: companyIds },
+        documentType: { $in: ['invoice', 'order'] },
+        documentStatus: { $nin: [0, 2] },
+        documentDate: { $gte: new Date(`${fromDate}T00:00:00+05:30`), $lte: new Date(`${toDate}T23:59:59.999+05:30`) },
+      },
+    },
+    {
+      $group: {
+        _id: { companyId: '$companyId', salesPersonId: '$salesPersonId' },
+        salesPersonName: { $max: '$salesPersonName' },
+        invoices: sum('invoice', 1),
+        invoiceValue: sum('invoice', '$totalAmount'),
+        orders: sum('order', 1),
+        orderValue: sum('order', '$totalAmount'),
+      },
+    },
+  ]).toArray();
+  return rows.map(({ _id, ...rest }) => ({ ..._id, ...rest }));
+}
+
 /**
  * Every purchase for one customer, newest first — powers the
  * /buyers/[customerId] detail page.

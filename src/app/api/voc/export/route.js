@@ -36,6 +36,7 @@ export async function GET(request) {
       'Jewelry Consultant': r.jc.name,
       'Jewelry Consultant ID': r.jc.id,
       ...Object.fromEntries(QUESTIONS.map((q) => [`Q${q.id.slice(1)}. ${q.text}`, answerLabel(q.id, r.answers[q.id], r.other_text)])),
+      Referrals: (r.referrals ?? []).map((ref) => `${ref.name} (${ref.mobile})`).join('; '),
       'Submitted by': r.submitted_by,
       'Edited by': r.updated_by ?? '',
     }));

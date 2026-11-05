@@ -1,11 +1,39 @@
 import { getSessionFromRequest } from '@/lib/ornaverse/session';
-import { DATE_RE, isValidCompanyIds, getAuthorizedStores } from '@/lib/reports/serverAccess';
+import API from '@/constants/apiEndpoints';
+import { DATE_RE, isValidCompanyIds, getAuthorizedStores, postUpstream } from '@/lib/reports/serverAccess';
 import { fetchVisits } from '@/lib/nonBuyers/server';
 import { normalizeMobileKey } from '@/lib/mongo/normalizeMobile';
 
 const istDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' });
 const istTime = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
 const clean = (v) => (v && v !== 'NA' ? String(v).trim() : null);
+const CUSTOMER_CHUNK = 500;
+
+// OrnaVerse saves the Jewelry Consultant on the customer record (set at first registration), not on each visit.
+async function consultantsByCustomer(session, customerIds) {
+  const ids = [...new Set(customerIds.filter((id) => id != null))];
+  if (!ids.length) return new Map();
+  try {
+    const chunks = [];
+    for (let i = 0; i < ids.length; i += CUSTOMER_CHUNK) chunks.push(ids.slice(i, i + CUSTOMER_CHUNK));
+    const [customers, employees] = await Promise.all([
+      Promise.all(chunks.map((chunk) => postUpstream(session, API.CRM.CUSTOMER_LIST, {
+        Take: 0, Criteria: [['customer_id'], 'in', [chunk]],
+      }))),
+      postUpstream(session, API.HR.EMPLOYEE_LIST, { Take: 0 }),
+    ]);
+    const names = new Map((employees?.Entities ?? []).map((e) => [e.employee_id, e.employee_name]));
+    const out = new Map();
+    for (const c of customers.flatMap((d) => d?.Entities ?? [])) {
+      const id = c.sales_representative_id;
+      if (id != null) out.set(c.customer_id, names.get(id) ?? `Former employee #${id}`);
+    }
+    return out;
+  } catch (err) {
+    console.error('[api/reports/walkins] jewelry consultant lookup failed', err?.message);
+    return new Map();
+  }
+}
 
 /** Every walk-in visit in the date range (IST) for the selected stores, newest first. */
 export async function POST(request) {
@@ -43,6 +71,7 @@ export async function POST(request) {
         return [{
           company_id: companyId,
           visit_id: v.id,
+          customer_id: v.customer_id ?? null,
           visited_on: day,
           visited_time: istTime.format(at),
           visited_at: at.toISOString(),
@@ -57,6 +86,11 @@ export async function POST(request) {
     }));
 
     const rows = perStore.flat();
+    const consultants = await consultantsByCustomer(session, rows.map((r) => r.customer_id));
+    for (const row of rows) {
+      row.jewelry_consultant = consultants.get(row.customer_id) ?? null;
+      delete row.customer_id;
+    }
     // How many times this person came in during the selected period, at that store.
     const counts = new Map();
     for (const row of rows) {

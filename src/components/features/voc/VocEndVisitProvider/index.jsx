@@ -14,7 +14,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { useCreateVoc } from '@/hooks/voc/useVoc';
-import { getVocToday } from '@/services/vocService';
+import { getVocToday, recordVocSkip } from '@/services/vocService';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 import { selectActiveStoreId, selectActiveStoreName } from '@/store/slices/storeSlice';
 import {
@@ -84,6 +84,15 @@ export default function VocEndVisitProvider({ children }) {
     setVisit(null);
   };
 
+  const skip = () => {
+    const { customer, stage } = visit ?? {};
+    finish();
+    if (!customer) return;
+    recordVocSkip({ customer: { party_id: customer.party_id, name: customer.name, mobile: customer.mobile }, stage: stage === 'form' ? 'form' : 'prompt' })
+      .then(() => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.VOC.ALL() }))
+      .catch((err) => console.warn('[voc] recording the skip failed', err.message));
+  };
+
   const handleSubmit = (payload) => {
     createVoc.mutate(
       { customer: visit.customer, ...payload },
@@ -113,7 +122,7 @@ export default function VocEndVisitProvider({ children }) {
             <Button type="button" className="h-11 w-full" onClick={() => setVisit((v) => ({ ...v, stage: 'form' }))} autoFocus>
               Take feedback
             </Button>
-            <Button type="button" variant="outline" className="h-11 w-full" onClick={finish}>
+            <Button type="button" variant="outline" className="h-11 w-full" onClick={skip}>
               Skip &amp; end visit
             </Button>
           </DialogFooter>
@@ -146,7 +155,7 @@ export default function VocEndVisitProvider({ children }) {
                     type="button"
                     variant="ghost"
                     className="h-9 shrink-0 gap-1 px-2 text-muted-foreground"
-                    onClick={finish}
+                    onClick={skip}
                     disabled={createVoc.isPending}
                   >
                     <X size={16} aria-hidden="true" /> Close &amp; end visit

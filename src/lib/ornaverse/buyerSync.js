@@ -24,7 +24,7 @@
 // app's `@/` path alias.
 
 import { UPSTREAM } from '@/lib/ornaverse/upstream';
-import { upsertPurchase } from '@/lib/mongo/buyerPurchases';
+import { upsertPurchase, unnamedSalesPersonIds, fillSalesPersonNames } from '@/lib/mongo/buyerPurchases';
 import API from '@/constants/apiEndpoints';
 
 const CONCURRENCY = 5; // parallel Retrieve calls — gentle on OrnaVerse + Mongo
@@ -234,7 +234,21 @@ export async function syncStorePurchases({ companyId, session }) {
     STORE_SYNC_KINDS.map((kind, i) => upsertEntities(kind, entitiesByKind[i], session)),
   );
   const [invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced] = syncedByKind;
-  return { invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced };
+  const namesFilled = await fillMissingSalesPersonNames(companyId, session);
+  return { invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced, namesFilled };
+}
+
+// Older records the sync doesn't re-fetch would otherwise keep a missing sales person name forever.
+export async function fillMissingSalesPersonNames(companyId, session) {
+  try {
+    const ids = await unnamedSalesPersonIds(companyId);
+    if (!ids.length) return 0;
+    const names = await getSalesPersonNames([companyId], session, new Set(ids));
+    return await fillSalesPersonNames(companyId, new Map(ids.map((id) => [id, names.get(id) ?? null])));
+  } catch (error) {
+    console.warn(`[buyerSync] filling sales person names for company ${companyId} failed`, error.message);
+    return 0;
+  }
 }
 
 // ── Customer-level sync (every purchase for one party, across every store) ─
