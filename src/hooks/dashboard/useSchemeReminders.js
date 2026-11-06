@@ -10,15 +10,34 @@ import APP_CONFIG from '@/constants/appConfig';
 // birthdays/anniversaries (see useUpcomingEvents).
 const OPEN_STATUSES = ['active', 'completed']; // not yet cancelled/matured/redeemed
 
-function nextDueThisMonth(enrollment) {
-  const today = new Date();
-  const rows  = enrollment.raw?.scheme_monthly_details ?? [];
-  const due = rows.find((m) => {
-    if (m.payment_made) return false;
-    const d = new Date(m.due_date);
-    return !isNaN(d.getTime()) && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
-  });
+// Due dates are plain local dates ("2026-10-28T00:00:00"), so compare as YYYY-MM-DD strings.
+const dayOf = (value) => (value ? String(value).slice(0, 10) : null);
+function todayString() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+const unpaidRows = (enrollment) => (enrollment.raw?.scheme_monthly_details ?? [])
+  .filter((m) => !m.payment_made && dayOf(m.due_date));
+
+// An unpaid instalment due from today to the end of this month (once its date passes it becomes overdue).
+function nextDueThisMonth(enrollment, today) {
+  const due = unpaidRows(enrollment)
+    .filter((m) => dayOf(m.due_date) >= today && dayOf(m.due_date).slice(0, 7) === today.slice(0, 7))
+    .sort((a, b) => dayOf(a.due_date).localeCompare(dayOf(b.due_date)))[0];
   return due ? { dueDate: due.due_date, dueAmount: due.month_amount } : null;
+}
+
+// Every unpaid instalment whose due date has already passed, from any month.
+function overdueInfo(enrollment, today) {
+  const rows = unpaidRows(enrollment).filter((m) => dayOf(m.due_date) < today);
+  if (!rows.length) return null;
+  const oldest = rows.map((m) => dayOf(m.due_date)).sort()[0];
+  return {
+    overdueCount:  rows.length,
+    overdueAmount: rows.reduce((sum, m) => sum + (Number(m.month_amount) || 0), 0),
+    overdueSince:  oldest,
+  };
 }
 
 function maturesThisMonth(enrollment) {
@@ -30,7 +49,8 @@ function maturesThisMonth(enrollment) {
 
 /**
  * @returns {{
- *   due: Array,       — enrollments with an unpaid instalment due this month
+ *   due: Array,       — enrollments with an unpaid instalment due from today to month end
+ *   overdue: Array,   — enrollments with unpaid instalments past their due date (overdueCount/Amount/Since)
  *   maturing: Array,  — enrollments reaching their scheduled maturity this month
  *   isLoading, isError, refetch,
  * }}
@@ -45,14 +65,19 @@ export function useSchemeReminders() {
       const entities = Array.isArray(data) ? data : (data?.Entities ?? data?.data ?? []);
       const open = entities.map(normalizeEnrollment).filter(Boolean).filter((e) => OPEN_STATUSES.includes(e.status));
 
+      const today = todayString();
       const due = [];
+      const overdue = [];
       const maturing = [];
       for (const enrollment of open) {
-        const dueInfo = nextDueThisMonth(enrollment);
+        const dueInfo = nextDueThisMonth(enrollment, today);
         if (dueInfo) due.push({ ...enrollment, ...dueInfo });
+        const lateInfo = overdueInfo(enrollment, today);
+        if (lateInfo) overdue.push({ ...enrollment, ...lateInfo });
         if (maturesThisMonth(enrollment)) maturing.push(enrollment);
       }
-      return { due, maturing };
+      overdue.sort((a, b) => a.overdueSince.localeCompare(b.overdueSince));
+      return { due, overdue, maturing };
     },
     enabled:   !!activeStoreId,
     staleTime: APP_CONFIG.STALE_TIME.ORDERS,
@@ -60,6 +85,7 @@ export function useSchemeReminders() {
 
   return {
     due:       query.data?.due ?? [],
+    overdue:   query.data?.overdue ?? [],
     maturing:  query.data?.maturing ?? [],
     isLoading: query.isLoading,
     isError:   query.isError,

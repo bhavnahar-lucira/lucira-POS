@@ -13,7 +13,7 @@ export function useCustomerCredits(partyId) {
 
   const query = useQuery({
     queryKey:  QUERY_KEYS.REFUNDS.CUSTOMER_CREDITS(partyId, activeStoreId),
-    queryFn:   () => getCustomerCredits({ partyId, companyId: activeStoreId }),
+    queryFn:   () => getCustomerCredits({ partyId }),
     enabled:   !!partyId && !!activeStoreId,
     staleTime: APP_CONFIG.STALE_TIME.ORDERS,
   });

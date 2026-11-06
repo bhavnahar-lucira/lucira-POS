@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { Wallet, CalendarClock, Gem } from 'lucide-react';
+import { Wallet, CalendarClock, Gem, AlertTriangle } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import PillTabs from '@/components/shared/PillTabs';
 import { useState } from 'react';
@@ -13,9 +13,16 @@ import { useState } from 'react';
 // codebase already uses elsewhere for a scheme reaching a time-based
 // milestone (EnrollmentDetailSheet).
 const TABS = [
-  { key: 'due',      label: 'Due',      icon: Wallet,       emptyLabel: 'No instalments due this month.' },
+  { key: 'due',      label: 'Due',      icon: Wallet,        emptyLabel: 'No instalments due this month.' },
+  { key: 'overdue',  label: 'Overdue',  icon: AlertTriangle, emptyLabel: 'No overdue instalments.' },
   { key: 'maturing', label: 'Maturing', icon: CalendarClock, emptyLabel: 'No schemes maturing this month.' },
 ];
+
+const formatShortDate = (yyyyMmDd) => {
+  const d = new Date(`${yyyyMmDd}T00:00:00`);
+  const withYear = d.getFullYear() !== new Date().getFullYear();
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', ...(withYear && { year: 'numeric' }) });
+};
 
 function getInitials(name) {
   if (!name) return '?';
@@ -25,7 +32,7 @@ function getInitials(name) {
   return (first + last).toUpperCase();
 }
 
-function SchemeRow({ enrollment, detail, onSelect }) {
+function SchemeRow({ enrollment, detail, note, isAlert, onSelect }) {
   return (
     <button
       type="button"
@@ -42,10 +49,11 @@ function SchemeRow({ enrollment, detail, onSelect }) {
           <Gem size={12} aria-hidden="true" />
           {enrollment.schemeName || 'Scheme'}
         </p>
+        {note && <p className="text-xs font-medium text-destructive truncate">{note}</p>}
       </div>
 
       {detail && (
-        <p className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
+        <p className={`shrink-0 text-sm font-semibold tabular-nums ${isAlert ? 'text-destructive' : 'text-foreground'}`}>
           &#8377;{Number(detail).toLocaleString('en-IN')}
         </p>
       )}
@@ -54,15 +62,15 @@ function SchemeRow({ enrollment, detail, onSelect }) {
 }
 
 /**
- * SchemeRemindersCard — scheme instalments due / maturities landing this
+ * SchemeRemindersCard — scheme instalments due / overdue / maturities this
  * month, scoped to the active store (see useSchemeReminders).
- * @param {{ due?: Array, maturing?: Array, isLoading?: boolean }} props
+ * @param {{ due?: Array, overdue?: Array, maturing?: Array, isLoading?: boolean }} props
  */
-export default function SchemeRemindersCard({ due = [], maturing = [], isLoading }) {
+export default function SchemeRemindersCard({ due = [], overdue = [], maturing = [], isLoading }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('due');
 
-  const itemsByTab = { due, maturing };
+  const itemsByTab = { due, overdue, maturing };
   const activeItems = itemsByTab[activeTab];
   const activeTabConfig = TABS.find((t) => t.key === activeTab);
 
@@ -109,7 +117,11 @@ export default function SchemeRemindersCard({ due = [], maturing = [], isLoading
             <SchemeRow
               key={enrollment.enrollmentId}
               enrollment={enrollment}
-              detail={activeTab === 'due' ? enrollment.dueAmount : null}
+              detail={activeTab === 'due' ? enrollment.dueAmount : activeTab === 'overdue' ? enrollment.overdueAmount : null}
+              note={activeTab === 'overdue'
+                ? `${enrollment.overdueCount} instalment${enrollment.overdueCount === 1 ? '' : 's'} overdue · since ${formatShortDate(enrollment.overdueSince)}`
+                : null}
+              isAlert={activeTab === 'overdue'}
               onSelect={() => goToSchemes(enrollment.customerId)}
             />
           ))}

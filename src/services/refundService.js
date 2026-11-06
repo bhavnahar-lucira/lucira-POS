@@ -20,17 +20,14 @@ import API from '@/constants/apiEndpoints';
  *   { transaction_id, document_id, document_no, document_date, document_name,
  *     amount, ledger_id, document_ledger_id, mode_id, mode_code, mode_type }
  *
- * companyId must be passed and forwarded — without it the picker shows a
- * customer's credit from every store regardless of which one is active,
- * since this endpoint genuinely scopes by it.
- * @param {{ partyId: number, companyId?: number }} params
+ * Party-wide like OrnaVerse (no company_id): a credit raised at any store is refundable here.
+ * @param {{ partyId: number }} params
  * @returns {Promise<object[]>}
  */
-export async function getCustomerCredits({ partyId, companyId }) {
+export async function getCustomerCredits({ partyId }) {
   if (!partyId) return [];
   const response = await axiosInstance.post(API.REFUNDS.CUSTOMER_CREDITS, {
-    party_id:   partyId,
-    company_id: companyId,
+    party_id: partyId,
   });
   return response.data?.Entities ?? [];
 }
@@ -47,7 +44,7 @@ export async function getCustomerCredits({ partyId, companyId }) {
  * don't predict it.
  *
  * @param {object} credit — a row from getCustomerCredits()
- * @param {number} amount — how much of it to settle (allow_partial is true)
+ * @param {number} amount — how much of it to settle 
  */
 function toRefundReceipt(credit, amount) {
   return {
@@ -63,7 +60,7 @@ function toRefundReceipt(credit, amount) {
     amount,
     party_id:           credit.party_id,
     ref_document_id:    126,   // POS Refund — see APP_CONFIG.DOCUMENT_TYPES.REFUND
-    allow_partial:      true,
+    allow_partial:      credit.allow_partial ?? false,
   };
 }
 

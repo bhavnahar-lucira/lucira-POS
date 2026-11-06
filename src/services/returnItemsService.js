@@ -42,12 +42,13 @@ import APP_CONFIG from '@/constants/appConfig';
  *   directly ("unable to see the products"), root-caused via live capture.
  * @returns {Promise<object[]>} sold-item rows, every store this customer bought from
  */
-export async function getSoldItems({ partyId, companyId, take = 25, transactionType = 1 }) {
+export async function getSoldItems({ partyId, companyId, take = 0, transactionType = 1, documentDate = new Date() }) {
   if (!partyId) return [];
   const response = await axiosInstance.post(API.RETURNS.SOLD_ITEMS, {
     Take:             take,
     party_id:         partyId,
     transaction_type: transactionType,
+    document_date:    documentDate.toDateString(),
     get_child:        true,   // essential — brings item_components[] etc.
     company_id:       companyId,
     IncludeColumns: [
@@ -63,22 +64,23 @@ export async function getSoldItems({ partyId, companyId, take = 25, transactionT
  * UNMODIFIED (same contract as calculateItemRates/SetSalesItems — the
  * server needs the whole shape to recompute against).
  *
- * is_tax_applicable:false and calculate_rates:false mirror OrnaVerse's own
- * Returns screen: a return reverses the ORIGINAL sale's figures rather than
- * re-pricing at today's metal rate.
+ * Same request as OrnaVerse's Returns screen: the Return document's own tax
+ * setting and document id, calculate_rates:false (reverses the original
+ * sale's figures rather than re-pricing at today's metal rate).
  *
- * @param {{ items: object[], documentDate?: Date }} params
+ * @param {{ items: object[], documentDate?: Date, isTaxApplicable?: boolean, documentId?: number }} params
  * @returns {Promise<object[]>} line items ready for Return/Create
  */
-export async function calculateReturnItems({ items, documentDate = new Date() }) {
+export async function calculateReturnItems({ items, documentDate = new Date(), isTaxApplicable = false, documentId }) {
   if (!items?.length) return [];
   const response = await axiosInstance.post(API.HELPERS.SET_RETURN_ITEMS, {
     selected_products: items,
     exchange_rate:     1,
     // their UI sends a bare JS Date string here, not ISO
     document_date:     documentDate.toDateString(),
-    is_tax_applicable: false,
+    is_tax_applicable: isTaxApplicable,
     calculate_rates:   false,
+    document_id:       documentId,
   });
   return response.data?.Entities ?? [];
 }
@@ -153,6 +155,11 @@ export async function calculateExchangeItems({ items, documentDate = new Date() 
  */
 export async function calculateURDItems({ items, documentDate = new Date() }) {
   if (!items?.length) return [];
+  // Same as OrnaVerse: URD coefficient from the policy_type 7 (Compliance) urd_coef, defaulting to 1.
+  const policy = await axiosInstance.post(API.COSTING.POLICY_LIST, {
+    policy_type: 7, policy_effective_date: documentDate.toDateString(),
+  });
+  const coef = policy.data?.Entities?.[0]?.urd_coef ?? 1;
   const response = await axiosInstance.post(API.HELPERS.SET_URD_ITEMS, {
     selected_products:    items,
     generate_line_no:     true,
@@ -164,7 +171,22 @@ export async function calculateURDItems({ items, documentDate = new Date() }) {
     calculate_rates:      true,
     document_id:          APP_CONFIG.DOCUMENT_TYPES.URD_PURCHASE,
     price_list_id:        0,
-    coef:                 1.05,
+    coef,
   });
   return response.data?.Entities ?? [];
+}
+
+/**
+ * Applies manually edited component rates to one priced line, the way OrnaVerse's own
+ * Set Rates flow does (Helpers/UpdateItemRates recomputes amounts and line totals).
+ * @param {{ line: object, rates: Record<number, number>, documentId: number }} params — rates keyed by component index
+ */
+export async function applyManualRates({ line, rates, documentId }) {
+  const components = (line.item_components ?? []).map((c, i) => (rates[i] != null ? { ...c, rate: rates[i] } : c));
+  const response = await axiosInstance.post(API.HELPERS.UPDATE_ITEM_RATES, {
+    selected_products: [line],
+    selected_product:  { item_components: components, item_operations: line.item_operations ?? [] },
+    document_id:       documentId,
+  });
+  return response.data?.Entities?.[0] ?? line;
 }

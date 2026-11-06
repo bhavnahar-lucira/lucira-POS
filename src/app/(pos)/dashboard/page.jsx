@@ -39,7 +39,7 @@ function DashboardScreen() {
   } = useDashboardSummary();
 
   const { birthdays, anniversaries, isLoading: eventsLoading } = useUpcomingEvents();
-  const { due: schemesDue, maturing: schemesMaturing, isLoading: schemesLoading } = useSchemeReminders();
+  const { due: schemesDue, overdue: schemesOverdue, maturing: schemesMaturing, isLoading: schemesLoading } = useSchemeReminders();
 
   if (isError && !isLoading) {
     return (
@@ -127,7 +127,7 @@ function DashboardScreen() {
           </div>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <UpcomingEventsCard birthdays={birthdays} anniversaries={anniversaries} isLoading={eventsLoading} />
-            <SchemeRemindersCard due={schemesDue} maturing={schemesMaturing} isLoading={schemesLoading} />
+            <SchemeRemindersCard due={schemesDue} overdue={schemesOverdue} maturing={schemesMaturing} isLoading={schemesLoading} />
           </div>
         </div>
 

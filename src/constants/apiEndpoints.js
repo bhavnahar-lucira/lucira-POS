@@ -36,6 +36,8 @@ const API = {
     GET_TAXES:                'Services/Common/GetTaxes',
     CHECK_METAL_RATE_TODAY:   'Services/Common/Common/CheckMetalRateForToday',
     GET_REASON_CODES:         'Services/Administration/Reason/List',
+    GET_CONFIG:               'Services/Administration/Configuration/GetConfig',
+    USER_DATA:                'DynamicData/RemoteData.UserData',
   },
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -97,6 +99,7 @@ const API = {
     SET_RETURN_ITEMS:   'Services/Helpers/SetReturnItems',
     SET_BUYBACK_ITEMS:  'Services/Helpers/SetBuyBackItems',
     SET_EXCHANGE_ITEMS: 'Services/Helpers/SetExchangeItems',
+    UPDATE_ITEM_RATES:  'Services/Helpers/UpdateItemRates',
     SET_URD_ITEMS:      'Services/Helpers/SetURDItems',
   },
 

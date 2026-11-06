@@ -147,3 +147,15 @@ export async function getReasonCodes() {
   });
   return response.data;
 }
+
+/** OrnaVerse configuration value by code, as its own client reads it (e.g. 1056 = manual rates enabled). */
+export async function getConfigValue(code) {
+  const response = await axiosInstance.post(API.SETTINGS.GET_CONFIG, { configuration_code: code });
+  return response.data?.value ?? '';
+}
+
+/** The signed-in operator's OrnaVerse user data: { is_admin, permissions: { [key]: true } }. */
+export async function getUserData() {
+  const response = await axiosInstance.get(API.SETTINGS.USER_DATA);
+  return response.data ?? {};
+}

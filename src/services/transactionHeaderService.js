@@ -51,15 +51,7 @@ export function buildTransactionHeaderFields({
   const roundedNet = roundToNearestRupee(discountedNet);
   const round_off  = +(roundedNet - discountedNet).toFixed(2);
 
-  // RETURN variant — a Return header is NOT just an Order header with a
-  // different document_id; it differs in four ways:
-  //   · no `taxable_amount`, no `mobile`, no `promotion_details`
-  //   · no header-level ref_transaction_id/ref_document_id (the per-line
-  //     ref_* fields already tie it to the original sale)
-  //   · `is_tax_applicable: false` — a return reverses the original sale's
-  //     tax rather than recomputing it
-  //   · `balance_amount` equals net (not net - receipt): the credit stands
-  //     until a separate Refund/CreditNote settles it
+  // Return/Exchange/Buyback/URD header exactly as OrnaVerse saves it: line-summed figures, unrounded, receipt/balance 0.
   if (forReturn) {
     return {
       party_id:      customerId,
@@ -72,20 +64,21 @@ export function buildTransactionHeaderFields({
       pieces, weight, net_weight: netWeight,
       sub_total:       subTotal,
       discount,
+      taxable_amount:  headerConfig.isTaxApplicable ? +(subTotal - discount).toFixed(2) : 0,
       tax_amount:      taxAmount,
-      net_amount:      roundedNet,
+      net_amount:      netAmount,
       base_sub_total:  subTotal,
-      base_net_amount: roundedNet,
+      base_net_amount: netAmount,
       base_tax_amount: taxAmount,
-      round_off,
-      receipt_amount:  roundedNet,
-      balance_amount:  roundedNet,
+      round_off:       0,
+      receipt_amount:  0,
+      balance_amount:  0,
       document_id:                 documentTypeId,
       financial_year_id:           headerConfig.financialYearId,
       ledger_id:                   headerConfig.ledgerId,
       payable_ledger_id:           headerConfig.payableLedgerId ?? undefined,
       receivable_ledger_id:        headerConfig.receivableLedgerId ?? undefined,
-      is_tax_applicable:           false,
+      is_tax_applicable:           headerConfig.isTaxApplicable,
       auto_posting:                headerConfig.autoPosting,
       is_document_number_editable: headerConfig.isDocumentNumberEditable,
       // Return sends false, Buy Back sends true — matches their captured

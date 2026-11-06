@@ -46,15 +46,16 @@ import {
 import PaymentStatusBadge                  from '@/components/shared/PaymentStatusBadge';
 import TransactionDetailSheet              from '@/components/features/transactions/TransactionDetailSheet';
 import { usePaymentModes }                from '@/hooks/checkout/usePaymentModes';
+import { useBankPosAccounts }              from '@/hooks/checkout/useBankPosAccounts';
 import { paymentRequiresBank }             from '@/lib/checkout/paymentModeRules';
 import { useURDMasterItem }                from '@/hooks/transactions/useURDMasterItem';
 import SalesPersonSelect                   from '@/components/features/checkout/SalesPersonSelect';
 import { useSoldItems }                    from '@/hooks/transactions/useSoldItems';
-import { useCompliancePolicy }             from '@/hooks/transactions/useCompliancePolicy';
 import { useCustomerCredits }              from '@/hooks/transactions/useCustomerCredits';
 import { useOrderHeaderConfig }            from '@/hooks/checkout/useOrderHeaderConfig';
 import { buildTransactionHeaderFields }    from '@/services/transactionHeaderService';
-import { calculateReturnItems, calculateBuybackItems, calculateExchangeItems, calculateURDItems } from '@/services/returnItemsService';
+import { calculateReturnItems, calculateBuybackItems, calculateExchangeItems, calculateURDItems, applyManualRates } from '@/services/returnItemsService';
+import { useCanEditManualRates }            from '@/hooks/transactions/useCanEditManualRates';
 import {
   calculateInterstoreReturnItems, mapReturnLineToInterstoreReturnLine,
   createInterstoreReturnWithPhotos,
@@ -189,6 +190,42 @@ const soldItemFlowSchema = z.object({
 });
 const soldItemKey = (row) => `${row.document_no ?? ''}#${row.item_line_no ?? ''}`;
 
+function ManualRateEditor({ line, previewLine, edits, onChange, isUpdating }) {
+  const components = line.item_components ?? [];
+  if (!components.length) return null;
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3">
+      <p className="text-xs font-medium text-muted-foreground">
+        Edit rates {isUpdating && <span className="font-normal">· recalculating…</span>}
+      </p>
+      {components.map((c, i) => {
+        const named = (v) => (v && v !== 'NA' ? v : null);
+        const label = (c.purity > 0
+          ? [named(c.item_group_name), named(c.karat_name)].filter(Boolean).join(' ')
+          : named(c.type_name) ?? named(c.item_group_name) ?? named(c.item_code)) || `Component ${i + 1}`;
+        return (
+          <div key={`${i}-${c.rate}`} className="flex items-center justify-between gap-3">
+            <span className="min-w-0 truncate text-xs text-foreground">
+              {label}
+              <span className="text-muted-foreground"> · {c.weight ?? 0} {c.purity > 0 ? 'g' : 'ct'}</span>
+              <span className="block text-muted-foreground tabular-nums">{formatINR(previewLine.item_components?.[i]?.amount ?? c.amount ?? 0)}</span>
+            </span>
+            <Input
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              aria-label={`Rate for ${label}`}
+              className="h-9 w-32 text-right tabular-nums"
+              defaultValue={edits[i] ?? c.rate ?? ''}
+              onBlur={(e) => onChange(i, Number(e.target.value) === c.rate ? '' : e.target.value)}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function SoldItemFlowForm({ flow, onDone }) {
   const [mode, setMode] = useState(flow);
   const config         = SOLD_ITEM_FLOWS[mode];
@@ -196,31 +233,9 @@ function SoldItemFlowForm({ flow, onDone }) {
   const customerId     = useSelector(selectCartCustomerId);
   const customerName   = useSelector(selectCartCustomerName);
   const headerConfig   = useOrderHeaderConfig(config.documentTypeId);
-  const { soldItems: allSoldItems, isLoading: soldLoading, isError: soldError, refetch: refetchSold } =
+  // Same list OrnaVerse's own Sold Item picker shows: no client-side filtering (return window, gifts, etc.).
+  const { soldItems, isLoading: soldLoading, isError: soldError, refetch: refetchSold } =
     useSoldItems(customerId, config.transactionType);
-  const { salesReturnDays } = useCompliancePolicy();
-
-  // COMPLIANCE (2026-10-05, reported live): OrnaVerse's own Return/Create
-  // rejects an item still within the tenant's sales_return_days window
-  // ("... is outside the return window") — confirmed this is a real,
-  // server-enforced compliance rule (Services/Costing/Policy/List, policy
-  // "Compliance"), not a bug. But Buyback/Exchange have no such check
-  // server-side, so an item could silently route around a Return's
-  // cooling-off period via Buyback/Exchange instead — reported directly:
-  // "the product ordered wont be visible in buyback and exchange until it
-  // is out of the return window". Return itself stays unfiltered (its own
-  // server call already enforces this correctly); only hide the item from
-  // Buyback/Exchange's own picker.
-  const now = Date.now();
-  const withinReturnWindow = (row) => {
-    if (salesReturnDays == null || !row.document_date) return false;
-    const soldAt = new Date(row.document_date).getTime();
-    if (isNaN(soldAt)) return false;
-    const daysSinceSale = (now - soldAt) / (24 * 60 * 60 * 1000);
-    return daysSinceSale < salesReturnDays;
-  };
-  const soldItems = (mode === 'return' || mode === 'creditNote') ? allSoldItems : allSoldItems.filter((r) => !withinReturnWindow(r));
-  const hiddenForWindowCount = allSoldItems.length - soldItems.length;
 
   // PRICE PREVIEW (2026-10-05, reported live: "buyback and exchange price in
   // POS is different and on ornaverse is different"). Root cause: Buyback
@@ -244,8 +259,31 @@ function SoldItemFlowForm({ flow, onDone }) {
     staleTime: APP_CONFIG.STALE_TIME.STOCK,
   });
   const pricedByKey = new Map((pricePreview.data ?? []).map((row) => [soldItemKey(row), row]));
+
+  // Manual component rates, as OrnaVerse allows for operators with AllowManualRates: { [itemKey]: { [componentIndex]: rate } }.
+  const canEditRates = useCanEditManualRates();
+  const [rateEdits, setRateEdits] = useState({});
+  const baseLineFor = (row) => pricedByKey.get(soldItemKey(row)) ?? row;
+  const editedRows = soldItems.filter((r) => Object.keys(rateEdits[soldItemKey(r)] ?? {}).length > 0);
+  const editedPreview = useQuery({
+    queryKey: ['transactions', 'manual-rate-preview', mode, rateEdits, editedRows.map(soldItemKey)],
+    queryFn: async () => Object.fromEntries(await Promise.all(editedRows.map(async (r) => [
+      soldItemKey(r),
+      await applyManualRates({ line: baseLineFor(r), rates: rateEdits[soldItemKey(r)], documentId: config.documentTypeId }),
+    ]))),
+    enabled: editedRows.length > 0 && (!needsPricePreview || pricePreview.isSuccess),
+  });
+  const setComponentRate = (row, index, value) => setRateEdits((prev) => {
+    const key = soldItemKey(row);
+    const next = { ...(prev[key] ?? {}) };
+    if (value === '' || value == null || Number.isNaN(Number(value))) delete next[index];
+    else next[index] = Number(value);
+    return { ...prev, [key]: next };
+  });
+
   const displayAmountFor = (row) =>
-    needsPricePreview ? (pricedByKey.get(soldItemKey(row))?.net_amount ?? row.net_amount) : row.net_amount;
+    editedPreview.data?.[soldItemKey(row)]?.net_amount
+      ?? (needsPricePreview ? (pricedByKey.get(soldItemKey(row))?.net_amount ?? row.net_amount) : row.net_amount);
 
   const createReturnDoc     = useCreateReturn({ onSuccess: () => {} });
   const postReturnDoc       = usePostReturn();
@@ -337,19 +375,28 @@ function SoldItemFlowForm({ flow, onDone }) {
       }
 
       if (sameStoreRows.length > 0) {
-        const line_items = await config.priceItems({
+        const priced = await config.priceItems({
           items: sameStoreRows,
           documentDate: resolveDocumentDateTime(data.document_date),
+          isTaxApplicable: headerConfig.isTaxApplicable,
+          documentId: config.documentTypeId,
         });
+        const line_items = await Promise.all(priced.map((line) => {
+          const rates = rateEdits[soldItemKey(line)];
+          return rates && Object.keys(rates).length
+            ? applyManualRates({ line, rates, documentId: config.documentTypeId })
+            : line;
+        }));
         if (!line_items.length) throw new Error('Could not price the selected items.');
-        const sum = (f) => +line_items.reduce((s, li) => s + (li[f] || li[`base_${f}`] || 0), 0).toFixed(2);
-        const subTotal = sum('sub_total');
-        const taxAmount = sum('tax_amount');
+        const sum = (f) => +line_items.reduce((s, li) => s + (li[f] ?? li[`base_${f}`] ?? 0), 0).toFixed(2);
         const netRaw = sum('net_amount');
+        // OrnaVerse's Buyback header carries net as sub_total; Return/Exchange carry the gross.
+        const subTotal = config.documentTypeId === APP_CONFIG.DOCUMENT_TYPES.BUYBACK ? netRaw : sum('sub_total');
+        const taxAmount = sum('tax_amount');
 
         const createRes = await createDoc.mutateAsync({
           ...buildTransactionHeaderFields({
-            subTotal, taxableAmount: subTotal, taxAmount, netAmount: netRaw,
+            subTotal, taxableAmount: subTotal, taxAmount, netAmount: netRaw, discount: sum('discount'),
             pieces: sum('pieces'), weight: sum('weight'), netWeight: sum('net_weight'),
             customerId, customerName,
             activeStoreId: storeId,
@@ -373,6 +420,7 @@ function SoldItemFlowForm({ flow, onDone }) {
       setIsPricing(false);
       reset();
       setPhotosByKey({});
+      setRateEdits({});
       onDone();
     } catch (err) {
       setIsPricing(false);
@@ -432,13 +480,6 @@ function SoldItemFlowForm({ flow, onDone }) {
         <p className="text-xs text-muted-foreground -mt-1">
           Pick from what this customer has purchased — tap to select.
         </p>
-        {mode !== 'return' && hiddenForWindowCount > 0 && (
-          <p className="text-xs text-muted-foreground -mt-1">
-            {hiddenForWindowCount} item{hiddenForWindowCount > 1 ? 's are' : ' is'} still within the
-            {' '}{salesReturnDays}-day return window and {hiddenForWindowCount > 1 ? "aren't" : "isn't"} shown
-            here — use Return for those instead.
-          </p>
-        )}
         {needsPricePreview && pricePreview.isFetching && (
           <p className="text-xs text-muted-foreground -mt-1">Calculating current {mode === 'buyback' ? 'buy back' : 'exchange'} value…</p>
         )}
@@ -455,10 +496,8 @@ function SoldItemFlowForm({ flow, onDone }) {
           <EmptyState
             className="border-0 py-6"
             icon={RotateCcw}
-            title={hiddenForWindowCount > 0 ? 'All purchases are still within the return window.' : config.emptyTitle}
-            description={hiddenForWindowCount > 0
-              ? `These items can only be returned (not bought back or exchanged) until their ${salesReturnDays}-day return window passes.`
-              : config.emptyHint}
+            title={config.emptyTitle}
+            description={config.emptyHint}
           />
         ) : (
           <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
@@ -498,6 +537,15 @@ function SoldItemFlowForm({ flow, onDone }) {
                       {isSelected && <Check className="h-4 w-4 text-primary" aria-hidden="true" />}
                     </div>
                   </button>
+                  {isSelected && !crossStore && canEditRates && (
+                    <ManualRateEditor
+                      line={baseLineFor(row)}
+                      previewLine={editedPreview.data?.[key] ?? baseLineFor(row)}
+                      edits={rateEdits[key] ?? {}}
+                      onChange={(index, value) => setComponentRate(row, index, value)}
+                      isUpdating={editedPreview.isFetching}
+                    />
+                  )}
                   {isSelected && crossStore && (
                     <LinePhotoPicker
                       file={photosByKey[key]}
@@ -683,13 +731,13 @@ function MetalLineItemForm({ type, onDone }) {
         sales_person_id: salesPersonId,
       }));
 
-      const sum = (f) => +line_items.reduce((s, li) => s + (li[f] || li[`base_${f}`] || 0), 0).toFixed(2);
+      const sum = (f) => +line_items.reduce((s, li) => s + (li[f] ?? li[`base_${f}`] ?? 0), 0).toFixed(2);
       const subTotal  = sum('sub_total');
       const taxAmount = sum('tax_amount');
       const netRaw    = sum('net_amount');
       const totalWeight = sum('weight');
       const { receipt_amount: _unusedReceiptAmount, ...headerFields } = buildTransactionHeaderFields({
-        subTotal, taxableAmount: subTotal, taxAmount, netAmount: netRaw,
+        subTotal, taxableAmount: subTotal, taxAmount, netAmount: netRaw, discount: sum('discount'),
         pieces: line_items.length, weight: totalWeight, netWeight: totalWeight,
         customerId, customerName, customerMobile,
         activeStoreId: storeId,
@@ -853,6 +901,7 @@ function RefundNewForm({ onDone }) {
   const customerId   = useSelector(selectCartCustomerId);
   const customerName = useSelector(selectCartCustomerName);
   const { paymentModes, isLoading: modesLoading } = usePaymentModes();
+  const { bankPosAccounts } = useBankPosAccounts();
   const headerConfig = useOrderHeaderConfig(APP_CONFIG.DOCUMENT_TYPES.REFUND);
   const { credits, isLoading: creditsLoading, isError: creditsError, refetch: refetchCredits } =
     useCustomerCredits(customerId);
@@ -904,7 +953,7 @@ function RefundNewForm({ onDone }) {
         credits: selectedCredits.map((credit) => ({ credit, amount: credit.amount })),
         payout: {
           modeId:   Number(data.mode_id),
-          ledgerId: mode?.ledgerId,
+          ledgerId: bankPosAccounts.find((a) => a.id === Number(data.bank_pos_id))?.ledgerId ?? mode?.ledgerId,
           amount:   total,
           bankPos:  data.bank_pos_id || undefined,
           refNo:    data.ref_no?.trim() || undefined,
@@ -1029,6 +1078,7 @@ function AdvanceReceiptNewForm({ onDone }) {
   const customerId   = useSelector(selectCartCustomerId);
   const customerName = useSelector(selectCartCustomerName);
   const { paymentModes, isLoading: modesLoading } = usePaymentModes();
+  const { bankPosAccounts } = useBankPosAccounts();
   const headerConfig = useOrderHeaderConfig(APP_CONFIG.DOCUMENT_TYPES.POS_RECEIPT);
 
   const create = useCreateAdvanceReceipt({ onSuccess: () => onDone() });
@@ -1066,7 +1116,7 @@ function AdvanceReceiptNewForm({ onDone }) {
         narration: data.narration?.trim(),
         payout: {
           modeId:   Number(data.mode_id),
-          ledgerId: mode?.ledgerId,
+          ledgerId: bankPosAccounts.find((a) => a.id === Number(data.bank_pos_id))?.ledgerId ?? mode?.ledgerId,
           amount:   data.amount,
           bankPos:  data.bank_pos_id || undefined,
           refNo:    data.ref_no?.trim() || undefined,
