@@ -74,6 +74,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https://lucirajewelry.cloud https://shopify-staged-uploads.storage.googleapis.com https://lucira.live.ornaverse.in https://lucira.uat.ornaverse.in https://cdn.shopify.com https://luciraonline.myshopify.com https://www.lucirajewelry.com https://cdn.nector.io https://s3.amazonaws.com https://*.google-analytics.com https://www.googletagmanager.com",
               "font-src 'self' https://cdn.shopify.com",
+              "media-src 'self' https://cdn.shopify.com",
               "connect-src 'self' https://cdn.shopify.com https://*.google-analytics.com https://www.googletagmanager.com",
               "frame-ancestors 'none'",
               "base-uri 'self'",
