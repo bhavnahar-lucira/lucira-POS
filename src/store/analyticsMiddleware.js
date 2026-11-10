@@ -5,7 +5,8 @@
 // them here guarantees every dispatch is tracked exactly once.
 
 import tracker from '@/lib/analytics/tracker';
-import EVENTS from '@/lib/analytics/events';
+import EVENTS, { WEBENGAGE_EVENTS } from '@/lib/analytics/events';
+import { buildCartItemData, buildViewCartData, buildUserEventData, cartItemsToCheckoutItems } from '@/lib/analytics/webengageEvents';
 import { getPromotionDiscountType } from '@/lib/normalizers/promotion';
 
 // Looks up the full cart line (with its `attributes`) from the pre-dispatch cart,
@@ -39,10 +40,18 @@ export const analyticsMiddleware = (store) => (next) => (action) => {
         storeName:      state.store?.activeStoreName ?? null,
         storeCode:      state.store?.activeStoreCode ?? null,
       });
+      tracker.trackWebEngage(WEBENGAGE_EVENTS.LOGIN, buildUserEventData({ mobile: customerMobile, name: customerName }));
       break;
     }
 
     case 'cart/detachCustomer': {
+      if (preCart?.customerMobile) {
+        tracker.trackWebEngage(
+          WEBENGAGE_EVENTS.LOGOUT,
+          buildUserEventData({ mobile: preCart.customerMobile, name: preCart.customerName }),
+          { identityMobile: preCart.customerMobile },
+        );
+      }
       tracker.endSession('manual');
       // endSession() above already clears the tracker's own session, so track()'s
       // usual session-derived customer_id is gone by now — read it from preCart instead.
@@ -62,6 +71,12 @@ export const analyticsMiddleware = (store) => (next) => (action) => {
         image:      item?.image ?? null,
         ...item?.attributes,
       });
+      if (item) {
+        tracker.trackWebEngage(
+          WEBENGAGE_EVENTS.REMOVE_FROM_CART,
+          buildCartItemData(item.attributes, { price: item.unitPrice, quantity: item.quantity }),
+        );
+      }
       break;
     }
 
@@ -84,6 +99,10 @@ export const analyticsMiddleware = (store) => (next) => (action) => {
         value:      state.cart?.total ?? null,
         store_id:   state.store?.activeStoreId ?? null,
       });
+      tracker.trackWebEngage(WEBENGAGE_EVENTS.VIEW_CART, buildViewCartData({
+        value: state.cart?.total ?? null,
+        items: cartItemsToCheckoutItems(state.cart?.items ?? []),
+      }));
       break;
     }
 

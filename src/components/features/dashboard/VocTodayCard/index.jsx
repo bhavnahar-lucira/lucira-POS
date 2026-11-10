@@ -15,12 +15,12 @@ import { cn } from '@/lib/utils';
 const npsTone = (score) => (score == null ? 'text-foreground' : score >= 50 ? 'text-status-in-stock' : score >= 0 ? 'text-status-made-order' : 'text-status-error');
 
 /** Today's Voice of Lucira responses at the active store: count, Net Promoter Score (NPS) and the latest few. */
-export default function VocTodayCard() {
+export default function VocTodayCard({ jcId = null }) {
   const activeStoreId = useSelector(selectActiveStoreId);
   const isSuperAdmin = useSelector(selectIsSuperAdmin);
   const today = todayDateString();
   const { responses, total, summary, isLoading } = useVocResponses(
-    { from: today, to: today, storeId: isSuperAdmin && activeStoreId ? activeStoreId : undefined },
+    { from: today, to: today, storeId: isSuperAdmin && activeStoreId ? activeStoreId : undefined, jcId: jcId ?? undefined },
     { enabled: isSuperAdmin || !!activeStoreId },
   );
 

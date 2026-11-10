@@ -117,6 +117,7 @@ export default function ProductGrid({
           return (
             <ProductCard
               product={product}
+              listIndex={index + 1}
               showStockBadge={showStockBadge}
               storeCode={storeCode}
               priorityImage={prioritizeFirstRow && index < FIRST_ROW_PRIORITY_COUNT}

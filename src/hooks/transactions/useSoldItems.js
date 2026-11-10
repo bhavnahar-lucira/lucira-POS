@@ -21,7 +21,7 @@ export function useSoldItems(partyId, transactionType = 1) {
 
   return {
     soldItems: query.data ?? [],
-    isLoading: query.isLoading,
+    isLoading: query.isPending,
     isError:   query.isError,
     refetch:   query.refetch,
   };

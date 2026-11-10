@@ -8,6 +8,7 @@ import APP_CONFIG from '@/constants/appConfig';
 
 // Store-wise by design — where the scheme was actually enrolled, unlike
 // birthdays/anniversaries (see useUpcomingEvents).
+const EMPTY_JC_OPTIONS = new Map();
 const OPEN_STATUSES = ['active', 'completed']; // not yet cancelled/matured/redeemed
 
 // Due dates are plain local dates ("2026-10-28T00:00:00"), so compare as YYYY-MM-DD strings.
@@ -55,7 +56,7 @@ function maturesThisMonth(enrollment) {
  *   isLoading, isError, refetch,
  * }}
  */
-export function useSchemeReminders() {
+export function useSchemeReminders({ jcId = null } = {}) {
   const activeStoreId = useSelector(selectActiveStoreId);
 
   const query = useQuery({
@@ -77,16 +78,24 @@ export function useSchemeReminders() {
         if (maturesThisMonth(enrollment)) maturing.push(enrollment);
       }
       overdue.sort((a, b) => a.overdueSince.localeCompare(b.overdueSince));
-      return { due, overdue, maturing };
+      const jcOptions = new Map();
+      for (const e of open) {
+        const id = e.raw?.sales_person_id;
+        if (id != null && !jcOptions.has(id)) jcOptions.set(id, e.raw?.employee_name?.trim() || `JC #${id} (name not found)`);
+      }
+      return { due, overdue, maturing, jcOptions };
     },
     enabled:   !!activeStoreId,
     staleTime: APP_CONFIG.STALE_TIME.ORDERS,
   });
 
+  const byJc = (list = []) => (jcId == null ? list : list.filter((e) => e.raw?.sales_person_id === jcId));
+
   return {
-    due:       query.data?.due ?? [],
-    overdue:   query.data?.overdue ?? [],
-    maturing:  query.data?.maturing ?? [],
+    due:       byJc(query.data?.due),
+    overdue:   byJc(query.data?.overdue),
+    maturing:  byJc(query.data?.maturing),
+    jcOptions: query.data?.jcOptions ?? EMPTY_JC_OPTIONS,
     isLoading: query.isLoading,
     isError:   query.isError,
     refetch:   query.refetch,

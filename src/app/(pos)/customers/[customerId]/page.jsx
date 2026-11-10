@@ -43,6 +43,7 @@ import { useRetrieveCustomer }    from '@/hooks/customer/useRetrieveCustomer';
 import { useUpdateCustomer }      from '@/hooks/customer/useUpdateCustomer';
 import { useCustomerEnrollments } from '@/hooks/customer/useCustomerEnrollments';
 import { useCustomer360 }         from '@/hooks/customer/useCustomer360';
+import { useCustomerCredits }     from '@/hooks/transactions/useCustomerCredits';
 import { useCustomerWishlist }    from '@/hooks/customer/useCustomerWishlist';
 import { useCustomerRecentlyViewed } from '@/hooks/customer/useCustomerRecentlyViewed';
 import { useWebsiteActivity }     from '@/hooks/customer/useWebsiteActivity';
@@ -181,6 +182,46 @@ function ProfileTab({ customer }) {
           <Orbit size={14} aria-hidden="true" />
           Oneview
         </Button>
+      )}
+      {customerId != null && <CreditBalanceCard customerId={customerId} />}
+    </div>
+  );
+}
+
+function sumCreditBalance(credits) {
+  return credits.reduce((sum, c) => sum + (Number(c.balance_amount) || 0), 0);
+}
+
+function CreditBalanceCard({ customerId }) {
+  const { credits, isLoading, isError, refetch } = useCustomerCredits(customerId);
+  const total = sumCreditBalance(credits);
+
+  return (
+    <div className="rounded-lg border border-border p-3 flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground/70">Credit Balance</p>
+        {isLoading ? (
+          <span className="text-xs text-muted-foreground">Loading…</span>
+        ) : isError ? (
+          <button type="button" className="text-xs text-status-error underline" onClick={() => refetch()}>
+            Failed to load — retry
+          </button>
+        ) : (
+          <p className="text-sm font-semibold text-foreground">{fmt(total)}</p>
+        )}
+      </div>
+      {!isLoading && !isError && credits.length > 0 && (
+        <ul className="flex flex-col gap-1">
+          {credits.map((c) => (
+            <li key={`${c.document_id}-${c.transaction_id}`} className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span className="truncate">
+                {c.document_name} · {c.document_no}
+                {c.document_date ? ` · ${fmtDate(c.document_date)}` : ''}
+              </span>
+              <span className="shrink-0 font-medium text-foreground">{fmt(Number(c.balance_amount) || 0)}</span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
@@ -597,6 +638,8 @@ function DocumentRow({ doc }) {
 
 function Customer360Tab({ customerId }) {
   const { insights, documents, totals, isLoading, isError, refetch } = useCustomer360(customerId);
+  const { credits, isLoading: creditsLoading } = useCustomerCredits(customerId);
+  const creditBalance = sumCreditBalance(credits);
   const [docType, setDocType] = useState('order');
 
   if (isLoading) return <TabLoading label="Loading customer 360…" />;
@@ -615,8 +658,8 @@ function Customer360Tab({ customerId }) {
         </div>
         <div className="rounded-lg border border-border p-3">
           <p className="text-xs text-muted-foreground/70">Credit Balance</p>
-          <p className={`text-sm font-semibold mt-0.5 ${totals.creditBalance < 0 ? 'text-status-error' : 'text-foreground'}`}>
-            {fmt(totals.creditBalance)}
+          <p className="text-sm font-semibold mt-0.5 text-foreground">
+            {creditsLoading ? '…' : fmt(creditBalance)}
           </p>
         </div>
         <div className="rounded-lg border border-border p-3">

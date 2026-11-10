@@ -834,7 +834,7 @@ export default function TicketDetail({ ticket, partyId }) {
               columns="sm:grid-cols-2 lg:grid-cols-1"
               items={[
                 ['Store', `${ticket.store_code} — ${ticket.store_name}`],
-                ['Sales person', ticket.sales_person_name],
+                ['Jewelry Consultant', ticket.sales_person_name],
                 ['Created', `${formatDateTime(ticket.created_at)} by ${ticket.created_by}`],
                 ['Order no.', ticket.pos_order?.document_no ?? '—'],
               ]}

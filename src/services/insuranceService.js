@@ -19,16 +19,20 @@ async function readError(res, fallback) {
 /**
  * Policies already issued against one invoice.
  * @param {number} transactionId
- * @returns {Promise<{ items: object[], unattributed: boolean }>}
+ * @returns {Promise<{ items: object[], unattributed: boolean, unattributedReason: string|null }>}
  */
 export async function getInsurancePolicies(transactionId) {
-  if (!transactionId) return { items: [], unattributed: false };
+  if (!transactionId) return { items: [], unattributed: false, unattributedReason: null };
   const res = await fetch(`${BASE}?transactionId=${encodeURIComponent(transactionId)}`, {
     cache: 'no-store',
   });
   if (!res.ok) await readError(res, 'Failed to load insurance policies.');
   const json = await res.json();
-  return { items: json?.items ?? [], unattributed: json?.unattributed === true };
+  return {
+    items:              json?.items ?? [],
+    unattributed:       json?.unattributed === true,
+    unattributedReason: json?.unattributedReason ?? null,
+  };
 }
 
 /**

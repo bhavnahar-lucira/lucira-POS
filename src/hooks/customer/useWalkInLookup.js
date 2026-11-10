@@ -5,6 +5,8 @@ import { normalizeWalkInCustomer } from '@/lib/normalizers/customer';
 import { selectActiveStoreId, selectActiveStoreName, selectActiveStoreCode } from '@/store/slices/storeSlice';
 import tracker from '@/lib/analytics/tracker';
 import EVENTS from '@/lib/analytics/events';
+import { upsertWebEngageUserServer } from '@/lib/analytics/webengageBridge';
+import { toE164India } from '@/lib/analytics/phoneFormat';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 
 function maskMobile(mobile) {
@@ -30,7 +32,13 @@ function logWalkIn({ mobile, customer, companyId, companyName, companyCode }) {
       customer_name:   customer.name,
       customer_mobile: mobile,
     },
+    { identityMobile: mobile },
   );
+  upsertWebEngageUserServer({
+    userId:         toE164India(mobile),
+    customerName:   customer.name,
+    customerMobile: mobile,
+  });
 }
 
 export function useWalkInLookup() {

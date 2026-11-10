@@ -8,7 +8,8 @@ import EmptyState from '@/components/shared/EmptyState';
 import InlineLoader from '@/components/shared/InlineLoader';
 import { useActivePromotions } from '@/hooks/checkout/useActivePromotions';
 import tracker from '@/lib/analytics/tracker';
-import EVENTS from '@/lib/analytics/events';
+import EVENTS, { WEBENGAGE_EVENTS } from '@/lib/analytics/events';
+import { buildPromoClickData } from '@/lib/analytics/webengageEvents';
 import { cn } from '@/lib/utils';
 import { formatDateCompact as formatDate } from '@/lib/dateUtils';
 import {
@@ -59,6 +60,10 @@ function OfferTicket({ promo, isApplied, isSelected, isExpanded, onToggleSelect,
             offer_name: promo.promotion_name,
             offer_code: promo.promotion_code,
           });
+          tracker.trackWebEngage(WEBENGAGE_EVENTS.PROMO_CLICK, buildPromoClickData({
+            name: promo.promotion_name,
+            code: promo.promotion_code,
+          }));
           onToggleSelect(promo.promotion_code);
         }}
         className="flex w-full items-center gap-3 p-4 text-left disabled:cursor-not-allowed disabled:opacity-60"

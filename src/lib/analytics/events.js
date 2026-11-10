@@ -141,6 +141,27 @@ const EVENTS = Object.fromEntries(
   Object.entries(RAW_EVENTS).map(([key, value]) => [key, `${PREFIX}${value}`])
 );
 
+// Same event names the website's GTM sends, so POS activity enters the existing journeys.
+export const WEBENGAGE_EVENTS = {
+  PRODUCT_IMPRESSION:   'productImpression',
+  PRODUCT_CLICK:        'productClick',
+  PRODUCT_VIEW:         'productView',
+  ADD_TO_CART:          'addToCart',
+  REMOVE_FROM_CART:     'removeFromCart',
+  VIEW_CART:            'viewCart',
+  ADD_TO_WISHLIST:      'addToWishlist',
+  REMOVE_FROM_WISHLIST: 'removeFromWishlist',
+  BEGIN_CHECKOUT:       'begin_checkout',
+  ADD_SHIPPING_INFO:    'add_shipping_info',
+  ADD_PAYMENT_INFO:     'add_payment_info',
+  PURCHASE:             'purchase',
+  PAYMENT_FAILURE:      'Payment failure',
+  PROMO_CLICK:          'promoClick',
+  LOGIN:                'login',
+  LOGOUT:               'logout',
+  SIGNUP:               'signup',
+};
+
 export const GA_ECOMMERCE_EVENTS = {
   VIEW_ITEM:        'view_item',
   ADD_TO_CART:      'add_to_cart',

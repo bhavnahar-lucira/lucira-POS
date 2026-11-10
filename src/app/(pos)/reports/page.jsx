@@ -23,6 +23,8 @@ import { formatAmount, formatAmountOrDash } from '@/lib/priceUtils';
 import { downloadXlsx } from '@/lib/excelExport';
 
 import { usePosDashboardReport } from '@/hooks/reports/usePosDashboardReport';
+import { useSummaryBillCounts } from '@/hooks/reports/useSummaryBillCounts';
+import { useSummaryByStore } from '@/hooks/reports/useSummaryByStore';
 import { useCategoryWiseSalesReport } from '@/hooks/reports/useCategoryWiseSalesReport';
 import { useSalesPersonWiseSalesReport } from '@/hooks/reports/useSalesPersonWiseSalesReport';
 import { useSkuVelocityReport } from '@/hooks/reports/useSkuVelocityReport';
@@ -44,7 +46,7 @@ function firstOfMonthDateString() {
 const BASE_TABS = [
   { key: 'summary',     label: 'Sales Summary' },
   { key: 'category',    label: 'Category Wise' },
-  { key: 'salesperson', label: 'Salesperson Wise' },
+  { key: 'salesperson', label: 'Jewelry Consultant Wise' },
   { key: 'velocity',    label: 'SKU Velocity' },
   { key: 'openOrders',  label: 'Open Orders' },
   { key: 'stock',       label: 'Stock' },
@@ -194,13 +196,15 @@ function AdhocReportsTab({ reportsList, selectedReportId, selectedReport, onSele
 // Labels match OrnaVerse's own POS Dashboard widget verbatim (confirmed live
 // 2026-10-19) — total_order_amount/mto_orders/mto_sales are NOT what their
 // names suggest; OrnaVerse itself displays them as New MTO/Closed MTO/RTS.
-function buildSummaryKpis(data) {
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+function buildSummaryKpis(data, bills) {
   return [
     { label: 'Total Sales',       value: data.total_sales_amount },
-    { label: 'New MTO',           value: data.total_order_amount },
-    { label: 'Closed MTO',        value: data.mto_orders },
-    { label: 'RTS',               value: data.mto_sales },
-    { label: 'RTS / MTO',         value: data.rts_and_mto },
+    { label: 'New MTO',           value: data.total_order_amount, count: data.new_mto_count, unit: 'order' },
+    { label: 'Closed MTO',        value: data.mto_orders, count: bills?.mto_bill_count, unit: 'bill', billCount: true },
+    { label: 'RTS',               value: data.mto_sales, count: bills?.rts_bill_count, unit: 'bill', billCount: true },
+    { label: 'RTS / MTO',         value: data.rts_and_mto, count: bills?.total_bill_count, unit: 'bill', billCount: true },
     { label: 'Return/Exchange',   value: data.returns },
     { label: 'Pending MTO',       value: data.pending_mto },
     { label: 'Total URD',         value: data.total_urd },
@@ -208,11 +212,65 @@ function buildSummaryKpis(data) {
   ];
 }
 
-function SalesSummaryTab({ data, isLoading, isError, onRetry }) {
+function billCountTrend(k, billsState) {
+  if (k.count != null) return { type: 'neutral', text: plural(k.count, k.unit) };
+  if (!k.billCount) return undefined;
+  if (billsState.isLoading) return { type: 'neutral', text: 'Counting bills…' };
+  if (billsState.isError) return { type: 'neutral', text: 'Bill count unavailable' };
+  return undefined;
+}
+
+function TotalBillsCard({ bills, isLoading, isError }) {
+  const value = bills ? String(bills.total_bill_count) : isLoading ? '…' : '—';
+  const text = bills
+    ? `MTO ${bills.mto_bill_count} · RTS ${bills.rts_bill_count}`
+    : isLoading ? 'Counting bills…' : isError ? 'Bill count unavailable' : undefined;
+  return <KPICard label="Total Bills" value={value} trend={text ? { type: 'neutral', text } : undefined} />;
+}
+
+const STORE_SUMMARY_COLUMNS = [
+  { key: 'store_code',         label: 'Store', mobile: true },
+  { key: 'store_name',         label: 'Store Name' },
+  { key: 'total_bill_count',   label: 'Bills',        align: 'right', total: true, mobile: true },
+  { key: 'mto_bill_count',     label: 'MTO Bills',    align: 'right', total: true },
+  { key: 'rts_bill_count',     label: 'RTS Bills',    align: 'right', total: true },
+  { key: 'total_sales_amount', label: 'Total Sales',  align: 'right', format: formatAmountOrDash, total: true, mobile: true },
+  { key: 'total_order_amount', label: 'New MTO',      align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'new_mto_count',      label: 'New MTO Orders', align: 'right', total: true },
+  { key: 'mto_orders',         label: 'Closed MTO',   align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'mto_sales',          label: 'RTS',          align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'rts_and_mto',        label: 'RTS / MTO',    align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'returns',            label: 'Return/Exchange', align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'pending_mto',        label: 'Pending MTO',  align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'total_urd',          label: 'Total URD',    align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'scheme',             label: 'Schemes',      align: 'right', format: formatAmountOrDash, total: true },
+];
+
+function StoreSummaryTable({ rows, isLoading, isError, onRetry, tableKey }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-sm font-semibold text-foreground">Store-wise</p>
+      <DataTable
+        key={tableKey}
+        columns={STORE_SUMMARY_COLUMNS}
+        rows={rows}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={onRetry}
+        emptyMessage="No store data for this range."
+      />
+      <p className="text-xs text-muted-foreground">
+        Closed MTO and RTS per store can add up slightly differently from the cards above: an order booked at one store and billed at another counts as Closed MTO only when both stores are selected. OrnaVerse reports Schemes only for the store you&rsquo;re logged into.
+      </p>
+    </div>
+  );
+}
+
+function SalesSummaryTab({ data, isLoading, isError, onRetry, billsState, storeTable }) {
   if (isLoading) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-        {Array.from({ length: 9 }).map((_, i) => <KPICard key={i} isLoading />)}
+        {Array.from({ length: 10 }).map((_, i) => <KPICard key={i} isLoading />)}
       </div>
     );
   }
@@ -220,16 +278,19 @@ function SalesSummaryTab({ data, isLoading, isError, onRetry }) {
   if (isError) return <ErrorState title="Failed to load the sales summary." onRetry={onRetry} />;
   if (!data) return <EmptyState title="No summary for this range." />;
 
-  const kpis = buildSummaryKpis(data);
+  const kpis = buildSummaryKpis(data, billsState.data);
   const collections = (data.total_collections ?? []).filter((c) => c.sales);
 
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+        <TotalBillsCard bills={billsState.data} isLoading={billsState.isLoading} isError={billsState.isError} />
         {kpis.map((k) => (
-          <KPICard key={k.label} label={k.label} value={formatAmount(k.value)} />
+          <KPICard key={k.label} label={k.label} value={formatAmount(k.value)} trend={billCountTrend(k, billsState)} />
         ))}
       </div>
+
+      {storeTable && <StoreSummaryTable {...storeTable} />}
 
       <div className="rounded-xl border border-border p-4">
         <p className="text-sm font-semibold text-foreground mb-3">Payment Collections</p>
@@ -260,7 +321,7 @@ const CATEGORY_COLUMNS = [
 ];
 
 const SALESPERSON_COLUMNS = [
-  { key: 'employee_name', label: 'Sales Person', mobile: true },
+  { key: 'employee_name', label: 'Jewelry Consultant', mobile: true },
   { key: 'employee_code', label: 'Code' },
   { key: 'invoice_count', label: 'Invoices',      align: 'right', total: true },
   { key: 'invoice_value', label: 'Invoice Value', align: 'right', format: formatAmountOrDash, total: true },
@@ -499,6 +560,8 @@ export default function ReportsPage() {
 
   // Only the open tab's report is fetched — firing all of them at once adds needless load on OrnaVerse.
   const summaryReport     = usePosDashboardReport({ ...range, enabled: activeTab === 'summary' });
+  const summaryBills      = useSummaryBillCounts({ ...range, enabled: activeTab === 'summary' });
+  const summaryStores     = useSummaryByStore({ ...range, enabled: activeTab === 'summary' });
   const categoryReport    = useCategoryWiseSalesReport({ ...range, enabled: activeTab === 'category' });
   const salesPersonReport = useSalesPersonWiseSalesReport({ ...range, enabled: activeTab === 'salesperson' });
   const velocityReport    = useSkuVelocityReport({ ...range, enabled: activeTab === 'velocity' });
@@ -531,7 +594,7 @@ export default function ReportsPage() {
     };
     return {
       category:    { columns: withStoreColumns(CATEGORY_COLUMNS),    rows: scope(categoryReport.rows),    filenamePrefix: 'category-wise-sales' },
-      salesperson: { columns: withStoreColumns(SALESPERSON_COLUMNS), rows: scope(salesPersonReport.rows), filenamePrefix: 'salesperson-wise-sales' },
+      salesperson: { columns: withStoreColumns(SALESPERSON_COLUMNS), rows: scope(salesPersonReport.rows), filenamePrefix: 'jewelry-consultant-wise-sales' },
       velocity:    { columns: withStoreColumns(VELOCITY_COLUMNS),    rows: scope(velocityReport.rows),    filenamePrefix: 'sku-velocity' },
       openOrders:  { columns: withStoreColumns(OPEN_ORDERS_COLUMNS), rows: scope(openOrdersReport.rows),  filenamePrefix: 'open-pos-orders' },
       stock:       { columns: [...STORE_COLUMNS, ...STOCK_COLUMNS],  rows: scope(stockReport.rows),       filenamePrefix: 'jewellery-stock' },
@@ -543,6 +606,13 @@ export default function ReportsPage() {
       },
     };
   }, [companyKey, availableStores, isAllStores, categoryReport.rows, salesPersonReport.rows, velocityReport.rows, openOrdersReport.rows, stockReport.rows, walkinReport.rows, repeatReport.data]);
+
+  const storeSummaryRows = useMemo(() => {
+    const byStore = summaryBills.data?.byStore ?? {};
+    const rows = summaryStores.rows.map((row) => ({ ...row, ...(byStore[row.company_id] ?? {}) }));
+    return scopeRowsToStores(rows, availableStores, companyKey ? companyKey.split(',').map(Number) : []);
+  }, [summaryStores.rows, summaryBills.data, availableStores, companyKey]);
+  const showStoreSummary = selectedCompanyIds.length > 1;
 
   // The on-screen table's filtered + sorted rows and visible columns, so Export Excel matches what's shown.
   const exportViewRef = useRef(null);
@@ -562,9 +632,21 @@ export default function ReportsPage() {
       downloadXlsx(`sales-summary_${fromDate}_to_${toDate}.xlsx`, [
         {
           name: 'Summary',
-          columns: [{ key: 'label', label: 'Metric' }, { key: 'value', label: 'Value' }],
-          rows: buildSummaryKpis(summaryReport.data),
+          columns: [{ key: 'label', label: 'Metric' }, { key: 'value', label: 'Value' }, { key: 'count', label: 'Count' }],
+          rows: [
+            ...(summaryBills.data ? [
+              { label: 'Total Bills', count: summaryBills.data.total_bill_count },
+              { label: 'MTO Bills', count: summaryBills.data.mto_bill_count },
+              { label: 'RTS Bills', count: summaryBills.data.rts_bill_count },
+            ] : []),
+            ...buildSummaryKpis(summaryReport.data, summaryBills.data),
+          ],
         },
+        ...(showStoreSummary && storeSummaryRows.length ? [{
+          name: 'Store-wise',
+          columns: STORE_SUMMARY_COLUMNS,
+          rows: storeSummaryRows,
+        }] : []),
         {
           name: 'Payment Collections',
           columns: [{ key: 'mode_type', label: 'Payment Mode' }, { key: 'sales', label: 'Amount' }],
@@ -874,6 +956,14 @@ export default function ReportsPage() {
                 isLoading={summaryReport.isLoading}
                 isError={summaryReport.isError}
                 onRetry={summaryReport.refetch}
+                billsState={summaryBills}
+                storeTable={showStoreSummary ? {
+                  rows: storeSummaryRows,
+                  isLoading: summaryStores.isLoading,
+                  isError: summaryStores.isError,
+                  onRetry: summaryStores.refetch,
+                  tableKey: `store-summary-${companyKey}-${fromDate}-${toDate}`,
+                } : null}
               />
             </>
           )}
@@ -902,7 +992,7 @@ export default function ReportsPage() {
               onRetry={salesPersonReport.refetch}
               onViewChange={handleViewChange}
               {...filterBar}
-              emptyMessage="No salesperson sales in this range."
+              emptyMessage="No jewelry consultant sales in this range."
             />
           )}
 

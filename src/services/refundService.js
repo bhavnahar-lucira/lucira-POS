@@ -189,13 +189,16 @@ export async function createRefund({
     ref_date:  null,
     tax_ledger_id:    null,
     output_ledger_id: null,
+    // Same as OrnaVerse's Refund screen: without it the refund is saved unposted.
+    auto_posting: true,
     // HOW the money leaves
     details: [{
       mode_id:       payout.modeId,
       ledger_id:     payout.ledgerId,
       amount:        payout.amount,
       exchange_rate: 1,
-      bank_pos:      payout.bankPos ?? '',
+      // OrnaVerse 500s on bank_pos: "" — send it only when a terminal was chosen.
+      ...(payout.bankPos ? { bank_pos: Number(payout.bankPos) } : {}),
       cheque_no:     payout.chequeNo ?? '',
       cheque_date:   payout.chequeDate ?? null,
       ref_no:        payout.refNo ?? '',

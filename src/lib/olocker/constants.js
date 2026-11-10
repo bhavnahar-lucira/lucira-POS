@@ -39,6 +39,32 @@ export const OLOCKER_TOKEN_TTL_MS = 10 * 60 * 1000;
 
 export const OLOCKER_TIMEOUT_MS = 25_000;
 
+// generatePolicies does far more than authenticate: per tag it issues a
+// policy, renders the certificate PDF and sends the customer an email and a
+// WhatsApp, all before it answers. A 6-item invoice (PN1-LJ-1126-018,
+// 2026-11-06) ran past the 25s budget twice while 1–2 item invoices went
+// through, so this call gets a longer budget of its own — but stays well
+// under the ~60s the live nginx proxy in front of the POS allows a request,
+// so a slow Olocker is always caught (and latched) by us, never cut off by
+// the proxy with the outcome lost.
+export const OLOCKER_GENERATE_TIMEOUT_MS = 45_000;
+
+// …and is never asked for more than this many policies at once. Two per
+// call is what has been issuing reliably on live (~12s per call of two).
+export const OLOCKER_MAX_TAGS_PER_CALL = 2;
+
+// Those calls run side by side. Measured 2026-11-07: Olocker answers three
+// simultaneous requests in the same ~4.3s it takes for one (sequential:
+// 12.6s), and every call carries that ~4s floor however small it is — so a
+// 6-item invoice drops from three back-to-back calls (~37s live) to one
+// round of three. Capped so one POS request stays a bounded load on them
+// and inside the proxy timeout.
+export const OLOCKER_MAX_PARALLEL_CALLS = 3;
+
+// Items one /api/insurance request will take; the client sends bigger
+// selections as consecutive requests of this size.
+export const OLOCKER_MAX_TAGS_PER_REQUEST = OLOCKER_MAX_TAGS_PER_CALL * OLOCKER_MAX_PARALLEL_CALLS;
+
 // Olocker takes stone weights in carats and everything else in grams; the
 // gross/net reconciliation their guide asks for has to happen in one unit.
 export const GRAMS_PER_CARAT = 0.2;

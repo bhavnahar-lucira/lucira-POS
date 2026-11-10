@@ -110,18 +110,19 @@ function ActivityRow({ row, onSelect }) {
  * }} props
  */
 export default function RecentOrdersList({
-  mtoOrders = [], invoices = [], returns = [], urdPurchases = [], isLoading,
+  mtoOrders = [], invoices = [], returns = [], urdPurchases = [], isLoading, salesOnly = false,
 }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('mto');
   const [selectedOrder, setSelectedOrder] = useState(null);
 
   const itemsByTab = { mto: mtoOrders, invoice: invoices, return: returns, urd: urdPurchases };
-  const activeItems = itemsByTab[activeTab] ?? [];
-  const activeTabConfig = TABS.find((t) => t.key === activeTab) ?? TABS[0];
+  const tabs = salesOnly ? TABS.filter((t) => t.key === 'mto' || t.key === 'invoice') : TABS;
+  const activeTabConfig = tabs.find((t) => t.key === activeTab) ?? tabs[0];
+  const activeItems = itemsByTab[activeTabConfig.key] ?? [];
   
   const handleSelect = (item) => {
-    if (activeTab === 'return' || activeTab === 'urd') {
+    if (activeTabConfig.key === 'return' || activeTabConfig.key === 'urd') {
       router.push(activeTabConfig.viewAllHref);
       return;
     }
@@ -143,8 +144,8 @@ export default function RecentOrdersList({
       </div>
 
       <PillTabs
-        tabs={TABS}
-        value={activeTab}
+        tabs={tabs}
+        value={activeTabConfig.key}
         onChange={setActiveTab}
         getKey={(t) => t.key}
         getLabel={(t) => t.label}
@@ -175,7 +176,7 @@ export default function RecentOrdersList({
       ) : (
         <div className="divide-y divide-border">
           {activeItems.map((item) => {
-            const row = toDisplayRow(item, activeTab);
+            const row = toDisplayRow(item, activeTabConfig.key);
             return (
               <ActivityRow
                 key={row.id ?? row.docNo}

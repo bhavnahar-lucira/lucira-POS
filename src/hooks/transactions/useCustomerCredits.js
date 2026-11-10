@@ -3,7 +3,6 @@ import { useSelector } from 'react-redux';
 import { getCustomerCredits } from '@/services/refundService';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import { QUERY_KEYS } from '@/constants/queryKeys';
-import APP_CONFIG from '@/constants/appConfig';
 
 /**
  * @param {number|null} partyId — attached customer
@@ -15,12 +14,13 @@ export function useCustomerCredits(partyId) {
     queryKey:  QUERY_KEYS.REFUNDS.CUSTOMER_CREDITS(partyId, activeStoreId),
     queryFn:   () => getCustomerCredits({ partyId }),
     enabled:   !!partyId && !!activeStoreId,
-    staleTime: APP_CONFIG.STALE_TIME.ORDERS,
+    staleTime: 0,
+    gcTime:    0,
   });
 
   return {
     credits:   query.data ?? [],
-    isLoading: query.isLoading,
+    isLoading: query.isPending,
     isError:   query.isError,
     refetch:   query.refetch,
   };

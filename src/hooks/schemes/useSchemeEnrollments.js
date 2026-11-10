@@ -66,6 +66,8 @@ function normalizeEnrollment(raw) {
     totalPayable:      raw.total_amount ?? raw.total_payable ?? 0,
     maturityYear:      raw.maturity_year,
     maturityMonth:     raw.maturity_month,
+    jcId:              raw.sales_person_id ?? null,
+    jcName:            raw.employee_name?.trim() || null,
     raw,
   };
 }

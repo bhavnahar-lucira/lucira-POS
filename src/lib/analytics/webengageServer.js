@@ -1,11 +1,72 @@
 import { formatWebEngageDateTime, formatEventDate12h, formatEventTime12h, formatEventDateTime12h } from './webengageDates';
 import { toE164India } from './phoneFormat';
+import { WEBENGAGE_EVENTS } from './events';
+import { lookupShopifyBySku } from './shopifySkuLookup';
 
 const API_HOST      = process.env.WEBENGAGE_API_HOST;
 const LICENSE_CODE   = process.env.WEBENGAGE_LICENSE_CODE;
 const API_KEY        = process.env.WEBENGAGE_API_KEY;
 const WEBENGAGE_EVENT_NAME = 'POS_Event';
 const MAX_ATTEMPTS = 2;
+const WEBSITE_EVENT_NAMES = new Set(Object.values(WEBENGAGE_EVENTS));
+
+// Fields each product event carries on the website (productId is STOPPED on productView).
+const PRODUCT_EVENT_FIELDS = {
+  [WEBENGAGE_EVENTS.PRODUCT_VIEW]:         ['thumbnailImage', 'productUrl', 'variantId'],
+  [WEBENGAGE_EVENTS.PRODUCT_IMPRESSION]:   ['thumbnailImage', 'image', 'productId', 'variantId', 'productUrl'],
+  [WEBENGAGE_EVENTS.PRODUCT_CLICK]:        ['thumbnailImage', 'image', 'productId', 'variantId', 'productUrl'],
+  [WEBENGAGE_EVENTS.ADD_TO_CART]:          ['thumbnailImage', 'image', 'productId', 'variantId', 'productUrl'],
+  [WEBENGAGE_EVENTS.REMOVE_FROM_CART]:     ['thumbnailImage', 'image', 'productId', 'variantId', 'productUrl'],
+  [WEBENGAGE_EVENTS.ADD_TO_WISHLIST]:      ['thumbnailImage', 'productId', 'variantId', 'productUrl'],
+  [WEBENGAGE_EVENTS.REMOVE_FROM_WISHLIST]: ['thumbnailImage', 'productId', 'variantId', 'productUrl'],
+};
+
+function isPublicUrl(value) {
+  return typeof value === 'string' && /^https:\/\//.test(value) && !/localhost|127\.0\.0\.1/.test(value);
+}
+
+async function fillItemsFromShopify(items) {
+  return Promise.all(items.map(async (item) => {
+    if (!item?.item_sku || (isPublicUrl(item.item_image) && isPublicUrl(item.item_url))) return item;
+    const shopify = await lookupShopifyBySku(item.item_sku);
+    if (!shopify) return item;
+    return {
+      ...item,
+      item_name:       item.item_name || shopify.productName || undefined,
+      item_image:      isPublicUrl(item.item_image) ? item.item_image : shopify.thumbnailImage ?? undefined,
+      item_url:        isPublicUrl(item.item_url) ? item.item_url : shopify.productUrl ?? undefined,
+      item_product_id: item.item_product_id ?? shopify.productId ?? undefined,
+      item_variant_id: item.item_variant_id ?? shopify.variantId ?? undefined,
+    };
+  }));
+}
+
+async function fillFromShopify(eventName, properties) {
+  if (Array.isArray(properties?.items) && properties.items.length) {
+    properties = { ...properties, items: await fillItemsFromShopify(properties.items) };
+  }
+  const fields = PRODUCT_EVENT_FIELDS[eventName];
+  if (!fields || !properties?.sku) return properties;
+  const needs = (key) => {
+    const v = properties[key];
+    if (key === 'thumbnailImage' || key === 'image' || key === 'productUrl') return !isPublicUrl(v);
+    return v === undefined || v === null || v === '';
+  };
+  if (!fields.some(needs) && properties.productName && properties.productType) return properties;
+
+  const shopify = await lookupShopifyBySku(properties.sku);
+  if (!shopify) return properties;
+
+  const filled = { ...properties };
+  for (const key of fields) {
+    if (!needs(key)) continue;
+    const value = key === 'image' ? shopify.thumbnailImage : shopify[key];
+    if (value) filled[key] = value;
+  }
+  if (!filled.productName && shopify.productName) filled.productName = shopify.productName;
+  if (!filled.productType && shopify.productType) filled.productType = shopify.productType;
+  return filled;
+}
 
 export function isWebEngageServerConfigured() {
   return !!(API_HOST && LICENSE_CODE && API_KEY);
@@ -32,6 +93,23 @@ function cleanDeep(value) {
       const cleaned = cleanDeep(v);
       if (cleaned === undefined) continue;
       out[toAttributeKey(key)] = cleaned;
+    }
+    return out;
+  }
+  return value;
+}
+
+function stripEmpty(value) {
+  if (Array.isArray(value)) {
+    return value.map(stripEmpty).filter((v) => v !== undefined);
+  }
+  if (value instanceof Date) return value;
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [key, v] of Object.entries(value)) {
+      if (v === undefined || v === null || v === '') continue;
+      const cleaned = stripEmpty(v);
+      if (cleaned !== undefined) out[key] = cleaned;
     }
     return out;
   }
@@ -107,27 +185,35 @@ export async function sendServerEventToWebEngage({
     console.warn('[webengageServer] not configured (missing env vars) — dropping event', eventName);
     return { ok: false, reason: 'not_configured' };
   }
-  if (!userId && !anonymousId) {
-    console.warn('[webengageServer] no userId/anonymousId — dropping event', eventName);
-    return { ok: false, reason: 'no_identity' };
+  userId = toE164India(userId);
+  if (!userId) {
+    console.warn('[webengageServer] missing or invalid mobile userId — dropping event', eventName);
+    return { ok: false, reason: 'invalid_user_id' };
   }
+  anonymousId = undefined;
   if (!eventName) return { ok: false, reason: 'no_event_name' };
 
   const now = eventTime instanceof Date ? eventTime : new Date();
-  const { topLevel, nested } = shapeEventData(properties);
+  const isWebsiteEvent = WEBSITE_EVENT_NAMES.has(eventName);
 
-  const eventData = cleanDeep({
-    event_type:     toEventType(eventName),
-    event_datetime: formatEventDateTime12h(now),
-    event_date:     formatEventDate12h(now),
-    event_time:     formatEventTime12h(now),
-    ...topLevel,
-    ...(Object.keys(nested).length ? { details: nested } : {}),
-  });
+  let eventData;
+  if (isWebsiteEvent) {
+    eventData = stripEmpty(await fillFromShopify(eventName, properties ?? {}));
+  } else {
+    const { topLevel, nested } = shapeEventData(properties);
+    eventData = cleanDeep({
+      event_type:     toEventType(eventName),
+      event_datetime: formatEventDateTime12h(now),
+      event_date:     formatEventDate12h(now),
+      event_time:     formatEventTime12h(now),
+      ...topLevel,
+      ...(Object.keys(nested).length ? { details: nested } : {}),
+    });
+  }
 
   const body = {
     ...(userId ? { userId: String(userId) } : { anonymousId: String(anonymousId) }),
-    eventName: WEBENGAGE_EVENT_NAME,
+    eventName: isWebsiteEvent ? eventName : WEBENGAGE_EVENT_NAME,
     eventTime: formatWebEngageDateTime(now),
     eventData,
   };
@@ -143,7 +229,7 @@ export async function sendServerEventToWebEngage({
        
       const responseBody = await response.text().catch(() => '');
       console.error('[webengageServer] WebEngage rejected event', {
-        realEventName: eventName, eventType: eventData.event_type,
+        realEventName: eventName, eventType: eventData.event_type ?? eventName,
         status: response.status, attempt, responseBody,
       });
       const isEdgeGlitch = response.status === 403 && !responseBody.trim().startsWith('{');
@@ -180,7 +266,9 @@ export async function upsertWebEngageUser({
   if (!isWebEngageServerConfigured()) {
     return { ok: false, reason: 'not_configured' };
   }
-  if (!userId && !anonymousId) return { ok: false, reason: 'no_identity' };
+  userId = toE164India(userId);
+  if (!userId) return { ok: false, reason: 'invalid_user_id' };
+  anonymousId = undefined;
 
   const [firstName, ...rest] = (customerName ?? '').trim().split(/\s+/).filter(Boolean);
   const body = {

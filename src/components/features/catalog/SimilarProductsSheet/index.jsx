@@ -49,11 +49,12 @@ export default function SimilarProductsSheet({ isOpen, onClose, items, isLoading
         />
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {items.map((item) => {
+          {items.map((item, itemIndex) => {
             const price = priceById.get(item.item_id) ?? null;
             const isPricing = price == null && !settledIds.has(item.item_id);
             return (
               <ProductCard
+                listIndex={itemIndex + 1}
                 key={item.item_id}
                 product={{ ...item, price, is_pricing: isPricing }}
                 showStockBadge={!stockLoading}

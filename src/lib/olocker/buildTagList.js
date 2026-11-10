@@ -6,6 +6,7 @@
 // consistently quoted and mixing in raw numerals is not worth the risk.
 
 import { GRAMS_PER_CARAT, metalFromKaratName } from './constants';
+import { purchaseDateIST } from './insuranceWindow';
 
 const num = (v) => {
   const n = Number(v);
@@ -20,17 +21,14 @@ function normalizeMobile(raw) {
   return digits.length > 10 ? digits.slice(-10) : digits;
 }
 
-/** "2026-10-03T10:37:00" | Date | "03/10/2026" → "2026-10-03" (Olocker's only accepted form). */
+/**
+ * Olocker's only accepted date form is YYYY-MM-DD. OrnaVerse sends
+ * document_date as UTC ("2026-11-06T14:40:53.393Z"), so slicing the string
+ * would give the previous day for any sale made after midnight IST and
+ * before 5:30am. purchaseDateIST does the zone conversion.
+ */
 function toIsoDate(value) {
-  if (!value) return '';
-  const asString = String(value);
-  const alreadyIso = asString.match(/^(\d{4}-\d{2}-\d{2})/);
-  if (alreadyIso) return alreadyIso[1];
-
-  const parsed = new Date(asString);
-  if (Number.isNaN(parsed.getTime())) return '';
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}`;
+  return purchaseDateIST(value) ?? '';
 }
 
 /**

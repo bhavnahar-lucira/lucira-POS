@@ -191,7 +191,6 @@ export default function ProductImageGallery({
               key={current.src}
               src={current.src}
               poster={current.poster ?? undefined}
-              controls
               playsInline
               autoPlay
               muted

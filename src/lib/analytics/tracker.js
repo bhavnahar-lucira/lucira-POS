@@ -4,6 +4,10 @@ import { toE164India } from './phoneFormat';
 import EVENTS from './events';
 
 const SOURCE_PROPS = { utm_source: 'pos' };
+
+// WebEngage gets website/GTM-named events via trackWebEngage; only these POS-named ones still go as POS_Event.
+const WEBENGAGE_POS_EVENTS = new Set([EVENTS.WALKIN_RECORDED]);
+const sentOnce = new Set();
 const GUEST_ID = 'guest';
 
 function omitUndefined(obj) {
@@ -67,24 +71,6 @@ function maskMobile(mobile) {
   return `${'*'.repeat(digits.length - 4)}${digits.slice(-4)}`;
 }
 
-const ANON_ID_KEY = 'lucira_anon_id';
-
-function getOrCreateAnonymousId() {
-  if (typeof window === 'undefined') return 'anon';
-  try {
-    let id = localStorage.getItem(ANON_ID_KEY);
-    if (!id) {
-      id = `anon_${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-      localStorage.setItem(ANON_ID_KEY, id);
-    }
-    return id;
-  } catch {
-    // Private-mode/blocked storage — same shared-bucket fallback as before,
-    // strictly no worse than the old behavior.
-    return 'anon';
-  }
-}
-
 // Security audit finding (Low, 2026-10-05): `properties` here is whatever
 // raw object the call site passed in — across this codebase that's
 // sometimes a customer's name or mobile number, unmasked, unlike the
@@ -141,7 +127,7 @@ const tracker = {
    *
    * @param {object} webengageExtra 
    */
-  track(eventName, properties = {}, webengageExtra = {}) {
+  track(eventName, properties = {}, webengageExtra = {}, { identityMobile } = {}) {
     if (typeof window === 'undefined') return;
 
     const session = this.getSession();
@@ -176,22 +162,47 @@ const tracker = {
       ...properties,
     }));
     
-    // Guest (no customer attached) → skip WebEngage entirely, don't send
-    // anonymous-id-tagged events for someone we can't identify.
-    if (session?.customerId) {
-      sendToWebEngageServer(eventName, omitUndefined({
+    // Guest (no customer attached) → skip WebEngage, unless the caller names the person (walk-in).
+    const webengageUserId = identityMobile
+      ? toE164India(identityMobile)
+      : (session?.customerId ? session.webengageUserId : null);
+    if (webengageUserId && WEBENGAGE_POS_EVENTS.has(eventName)) {
+      const payload = omitUndefined({
         timestamp,
-        session_id:      session.sessionId,
-        customer_id:     session.customerId,
-        customer_mobile: session.customerMobile,
-        store_id:        session.storeId,
+        session_id:      session?.sessionId,
+        customer_id:     session?.customerId,
+        customer_mobile: session?.customerMobile,
+        store_id:        session?.storeId,
         ...SOURCE_PROPS,
         ...properties,
         ...omitNullish(webengageExtra),
-      }), {
-        userId: session.webengageUserId,
       });
+      if (payload.customer_mobile) payload.customer_mobile = toE164India(payload.customer_mobile);
+      sendToWebEngageServer(eventName, payload, { userId: webengageUserId });
     }
+  },
+
+  trackWebEngage(eventName, eventData = {}, { identityMobile, onceKey } = {}) {
+    if (typeof window === 'undefined') return;
+    const session = this.getSession();
+    const userId = identityMobile
+      ? toE164India(identityMobile)
+      : (session?.customerId ? session.webengageUserId : null);
+    if (!userId) return;
+    if (onceKey) {
+      const key = `${userId}|${eventName}|${onceKey}`;
+      if (sentOnce.has(key)) return;
+      sentOnce.add(key);
+    }
+    // Marks the event as POS-originated (website events never carry `source`).
+    const tagged = {
+      ...eventData,
+      source:    'POS',
+      storeCode: session?.storeCode ?? undefined,
+      storeName: session?.storeName ?? undefined,
+    };
+    logEvent(eventName, tagged);
+    sendToWebEngageServer(eventName, tagged, { userId });
   },
 
   trackAgent(eventName, properties = {}) {
@@ -210,11 +221,6 @@ const tracker = {
     logEvent(eventName, properties);
 
     sendToGA(eventName, omitUndefined({ timestamp, ...SOURCE_PROPS, ...properties }));
-    const agentUsername = properties?.username ?? properties?.agentUsername ?? null;
-    sendToWebEngageServer(eventName, omitUndefined({ timestamp, ...SOURCE_PROPS, ...properties }), {
-      userId:      agentUsername ? `agent_${agentUsername}` : undefined,
-      anonymousId: agentUsername ? undefined : getOrCreateAnonymousId(),
-    });
   },
 
   /**

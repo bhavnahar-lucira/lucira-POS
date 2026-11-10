@@ -29,7 +29,8 @@ import { checkoutSchema }             from '@/validators/checkoutSchema';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import { setCheckoutInProgress } from '@/store/slices/uiSlice';
 import tracker from '@/lib/analytics/tracker';
-import EVENTS, { GA_ECOMMERCE_EVENTS } from '@/lib/analytics/events';
+import EVENTS, { GA_ECOMMERCE_EVENTS, WEBENGAGE_EVENTS } from '@/lib/analytics/events';
+import { buildBeginCheckoutData, buildShippingInfoData, buildPaymentFailureData, cartItemsToCheckoutItems } from '@/lib/analytics/webengageEvents';
 import { formatAmount } from '@/lib/priceUtils';
 import APP_CONFIG from '@/constants/appConfig';
 
@@ -42,6 +43,7 @@ function CheckoutScreen() {
   const { total }          = useCartTotals();
   const { customerId, customerMobile } = useCustomerSession();
   const activeStoreId      = useSelector(selectActiveStoreId);
+  const customerAddress    = useSelector((s) => s.cart.customerAddress);
   const { goBack, clearGuard } = useSmartBack();
 
   const {
@@ -134,6 +136,20 @@ function CheckoutScreen() {
         quantity:  item.quantity,
       })),
     });
+    const checkoutKey = `${items.map((i) => `${i.itemId}:${i.sizeId ?? ''}:${i.quantity}`).join(',')}|${total}`;
+    tracker.trackWebEngage(WEBENGAGE_EVENTS.BEGIN_CHECKOUT, buildBeginCheckoutData({
+      value:       total,
+      items:       cartItemsToCheckoutItems(items),
+      couponCodes: appliedPromos.map((p) => p.promoCode),
+    }), { onceKey: checkoutKey });
+    if (customerAddress) {
+      tracker.trackWebEngage(WEBENGAGE_EVENTS.ADD_SHIPPING_INFO, buildShippingInfoData({
+        value:       total,
+        items:       cartItemsToCheckoutItems(items),
+        couponCodes: appliedPromos.map((p) => p.promoCode),
+        address:     customerAddress,
+      }), { onceKey: checkoutKey });
+    }
   }, []);
 
   useEffect(() => {
@@ -196,6 +212,11 @@ function CheckoutScreen() {
       documentType,
       value: amountCollected,
     });
+    tracker.trackWebEngage(WEBENGAGE_EVENTS.PAYMENT_FAILURE, buildPaymentFailureData({
+      value:  amountCollected,
+      items:  cartItemsToCheckoutItems(items),
+      reason: 'declined',
+    }));
     router.push('/order-failed?reason=declined');
   };
 
@@ -225,7 +246,7 @@ function CheckoutScreen() {
           <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
             <h2 className="text-sm font-bold text-foreground mb-2 flex items-center gap-1.5">
               <UserCog size={16} className="text-accent shrink-0" aria-hidden="true" />
-              Sales Person <span className="text-destructive">*</span>
+              Jewelry Consultant <span className="text-destructive">*</span>
             </h2>
             <SalesPersonSelect
               companyId={activeStoreId}

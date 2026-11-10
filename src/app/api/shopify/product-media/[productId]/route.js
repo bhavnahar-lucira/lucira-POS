@@ -7,6 +7,8 @@ const API_VERSION   = '2025-10';
 const MEDIA_QUERY = `
   query ProductMedia($id: ID!) {
     product(id: $id) {
+      handle
+      variants(first: 100) { nodes { id sku } pageInfo { hasNextPage endCursor } }
       descriptionHtml
       media(first: 50) {
         edges {
@@ -27,6 +29,35 @@ const MEDIA_QUERY = `
     }
   }
 `;
+
+const VARIANTS_PAGE_QUERY = `
+  query ProductVariants($id: ID!, $after: String) {
+    product(id: $id) {
+      variants(first: 100, after: $after) { nodes { id sku } pageInfo { hasNextPage endCursor } }
+    }
+  }
+`;
+const MAX_VARIANT_PAGES = 5;
+
+async function fetchRemainingVariants(url, productGid, firstPage) {
+  const nodes = [...(firstPage?.nodes ?? [])];
+  let pageInfo = firstPage?.pageInfo;
+  for (let page = 1; pageInfo?.hasNextPage && page < MAX_VARIANT_PAGES; page++) {
+    const res = await fetch(url, {
+      method:  'POST',
+      headers: { 'X-Shopify-Access-Token': SHOPIFY_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: VARIANTS_PAGE_QUERY, variables: { id: productGid, after: pageInfo.endCursor } }),
+      next: { revalidate: 600 },
+    });
+    if (!res.ok) break;
+    const json = await res.json();
+    const conn = json?.data?.product?.variants;
+    if (!conn) break;
+    nodes.push(...(conn.nodes ?? []));
+    pageInfo = conn.pageInfo;
+  }
+  return nodes;
+}
 
 function htmlToPlainText(html) {
   if (!html) return null;
@@ -127,7 +158,13 @@ export async function GET(request, { params }) {
       }
     });
 
-    return NextResponse.json({ images, videos, description });
+    const variantNodes = await fetchRemainingVariants(url, `gid://shopify/Product/${productId}`, product?.variants)
+      .catch(() => product?.variants?.nodes ?? []);
+    const variants = variantNodes
+      .map((v) => ({ id: String(v.id ?? '').split('/').pop(), sku: v.sku ?? null }))
+      .filter((v) => v.id && v.sku);
+
+    return NextResponse.json({ images, videos, description, handle: product?.handle ?? null, variants });
 
   } catch (err) {
     console.error('[Shopify] media fetch error:', err);

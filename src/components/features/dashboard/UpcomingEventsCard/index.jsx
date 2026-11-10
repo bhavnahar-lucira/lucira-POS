@@ -29,7 +29,7 @@ function ordinal(day) {
   }
 }
 
-function EventRow({ event, onSelect }) {
+export function EventRow({ event, onSelect }) {
   return (
     <button
       type="button"
@@ -43,6 +43,9 @@ function EventRow({ event, onSelect }) {
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-foreground truncate">{event.name || 'Customer'}</p>
         <p className="text-xs text-muted-foreground">{ordinal(event.day)} {event.monthLabel}</p>
+        {event.visitedStoreCodes?.length > 0 && (
+          <p className="text-xs text-muted-foreground truncate">Visited: {event.visitedStoreCodes.join(', ')}</p>
+        )}
       </div>
 
       {event.isToday ? (
@@ -60,8 +63,8 @@ function EventRow({ event, onSelect }) {
 
 /**
  * UpcomingEventsCard — customer birthdays & anniversaries falling in a
- * rolling 15-day window from today, global across every store (see
- * useUpcomingEvents). Kept as two separate tabs rather than one merged
+ * rolling 15-day window from today, for customers registered at the active
+ * store (see useUpcomingEvents). Kept as two separate tabs rather than one merged
  * list — a birthday and an anniversary aren't the same kind of reminder.
  * @param {{ birthdays?: Array, anniversaries?: Array, isLoading?: boolean }} props
  */
@@ -112,7 +115,7 @@ export default function UpcomingEventsCard({ birthdays = [], anniversaries = [],
         <div className="max-h-80 overflow-y-auto divide-y divide-border">
           {activeItems.map((event) => (
             <EventRow
-              key={event.partyId}
+              key={`${event.type}-${event.partyId}`}
               event={event}
               onSelect={() => router.push(`/customers/${event.partyId}?name=${encodeURIComponent(event.name ?? '')}`)}
             />

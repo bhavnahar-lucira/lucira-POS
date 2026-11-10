@@ -34,7 +34,7 @@ export default function TicketList({ partyId }) {
     { key: 'category',          label: 'Category', filter: true },
     { key: 'budget',            label: 'Budget', align: 'right', format: formatAmountOrDash },
     { key: 'store_code',        label: 'Store', filter: true },
-    { key: 'sales_person_name', label: 'Sales Person' },
+    { key: 'sales_person_name', label: 'Jewelry Consultant' },
     { key: 'latest_design_label', label: 'Design', format: (v) => v ?? '—' },
     { key: 'status_label',      label: 'Status', filter: true, mobile: true },
   ], [partyId]);

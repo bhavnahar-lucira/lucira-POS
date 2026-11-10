@@ -45,7 +45,7 @@ import {
 }                                          from '@/hooks/transactions/useTransactionMutations';
 import PaymentStatusBadge                  from '@/components/shared/PaymentStatusBadge';
 import TransactionDetailSheet              from '@/components/features/transactions/TransactionDetailSheet';
-import { usePaymentModes }                from '@/hooks/checkout/usePaymentModes';
+import { usePaymentModes, usePaymentModesForRefund } from '@/hooks/checkout/usePaymentModes';
 import { useBankPosAccounts }              from '@/hooks/checkout/useBankPosAccounts';
 import { paymentRequiresBank }             from '@/lib/checkout/paymentModeRules';
 import { useURDMasterItem }                from '@/hooks/transactions/useURDMasterItem';
@@ -622,7 +622,7 @@ function buildMetalLineItemSchema(config) {
 function buildMetalFormSchema(config) {
   return z.object({
     document_date:   z.string().min(1, 'Required'),
-    sales_person_id: z.coerce.number().min(1, 'Select a sales person'),
+    sales_person_id: z.coerce.number().min(1, 'Select a jewelry consultant'),
     line_items:      z.array(buildMetalLineItemSchema(config)).min(1, 'Add at least one item'),
   });
 }
@@ -772,7 +772,7 @@ function MetalLineItemForm({ type, onDone }) {
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
       <CustomerAttachedBanner customerId={customerId} customerName={customerName} />
 
-      <FormField label="Sales Person" required error={errors.sales_person_id}>
+      <FormField label="Jewelry Consultant" required error={errors.sales_person_id}>
         <Controller
           name="sales_person_id"
           control={control}
@@ -900,8 +900,7 @@ function RefundNewForm({ onDone }) {
   const storeId      = useSelector(selectActiveStoreId);
   const customerId   = useSelector(selectCartCustomerId);
   const customerName = useSelector(selectCartCustomerName);
-  const { paymentModes, isLoading: modesLoading } = usePaymentModes();
-  const { bankPosAccounts } = useBankPosAccounts();
+  const { paymentModes, isLoading: modesLoading } = usePaymentModesForRefund();
   const headerConfig = useOrderHeaderConfig(APP_CONFIG.DOCUMENT_TYPES.REFUND);
   const { credits, isLoading: creditsLoading, isError: creditsError, refetch: refetchCredits } =
     useCustomerCredits(customerId);
@@ -939,11 +938,8 @@ function RefundNewForm({ onDone }) {
       );
     }
     try {
+      // OrnaVerse's Refund has no bank account: the payout books to the mode's own ledger.
       const mode = paymentModes.find((m) => m.modeId === Number(data.mode_id));
-      if (mode && paymentRequiresBank(mode)) {
-        if (!data.bank_pos_id) return toast.error('Select the bank account this payout settles from.');
-        if (!data.ref_no?.trim()) return toast.error('Enter a reference number for this payout.');
-      }
       await create.mutateAsync({
         partyId: customerId,
         partyName: customerName,
@@ -953,10 +949,12 @@ function RefundNewForm({ onDone }) {
         credits: selectedCredits.map((credit) => ({ credit, amount: credit.amount })),
         payout: {
           modeId:   Number(data.mode_id),
-          ledgerId: bankPosAccounts.find((a) => a.id === Number(data.bank_pos_id))?.ledgerId ?? mode?.ledgerId,
+          ledgerId: mode?.ledgerId,
           amount:   total,
-          bankPos:  data.bank_pos_id || undefined,
           refNo:    data.ref_no?.trim() || undefined,
+          modeName: mode?.modeName,
+          modeCode: mode?.modeCode,
+          modeType: mode?.modeType,
         },
       });
       reset();
@@ -1041,7 +1039,6 @@ function RefundNewForm({ onDone }) {
           name="mode_id"
           paymentModes={paymentModes}
           modesLoading={modesLoading}
-          bankFieldName="bank_pos_id"
           refFieldName="ref_no"
         />
       </FormField>

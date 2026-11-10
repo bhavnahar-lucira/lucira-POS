@@ -284,6 +284,8 @@ export const QUERY_KEYS = {
 
   REPORTS: {
     POS_DASHBOARD:           (params) => ['reports', 'pos-dashboard', params],
+    SUMMARY_BILLS:           (params) => ['reports', 'summary-bills', params],
+    SUMMARY_BY_STORE:        (params) => ['reports', 'summary-by-store', params],
     CATEGORY_WISE_SALES:     (params) => ['reports', 'category-wise-sales', params],
     SALES_PERSON_WISE_SALES: (params) => ['reports', 'sales-person-wise-sales', params],
     SKU_VELOCITY:            (params) => ['reports', 'sku-velocity', params],

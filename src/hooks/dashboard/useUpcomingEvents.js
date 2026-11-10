@@ -1,11 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
-import { getCustomerList } from '@/services/customerService';
+import { useSelector } from 'react-redux';
+import axiosInstance from '@/lib/axios/axiosInstance';
+import API from '@/constants/apiEndpoints';
+import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import { normalizeCustomer } from '@/lib/normalizers/customer';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 import APP_CONFIG from '@/constants/appConfig';
 
-// Global by design — a customer's store of first enrollment has no bearing
-// on when they were born or married, unlike schemes (see useSchemeReminders).
+// Store-specific: a customer is listed only under the store they registered at.
 const WINDOW_DAYS = 15;
 
 function daysBetween(fromMidnight, toMidnight) {
@@ -41,6 +43,7 @@ function toUpcomingEvents(customers, field, type, todayMidnight) {
       partyId:    c.customerId,
       name:       c.customerName,
       mobile:     c.customerMobile,
+      companyId:  c.raw?.company_id ?? null,
       type,
       day:        occurrence.getDate(),
       monthLabel: occurrence.toLocaleDateString('en-IN', { month: 'long' }),
@@ -51,6 +54,30 @@ function toUpcomingEvents(customers, field, type, todayMidnight) {
   return events.sort((a, b) => a.daysUntil - b.daysUntil);
 }
 
+// Store codes of the other stores each event's customer has walked into.
+// Visit mobiles are masked, so visits come from the CRM record (linked by party_id).
+async function attachVisitedStores(events) {
+  if (!events.length) return events;
+  const partyIds = [...new Set(events.map((e) => e.partyId))];
+  const crm = await axiosInstance.post(API.CRM.CUSTOMER_LIST, {
+    Take: 0, Criteria: [['party_id'], 'in', [partyIds]],
+  });
+  const stores = new Map();
+  for (const c of crm.data?.Entities ?? []) {
+    for (const v of c.customer_visits ?? []) {
+      if (v.company_id == null) continue;
+      if (!stores.has(c.party_id)) stores.set(c.party_id, new Map());
+      stores.get(c.party_id).set(v.company_id, v.company_code ?? `#${v.company_id}`);
+    }
+  }
+  return events.map((e) => ({
+    ...e,
+    visitedStoreCodes: [...(stores.get(e.partyId) ?? [])]
+      .filter(([id]) => Number(id) !== Number(e.companyId))
+      .map(([, code]) => code),
+  }));
+}
+
 /**
  * @returns {{
  *   birthdays: Array<{partyId, name, mobile, day, monthLabel, daysUntil, isToday}>,
@@ -59,6 +86,7 @@ function toUpcomingEvents(customers, field, type, todayMidnight) {
  * }}
  */
 export function useUpcomingEvents() {
+  const activeStoreId = useSelector(selectActiveStoreId);
   const now = new Date();
   const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   // Keyed on today's actual date (not just a static scope string) so the
@@ -67,15 +95,25 @@ export function useUpcomingEvents() {
   const dateKey = todayMidnight.toISOString().slice(0, 10);
 
   const query = useQuery({
-    queryKey: QUERY_KEYS.CUSTOMERS.LIST({ scope: 'dashboard-events', date: dateKey }),
+    queryKey: QUERY_KEYS.CUSTOMERS.LIST({ scope: 'dashboard-events', date: dateKey, companyId: activeStoreId }),
     queryFn: async () => {
-      const data = await getCustomerList({ take: 0 });
-      const customers = (data?.Entities ?? []).map(normalizeCustomer).filter(Boolean);
+      const response = await axiosInstance.post(API.CUSTOMERS.LIST, {
+        Take: 0,
+        EqualityFilter: { company_id: activeStoreId },
+        Criteria: [['is not null', ['birth_date']], 'or', ['is not null', ['anniversary']]],
+      });
+      const customers = (response.data?.Entities ?? [])
+        .map(normalizeCustomer)
+        .filter(Boolean);
+      const birthdays     = toUpcomingEvents(customers, 'birthDate', 'birthday', todayMidnight);
+      const anniversaries = toUpcomingEvents(customers, 'anniversary', 'anniversary', todayMidnight);
+      const withVisits = await attachVisitedStores([...birthdays, ...anniversaries]);
       return {
-        birthdays:     toUpcomingEvents(customers, 'birthDate', 'birthday', todayMidnight),
-        anniversaries: toUpcomingEvents(customers, 'anniversary', 'anniversary', todayMidnight),
+        birthdays:     withVisits.slice(0, birthdays.length),
+        anniversaries: withVisits.slice(birthdays.length),
       };
     },
+    enabled:   !!activeStoreId,
     staleTime: APP_CONFIG.STALE_TIME.STATIC,
   });
 

@@ -8,16 +8,9 @@ const SHOPIFY_STORE = process.env.SHOPIFY_STORE;
 const SHOPIFY_TOKEN = process.env.SHOPIFY_ADMIN_TOKEN;
 const API_VERSION   = '2025-10';
 
-// India-only assumption, same as lib/analytics/webengage.js's toE164India —
-// a bare 10-digit local number becomes E.164 with a +91 country code.
-export function toE164India(mobile) {
-  if (!mobile) return null;
-  const digits = String(mobile).replace(/\D/g, '');
-  if (!digits) return null;
-  if (digits.length === 10) return `+91${digits}`;
-  if (digits.startsWith('91') && digits.length === 12) return `+${digits}`;
-  return `+${digits}`;
-}
+import { toE164India } from '@/lib/analytics/phoneFormat';
+
+export { toE164India };
 
 // Shopify's search query syntax is embedded as a literal string — escape
 // single quotes so a stray apostrophe in an email's local part can't break

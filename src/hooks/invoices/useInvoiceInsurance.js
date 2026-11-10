@@ -26,6 +26,8 @@ export function useInvoiceInsurance(transactionId) {
     // information to tie it to a line — the sheet must stop offering to
     // generate more (see the route's own guard).
     unattributed: query.data?.unattributed === true,
+    // 'mismatch' | 'timeout' — decides which warning the sheet shows.
+    unattributedReason: query.data?.unattributedReason ?? null,
     isLoading: query.isLoading,
     isError:   query.isError,
   };

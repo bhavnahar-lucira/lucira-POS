@@ -17,7 +17,6 @@ export function useCustomer360(customerId, { enabled = true } = {}) {
       const party = partyRes?.data?.Entity ?? null;
       const tx = txRes?.data ?? {};
       const insights = insightsRes?.data?.Entities ?? [];
-      const creditBalance = tx.credit_balance ?? 0;
       const exchangeTotal = tx.exchange_total ?? 0;
       const buybackTotal = tx.buyback_total ?? 0;
       const invoiceTotal = (tx.invoice_total ?? 0) - exchangeTotal - buybackTotal;
@@ -38,7 +37,6 @@ export function useCustomer360(customerId, { enabled = true } = {}) {
           invoiceTotal,
           buybackTotal,
           exchangeTotal,
-          creditBalance,
         },
       };
     },
@@ -55,7 +53,7 @@ export function useCustomer360(customerId, { enabled = true } = {}) {
       invoice: [], order: [], return: [], exchange: [], urd: [], buyback: [], receipt: [],
     },
     totals: data?.totals ?? {
-      invoiceTotal: 0, buybackTotal: 0, exchangeTotal: 0, creditBalance: 0,
+      invoiceTotal: 0, buybackTotal: 0, exchangeTotal: 0,
     },
 
     isLoading:  query.isLoading,

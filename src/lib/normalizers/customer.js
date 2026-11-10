@@ -172,8 +172,11 @@ function phoneToStoredValue(e164) {
 export function storedValueToPhone(raw) {
   if (!raw || raw === 'NA') return '';
   const value = String(raw);
-  if (value.startsWith('+')) return value;
-  return /^[6-9]\d{9}$/.test(value) ? `+91${value}` : value;
+  if (value.startsWith('+') || value.includes('*')) return value;
+  const digits = value.replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.length === 12 && digits.startsWith('91')) return `+${digits}`;
+  return `+91${digits.replace(/^0+/, '')}`;
 }
 
 // OrnaVerse masks some compliance fields for a non-admin session — confirmed

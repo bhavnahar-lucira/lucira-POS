@@ -66,13 +66,13 @@ export default function BuyersFilterPanel({
       )}
 
       <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-medium text-muted-foreground">Sales person</span>
+        <span className="text-xs font-medium text-muted-foreground">Jewelry Consultant</span>
         <Select value={salesPerson} onValueChange={onSalesPersonChange}>
-          <SelectTrigger className="h-10 w-full" aria-label="Sales person">
-            <SelectValue placeholder="All sales persons" />
+          <SelectTrigger className="h-10 w-full" aria-label="Jewelry Consultant">
+            <SelectValue placeholder="All jewelry consultants" />
           </SelectTrigger>
           <SelectContent className="max-h-72 overflow-y-auto">
-            <SelectItem value="all">All sales persons</SelectItem>
+            <SelectItem value="all">All jewelry consultants</SelectItem>
             {salesPersons.map((name) => (
               <SelectItem key={name} value={name}>
                 <span className="flex items-center gap-2">
@@ -84,7 +84,7 @@ export default function BuyersFilterPanel({
           </SelectContent>
         </Select>
         {salesPersons.length === 0 && (
-          <span className="text-xs text-muted-foreground">No sales person names recorded for this store yet.</span>
+          <span className="text-xs text-muted-foreground">No jewelry consultant names recorded for this store yet.</span>
         )}
       </div>
 

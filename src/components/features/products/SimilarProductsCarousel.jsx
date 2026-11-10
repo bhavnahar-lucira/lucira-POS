@@ -103,12 +103,13 @@ export default function SimilarProductsCarousel({ product, activeStoreId }) {
             1200: { slidesPerView: 5, spaceBetween: 16 },
           }}
         >
-          {items.map((item) => {
+          {items.map((item, itemIndex) => {
             const price = priceById.get(item.item_id) ?? null;
             const isPricing = price == null && !settledIds.has(item.item_id);
             return (
               <SwiperSlide key={item.item_id}>
                 <ProductCard
+                  listIndex={itemIndex + 1}
                   product={{ ...item, price, is_pricing: isPricing }}
                   showStockBadge={!stockLoading}
                   realStock={stockByItemId.get(item.item_id) ?? null}

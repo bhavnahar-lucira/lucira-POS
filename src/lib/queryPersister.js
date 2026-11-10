@@ -53,7 +53,7 @@ export const PERSIST_MAX_AGE = 24 * 60 * 60 * 1000;
 // result don't keep serving it silently for up to 24h instead of re-fetching.
 // v1 -> v2 (2026-09-09): fetchEntireStoreCatalog's result set changed
 // incompatibly (company-scoping fix).
-export const PERSIST_BUSTER = 'v2';
+export const PERSIST_BUSTER = 'v3';
 
 const PERSISTED_QUERY_KEY_PREFIXES = [
   ['catalog', 'products'],

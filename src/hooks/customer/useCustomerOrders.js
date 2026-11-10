@@ -52,6 +52,8 @@ export function normalizeCustomerOrder(entity, documentType = 'order') {
     status,
     companyId:     get('company_id'),
     companyName:   get('company_name'),
+    salesPersonId: get('sales_person_id'),
+    salesPersonName: get('employee_name'),
     lineItems:     Array.isArray(entity.line_items) ? entity.line_items : [],
     documentType,
     raw: entity,

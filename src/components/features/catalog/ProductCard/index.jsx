@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, memo }  from 'react';
+import { useState, useEffect, memo }  from 'react';
 import Image               from 'next/image';
 import { useRouter }       from 'next/navigation';
 import { useSelector }     from 'react-redux';
@@ -13,6 +13,7 @@ import APP_CONFIG          from '@/constants/appConfig';
 import Logo                from '@/components/shared/Logo';
 import StarRating          from '@/components/shared/StarRating';
 import { useStyleExternalProductId } from '@/hooks/products/useStyleExternalProductId';
+import { useCatalogNameMaps } from '@/hooks/catalog/useCatalogNameMaps';
 import { useProductReviewSummary }   from '@/hooks/products/useProductReviewSummary';
 import { useSimilarProducts } from '@/hooks/products/useSimilarProducts';
 import WishlistButton       from '@/components/features/products/WishlistButton';
@@ -21,7 +22,8 @@ import { Badge } from '@/components/ui/badge';
 import { EASE_PREMIUM, DURATION } from '@/lib/motion';
 import { formatAmountOrNull as formatINR } from '@/lib/priceUtils';
 import tracker from '@/lib/analytics/tracker';
-import EVENTS from '@/lib/analytics/events';
+import EVENTS, { WEBENGAGE_EVENTS } from '@/lib/analytics/events';
+import { buildProductImpressionData, buildProductClickData } from '@/lib/analytics/webengageEvents';
 import { buildProductAttributes } from '@/lib/analytics/productAttributes';
 
 // Swatch colors are a presentational mapping only — metal_id itself is real data.
@@ -104,6 +106,7 @@ function ProductCard({
   showSimilarIcon = true,
   similarProductsSurface = null,
   priorityImage = false,
+  listIndex = null,
 }) {
   const router = useRouter();
   const [imgError, setImgError] = useState(false);
@@ -133,7 +136,8 @@ function ProductCard({
     item_size_name,
   } = product;
 
-  const { externalProductId } = useStyleExternalProductId(style_id ?? null);
+  const { externalProductId, isLoading: externalIdLoading } = useStyleExternalProductId(style_id ?? null);
+  const catalogNames = useCatalogNameMaps();
   const { average: ratingAverage, count: ratingCount } = useProductReviewSummary(externalProductId);
   const { items: similarItems, isLoading: similarLoading } = useSimilarProducts(
     showSimilarIcon ? product : null,
@@ -159,9 +163,29 @@ function ProductCard({
   const rawSrc  = image ?? image_url ?? image_1 ?? null;
   const imageSrc = !imgError ? resolveImageSrc(rawSrc) : null;
   const cardPricedItem = price != null ? { sub_total: price, net_amount: price } : null;
+  const publicImage = /^https?:\/\//.test(imageSrc ?? '') ? imageSrc : null;
+
+  useEffect(() => {
+    if (!item_id || externalIdLoading || !catalogNames.isReady) return;
+    const send = () => tracker.trackWebEngage(
+      WEBENGAGE_EVENTS.PRODUCT_IMPRESSION,
+      buildProductImpressionData(product, { externalProductId, image: publicImage, names: catalogNames, index: listIndex }),
+      { onceKey: item_id },
+    );
+    if (!isPricing) {
+      send();
+      return;
+    }
+    const timer = setTimeout(send, 5000);
+    return () => clearTimeout(timer);
+  }, [item_id, isPricing, externalIdLoading, product, externalProductId, publicImage, catalogNames, listIndex]);
 
   function handleTap() {
     if (!item_id) return;
+    tracker.trackWebEngage(
+      WEBENGAGE_EVENTS.PRODUCT_CLICK,
+      buildProductClickData(product, { externalProductId, image: publicImage, names: catalogNames }),
+    );
     if (similarProductsSurface) {
       tracker.track(EVENTS.SIMILAR_PRODUCT_CLICKED, {
         surface: similarProductsSurface,

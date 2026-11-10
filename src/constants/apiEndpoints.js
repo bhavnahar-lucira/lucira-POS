@@ -427,6 +427,8 @@ const API = {
     SALES_PERSON_WISE_SALES: 'Services/POS/SalesPersonWiseSales/List',
     SKU_VELOCITY:            'Services/Analytics/SKUVelocity', // no /List suffix — confirmed live; /List 404s
     OPEN_POS_ORDERS:         'Services/Reports/OpenPOSOrdersReport/List',
+    ORDER_BIFURCATION:       'Services/Reports/OrderBifurcationReport/List',
+    INVOICE_LINES:           'Services/POS/InvoiceItems/List',
   },
 
   // Generic ad-hoc report engine — confirmed live 2026-10-16. 111 user-built

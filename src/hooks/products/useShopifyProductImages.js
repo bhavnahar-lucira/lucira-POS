@@ -41,6 +41,8 @@ export function useShopifyProductImages(externalProductId) {
     videos,
     primaryImage: images[0] ?? null,
     description:  query.data?.description ?? null,
+    handle:       query.data?.handle ?? null,
+    variants:     query.data?.variants ?? [],
     isLoading:    query.isLoading,
     isError:      query.isError,
     hasImages:    images.length > 0,

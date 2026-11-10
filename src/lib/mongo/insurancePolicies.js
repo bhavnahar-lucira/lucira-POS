@@ -18,7 +18,7 @@ function filterFor(env, transactionId) {
 
 /**
  * @param {{ env: string, transactionId: number }} params
- * @returns {Promise<{ items: object[], document_no: string|null, unattributed: boolean }>}
+ * @returns {Promise<{ items: object[], document_no: string|null, unattributed: boolean, unattributedReason: string|null }>}
  */
 export async function getInvoicePolicies({ env, transactionId }) {
   const db = await getDb();
@@ -27,6 +27,9 @@ export async function getInvoicePolicies({ env, transactionId }) {
     items:        doc?.items ?? [],
     document_no:  doc?.document_no ?? null,
     unattributed: doc?.unattributed === true,
+    // 'mismatch' — Olocker returned a different number of rows than sent;
+    // 'timeout'  — Olocker never answered, so policies may exist unrecorded.
+    unattributedReason: doc?.unattributed === true ? (doc?.unattributed_reason ?? 'mismatch') : null,
   };
 }
 
@@ -42,11 +45,13 @@ export async function getInvoicePolicies({ env, transactionId }) {
  *   items: object[],       // { key, inv_itemsrno, item_code, item_name, insured_amount, policy, url }
  *   rawResponse: unknown,  // exactly what Olocker returned, for support tickets
  *   unattributed?: boolean,// policies that could not be tied to a specific line
+ *   unattributedReason?: 'mismatch'|'timeout',
  * }} params
  */
 export async function appendInvoicePolicies({
   env, transactionId, documentNo, partyId, createdBy, items, rawResponse,
   unattributed = false,
+  unattributedReason = 'mismatch',
 }) {
   const db = await getDb();
   const now = new Date();
@@ -61,7 +66,7 @@ export async function appendInvoicePolicies({
         // Latches on and never clears itself: once this invoice holds a
         // policy nobody can tie to a line, no amount of later success makes
         // the earlier ambiguity safe to generate on top of.
-        ...(unattributed ? { unattributed: true } : {}),
+        ...(unattributed ? { unattributed: true, unattributed_reason: unattributedReason } : {}),
       },
       $setOnInsert: { createdAt: now },
       $push: {

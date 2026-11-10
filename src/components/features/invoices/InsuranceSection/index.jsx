@@ -65,7 +65,9 @@ function PolicyRow({ policy, showLink }) {
  */
 export default function InsuranceSection({ raw, autoOpen = false }) {
   const transactionId = raw?.transaction_id ?? null;
-  const { policies, unattributed, isLoading } = useInvoiceInsurance(transactionId);
+  const { policies, unattributed, unattributedReason, isLoading } = useInvoiceInsurance(transactionId);
+  // { done, total } while batches are being sent to Olocker.
+  const [progress, setProgress] = useState(null);
   const generate = useGenerateInsurance();
   const [isPicking, setIsPicking] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
@@ -119,12 +121,21 @@ export default function InsuranceSection({ raw, autoOpen = false }) {
   };
 
   const submit = async () => {
-    await generate.mutateAsync({
-      transactionId,
-      itemKeys: [...selected],
-    });
-    setIsPicking(false);
-    setSelected(new Set());
+    try {
+      await generate.mutateAsync({
+        transactionId,
+        itemKeys: [...selected],
+        onProgress: setProgress,
+      });
+      setIsPicking(false);
+      setSelected(new Set());
+    } catch {
+      // Already shown to the operator by the hook's onError toast; caught
+      // here only so it doesn't surface as an unhandled promise rejection.
+      // The picker stays open so they can adjust and retry.
+    } finally {
+      setProgress(null);
+    }
   };
 
   return (
@@ -150,8 +161,9 @@ export default function InsuranceSection({ raw, autoOpen = false }) {
         <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
           <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600" />
           <p className="text-sm text-amber-700 dark:text-amber-500">
-            A policy on this invoice could not be matched to an item. Check it in Olocker
-            before generating any more.
+            {unattributedReason === 'timeout'
+              ? 'Olocker did not confirm the last insurance request for this invoice, so policies may have been issued without being recorded here. Check the Olocker dashboard before generating any more.'
+              : 'A policy on this invoice could not be matched to an item. Check it in Olocker before generating any more.'}
           </p>
         </div>
       )}
@@ -217,7 +229,11 @@ export default function InsuranceSection({ raw, autoOpen = false }) {
               disabled={generate.isPending || selected.size === 0}
               onClick={submit}
             >
-              {generate.isPending ? 'Generating…' : `Insure ${selected.size} item${selected.size === 1 ? '' : 's'}`}
+              {generate.isPending
+                ? progress?.total > 1
+                  ? `Generating ${progress.done + 1} of ${progress.total}…`
+                  : 'Generating…'
+                : `Insure ${selected.size} item${selected.size === 1 ? '' : 's'}`}
             </Button>
             <Button
               type="button"

@@ -11,6 +11,7 @@ import {
   OLOCKER_TOKEN_INVALID_RESULT,
   OLOCKER_TOKEN_TTL_MS,
   OLOCKER_TIMEOUT_MS,
+  OLOCKER_GENERATE_TIMEOUT_MS,
 } from './constants';
 
 export class OlockerError extends Error {
@@ -34,7 +35,12 @@ function credentials() {
   return { key, value };
 }
 
-async function postOlocker(path, body) {
+/** The low-level reason a fetch failed — Node puts it on `err.cause`. */
+function transportReason(err) {
+  return err?.cause?.code || err?.cause?.message || err?.code || err?.message || 'unknown';
+}
+
+async function postOlocker(path, body, { timeoutMs = OLOCKER_TIMEOUT_MS } = {}) {
   let res;
   try {
     res = await fetch(`${OLOCKER_BASE_URL}/${path}`, {
@@ -42,10 +48,23 @@ async function postOlocker(path, body) {
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(body),
       cache:   'no-store',
-      signal:  AbortSignal.timeout(OLOCKER_TIMEOUT_MS),
+      signal:  AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
-    throw new OlockerError(`Could not reach Olocker (${path}).`, {
+    // A timeout is NOT the same as "unreachable": the request got there and
+    // Olocker may still be issuing the policies after we stopped waiting.
+    // Callers must treat the outcome as unknown (see the route).
+    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+      throw new OlockerError(
+        `Olocker did not answer within ${Math.round(timeoutMs / 1000)} seconds (${path}).`,
+        { code: 'TIMEOUT', cause: err },
+      );
+    }
+    const reason = transportReason(err);
+    // Seen live 2026-11-06: apiv3.olocker.in served an expired certificate
+    // and every call failed here with a message that hid why.
+    const hint = /CERT/i.test(reason) ? " Olocker's security certificate is invalid or expired." : '';
+    throw new OlockerError(`Could not reach Olocker (${path}): ${reason}.${hint}`, {
       code: 'UNREACHABLE', cause: err,
     });
   }
@@ -120,7 +139,11 @@ export async function generatePolicies(buildTags) {
       // An empty TagList is the one input Olocker answers with a 500.
       throw new OlockerError('No items to insure.', { code: 'EMPTY_TAGLIST' });
     }
-    const data = await postOlocker(OLOCKER_PATHS.GENERATE_POLICIES, { TagList: tags });
+    const data = await postOlocker(
+      OLOCKER_PATHS.GENERATE_POLICIES,
+      { TagList: tags },
+      { timeoutMs: OLOCKER_GENERATE_TIMEOUT_MS },
+    );
     return Array.isArray(data) ? data : [data];
   };
 

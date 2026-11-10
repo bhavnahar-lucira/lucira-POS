@@ -35,6 +35,10 @@ import PillTabs    from '@/components/shared/PillTabs';
 import { Button }  from '@/components/ui/button';
 import { Input }   from '@/components/ui/input';
 import { Label }   from '@/components/ui/label';
+import { Switch }  from '@/components/ui/switch';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { formatCurrency, formatDate, MONTH_NAMES } from '@/lib/schemeFormat';
 import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
 
@@ -47,6 +51,9 @@ const STATUS_STYLES = {
   cancelled: 'bg-status-error/10 text-status-error',
   default:   'bg-muted  text-muted-foreground',
 };
+
+const ALL_JC = 'all';
+const NO_JC  = 'none';
 
 const receiptSchema = z.object({
   amount:        z.coerce.number().min(1, 'Enter amount'),
@@ -311,35 +318,63 @@ function SchemesTab() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <Button asChild className="w-full gap-2">
-        <Link href="/schemes/enroll">
-          <Plus size={16} /> Enroll Customer
-        </Link>
-      </Button>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {schemes.map((scheme) => (
-          <SchemeCard key={scheme.scheme_id} scheme={scheme} />
-        ))}
-      </div>
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+      {schemes.map((scheme) => (
+        <SchemeCard key={scheme.scheme_id} scheme={scheme} />
+      ))}
     </div>
   );
 }
 
-function EnrollmentsTab() {
+function getJcOptions(enrollments) {
+  const options = [...new Map(
+    enrollments.filter((e) => e.jcId != null).map((e) => [String(e.jcId), e.jcName ?? `Employee #${e.jcId}`]),
+  )].sort((a, b) => a[1].localeCompare(b[1]));
+  return { options, hasUnassigned: enrollments.some((e) => e.jcId == null) };
+}
+
+function JcFilterSelect({ value, onChange }) {
+  const { data: enrollments = [] } = useSchemeEnrollments();
+  const { options, hasUnassigned } = getJcOptions(enrollments);
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className="h-11 w-full bg-card sm:w-56" aria-label="Filter by jewelry consultant">
+        <SelectValue placeholder="All consultants" />
+      </SelectTrigger>
+      <SelectContent className="max-h-64 overflow-y-auto">
+        <SelectItem value={ALL_JC}>All consultants</SelectItem>
+        {options.map(([id, name]) => (
+          <SelectItem key={id} value={id}>{name}</SelectItem>
+        ))}
+        {hasUnassigned && <SelectItem value={NO_JC}>Not assigned</SelectItem>}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function EnrollmentsTab({ jcFilter }) {
   const customerId   = useSelector(selectCartCustomerId);
   const customerName = useSelector(selectCartCustomerName);
 
-  const { data: enrollments = [], isLoading, isError, refetch } =
-    useSchemeEnrollments(customerId ? { partyId: customerId } : {});
+  const isAttached   = !!customerId;
+  const [showOnlyCustomer, setShowOnlyCustomer] = useState(false);
+
+  const { data: allEnrollments = [], isLoading, isError, refetch } = useSchemeEnrollments();
+
+  const enrollments = allEnrollments.filter((e) => {
+    if (showOnlyCustomer && isAttached && e.partyId !== customerId) return false;
+    if (jcFilter === NO_JC) return e.jcId == null;
+    if (jcFilter !== ALL_JC) return String(e.jcId) === jcFilter;
+    return true;
+  });
+  const isFiltered = (showOnlyCustomer && isAttached) || jcFilter !== ALL_JC;
 
   const [receiptTarget, setReceiptTarget] = useState(null);
   const [detailTargetId, setDetailTargetId] = useState(null);
   // Derived (not stored) — so after Mature/Redeem/Close invalidates the
   // 'schemes' query, this sheet picks up the fresh status on the next
   // render instead of keeping a stale snapshot from when it was opened.
-  const detailTarget = enrollments.find((e) => e.enrollmentId === detailTargetId) ?? null;
+  const detailTarget = allEnrollments.find((e) => e.enrollmentId === detailTargetId) ?? null;
 
   if (isLoading) {
     return <InlineLoader className="py-16" label="Loading enrollments…" />;
@@ -350,18 +385,21 @@ function EnrollmentsTab() {
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      {customerId && (
-        <div className="col-span-full rounded-xl border border-status-in-stock/30 bg-status-in-stock/10 px-3 py-2 text-sm text-status-in-stock">
-          Showing enrollments for <strong>{customerName}</strong>
-        </div>
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+      {isAttached && (
+        <label className="col-span-full flex h-11 w-full items-center justify-between gap-3 rounded-lg border border-border bg-card px-4">
+          <span className="truncate text-sm font-medium text-foreground">
+            Show only {customerName ?? 'this customer'}&apos;s enrollments
+          </span>
+          <Switch checked={showOnlyCustomer} onCheckedChange={setShowOnlyCustomer} />
+        </label>
       )}
 
       {enrollments.length === 0 ? (
         <EmptyState
           className="col-span-full border-0 py-16"
           icon={LayoutGrid}
-          title={customerId ? 'No enrollments for this customer.' : 'No enrollments found.'}
+          title={isFiltered ? 'No enrollments match these filters.' : 'No enrollments found.'}
           action={(
             <Button asChild variant="outline" size="sm">
               <Link href="/schemes/enroll"><Plus size={14} className="mr-1" /> Enroll Now</Link>
@@ -384,6 +422,11 @@ function EnrollmentsTab() {
             </div>
 
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+              <span className="text-muted-foreground">Jewelry Consultant</span>
+              <span className={`truncate text-right font-medium ${enrollment.jcName ? 'text-foreground/80' : 'text-muted-foreground'}`}>
+                {enrollment.jcName ?? 'Not assigned'}
+              </span>
+
               <span className="text-muted-foreground">Monthly</span>
               <span className="text-right font-medium text-foreground/80">
                 {formatCurrency(enrollment.schemeAmount)}
@@ -453,6 +496,7 @@ function EnrollmentsTab() {
 
 function SchemesScreen() {
   const [activeTab, setActiveTab] = useState('schemes');
+  const [jcFilter, setJcFilter] = useState(ALL_JC);
 
   const TABS = [
     { key: 'schemes',     label: 'Schemes' },
@@ -460,13 +504,23 @@ function SchemesScreen() {
   ];
 
   return (
-    <div className="p-4 pb-8 max-w-2xl mx-auto">
-      <div className="mb-4">
-        <PillTabs tabs={TABS} value={activeTab} onChange={setActiveTab} />
+    <div className="p-4 pb-8">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="w-full sm:max-w-md">
+          <PillTabs tabs={TABS} value={activeTab} onChange={setActiveTab} />
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:shrink-0">
+          {activeTab === 'enrollments' && <JcFilterSelect value={jcFilter} onChange={setJcFilter} />}
+          <Button asChild className="h-11 w-full gap-2 sm:w-auto sm:shrink-0">
+            <Link href="/schemes/enroll">
+              <Plus size={16} /> Enroll Customer
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {activeTab === 'schemes'     && <SchemesTab />}
-      {activeTab === 'enrollments' && <EnrollmentsTab />}
+      {activeTab === 'enrollments' && <EnrollmentsTab jcFilter={jcFilter} />}
     </div>
   );
 }

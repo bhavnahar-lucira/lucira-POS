@@ -23,6 +23,7 @@ import { openCart, closeCart, selectCartOpen } from '@/store/slices/uiSlice';
 import StoreSelectModal from '@/components/features/auth/StoreSelectModal';
 import CartDrawer from '@/components/features/cart/CartDrawer';
 import HeaderCustomerControl from '@/components/layout/Header/HeaderCustomerControl';
+import NotificationBell from '@/components/layout/Header/NotificationBell';
 import { NAV_ITEMS, BOTTOM_ITEMS } from '@/constants/navItems';
 import { cn } from '@/lib/utils';
 import { EASE_PREMIUM, DURATION } from '@/lib/motion';
@@ -96,7 +97,7 @@ function StoreIndicator({ onOpen }) {
           : `Active store: ${activeStoreName ?? 'None'}`
       }
       className={cn(
-        'flex items-center gap-1.5 rounded-lg border border-input bg-card px-3 py-2 min-h-[44px]',
+        'flex items-center gap-1.5 rounded-lg border border-input bg-card px-2.5 py-2 min-h-[44px] sm:px-3',
         'text-sm font-medium text-foreground transition-colors duration-standard ease-premium',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         hasMultipleStores ? 'hover:bg-gray-100 hover:shadow-sm cursor-pointer' : 'cursor-default'
@@ -107,7 +108,7 @@ function StoreIndicator({ onOpen }) {
         {activeStoreName ?? '—'}
       </span>
       {hasMultipleStores && (
-        <ChevronDown size={14} aria-hidden="true" className="shrink-0 text-muted-foreground" />
+        <ChevronDown size={14} aria-hidden="true" className="hidden shrink-0 text-muted-foreground sm:block" />
       )}
     </button>
   );
@@ -159,17 +160,17 @@ export default function Header() {
   return (
     <>
       <header
-        className="flex items-center justify-between gap-4 border-b bg-card px-4 min-h-[64px] shrink-0"
+        className="flex items-center justify-between gap-2 border-b bg-card px-3 min-h-[64px] shrink-0 sm:gap-4 sm:px-4"
         role="banner"
       >
-        <div className="flex items-center gap-2 shrink-0 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
           <Button
             type="button"
             variant="ghost"
             size="icon"
             onClick={toggleSidebar}
             aria-label="Toggle navigation menu"
-            className="min-h-[40px] min-w-[40px] shrink-0 md:hidden"
+            className="-ml-1 min-h-[40px] min-w-[40px] shrink-0 md:hidden"
           >
             <Menu size={18} aria-hidden="true" />
           </Button>
@@ -192,8 +193,9 @@ export default function Header() {
 
         <div className="hidden flex-1 md:block" />
 
-        <div className="flex items-center gap-2 shrink-0 overflow-x-auto">
+        <div className="flex items-center gap-1 shrink-0 overflow-x-auto sm:gap-2">
           <HeaderCustomerControl />
+          <NotificationBell />
           <CartBadge onOpen={() => dispatch(openCart())} />
           <StoreIndicator onOpen={() => setStoreModalOpen(true)} />
           <div className="hidden md:block">

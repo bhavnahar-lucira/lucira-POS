@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { getPaymentModes } from '@/services/settingsService';
+import { getPaymentModes, getPaymentModesForRefund } from '@/services/settingsService';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 import APP_CONFIG from '@/constants/appConfig';
 
@@ -39,6 +39,26 @@ export function usePaymentModes() {
     // useCheckoutPricing/useActivePromotions/useRetrieveCustomer.
     staleTime: 0,
 
+    gcTime: 0,
+  });
+
+  return {
+    paymentModes: query.data ?? [],
+    isLoading:    query.isLoading,
+    isError:      query.isError,
+    refetch:      query.refetch,
+  };
+}
+
+// The refund screen's own list, as OrnaVerse's Refund dialog uses (BANKTRANSFER, NEFT, Cash, UPI…).
+export function usePaymentModesForRefund() {
+  const query = useQuery({
+    queryKey: [...QUERY_KEYS.SETTINGS.PAYMENT_MODES(), 'refund'],
+    queryFn:  async () => {
+      const data = await getPaymentModesForRefund();
+      return (data?.Entities ?? []).map(normalizeMode).filter((m) => !m.isDisabled);
+    },
+    staleTime: 0,
     gcTime: 0,
   });
 

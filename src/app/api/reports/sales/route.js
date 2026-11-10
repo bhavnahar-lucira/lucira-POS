@@ -1,11 +1,14 @@
 import API from '@/constants/apiEndpoints';
 import { getSessionFromRequest } from '@/lib/ornaverse/session';
 import {
-  DATE_RE, isValidCompanyIds, getAuthorizedStores, postUpstream, toRfc1123,
+  DATE_RE, isValidCompanyIds, getAuthorizedStores, getUserStoresCached, postUpstream, toRfc1123,
 } from '@/lib/reports/serverAccess';
+import { countBills } from '@/lib/reports/billCounts';
 import { salesPersonDocumentTotals, listAllSalesForRepeatReport } from '@/lib/mongo/buyerPurchases';
 import { syncStoreInBackground } from '@/lib/nonBuyers/server';
 import { deriveRepeatCustomers } from '@/lib/reports/repeatCustomers';
+
+export const maxDuration = 60;
 
 const normalizeName = (name) => String(name ?? '').trim().toLowerCase();
 
@@ -32,11 +35,50 @@ const OPEN_ORDER_COLUMNS = [
 // Every report's rows are filtered here to the requested stores, so the browser
 // never receives another store's data (SKU Velocity ignores company_ids upstream).
 const REPORTS = {
+  // New MTO's amount is exactly the open POS orders in the range (confirmed live 2026-11-06),
+  // so its order count comes from the same report.
   async summary(session, { companyIds, fromDate, toDate }) {
-    const data = await postUpstream(session, API.REPORTS.POS_DASHBOARD, {
-      company_ids: companyIds, from_date: toRfc1123(fromDate), to_date: toRfc1123(toDate),
-    });
-    return { data };
+    const [data, orders] = await Promise.all([
+      postUpstream(session, API.REPORTS.POS_DASHBOARD, {
+        company_ids: companyIds, from_date: toRfc1123(fromDate), to_date: toRfc1123(toDate),
+      }),
+      postUpstream(session, API.REPORTS.OPEN_POS_ORDERS, {
+        document_status: 1, company_ids: companyIds, from_date: fromDate, to_date: toDate,
+        IncludeColumns: ['document_no', 'company_id'],
+      }),
+    ]);
+    const allowed = new Set(companyIds);
+    const orderNos = new Set((orders?.Entities ?? []).filter((r) => allowed.has(r.company_id)).map((r) => r.document_no));
+    return { data: data && { ...data, new_mto_count: orderNos.size } };
+  },
+
+  // One POS Dashboard call per store; OrnaVerse's Schemes figure only ever covers the login's current store.
+  async summaryStores(session, { companyIds, fromDate, toDate }) {
+    const [perStore, orders] = await Promise.all([
+      Promise.all(companyIds.map((companyId) => postUpstream(session, API.REPORTS.POS_DASHBOARD, {
+        company_ids: [companyId], from_date: toRfc1123(fromDate), to_date: toRfc1123(toDate),
+      }))),
+      postUpstream(session, API.REPORTS.OPEN_POS_ORDERS, {
+        document_status: 1, company_ids: companyIds, from_date: fromDate, to_date: toDate,
+        IncludeColumns: ['document_no', 'company_id'],
+      }),
+    ]);
+    const orderNos = new Map(companyIds.map((id) => [id, new Set()]));
+    for (const row of orders?.Entities ?? []) orderNos.get(row.company_id)?.add(row.document_no);
+    const fields = ['total_sales_amount', 'total_order_amount', 'mto_orders', 'mto_sales', 'rts_and_mto', 'returns', 'pending_mto', 'total_urd', 'scheme'];
+    return {
+      rows: companyIds.map((companyId, i) => ({
+        company_id: companyId,
+        ...Object.fromEntries(fields.map((f) => [f, perStore[i]?.[f] ?? 0])),
+        new_mto_count: orderNos.get(companyId).size,
+      })),
+    };
+  },
+
+  // Loaded separately from summary: it reads every bill line in the range, so it's slower.
+  async summaryBills(session, params) {
+    const orderCompanyIds = (await getUserStoresCached(session)).map((s) => s.company_id);
+    return { data: await countBills(session, params, orderCompanyIds) };
   },
 
   // OrnaVerse merges categories across company_ids and applies Take before grouping,
@@ -94,7 +136,7 @@ const REPORTS = {
         const store = stores.find((s) => s.company_id === d.companyId);
         rows.push({
           company_id: d.companyId, company_code: store?.company_code, mailing_name: store?.mailing_name,
-          sales_person_id: d.salesPersonId, employee_name: d.salesPersonName ?? (d.salesPersonId ? `Employee #${d.salesPersonId}` : 'No sales person'),
+          sales_person_id: d.salesPersonId, employee_name: d.salesPersonName ?? (d.salesPersonId ? `Employee #${d.salesPersonId}` : 'No jewelry consultant'),
           ...counts,
         });
       }

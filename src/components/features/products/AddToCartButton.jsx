@@ -11,7 +11,8 @@ import { resolveImageSrc } from '@/lib/resolveImageSrc';
 import { cn } from '@/lib/utils';
 import TOAST from '@/constants/toastMessages';
 import tracker from '@/lib/analytics/tracker';
-import EVENTS, { GA_ECOMMERCE_EVENTS } from '@/lib/analytics/events';
+import EVENTS, { GA_ECOMMERCE_EVENTS, WEBENGAGE_EVENTS } from '@/lib/analytics/events';
+import { buildCartItemData } from '@/lib/analytics/webengageEvents';
 import { buildProductAttributes } from '@/lib/analytics/productAttributes';
 
 /**
@@ -38,6 +39,7 @@ export default function AddToCartButton({
   primaryImage = null,
   stockStatus = null,
   pricedItem = null,
+  shopifyIds = null,
   disabled = false,
   className,
 }) {
@@ -51,15 +53,18 @@ export default function AddToCartButton({
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const productUrl = product?.item_id != null ? `${origin}/products/${product.item_id}` : null;
   const hasStockBool = stockStatus === 'in_stock' ? true : stockStatus === 'out_stock' ? false : null;
-  const fullAttributes = buildProductAttributes({
-    product,
-    pricedItem: pricedItem,
-    image: resolvedImage,
-    productUrl,
-    selectedSizeId,
-    selectedSizeName,
-    hasStock: hasStockBool,
-  });
+  const fullAttributes = {
+    ...buildProductAttributes({
+      product,
+      pricedItem: pricedItem,
+      image: resolvedImage,
+      productUrl,
+      selectedSizeId,
+      selectedSizeName,
+      hasStock: hasStockBool,
+    }),
+    ...shopifyIds,
+  };
 
   const handleAddToCart = () => {
     if (isDisabled || isAddingRef.current) return;
@@ -95,12 +100,11 @@ export default function AddToCartButton({
         price:         unitPrice,
         quantity,
       }],
-    }, {
-      ...fullAttributes,
-      price_unit:  unitPrice,
-      price_total: unitPrice * quantity,
-      quantity,
     });
+    tracker.trackWebEngage(
+      WEBENGAGE_EVENTS.ADD_TO_CART,
+      buildCartItemData(fullAttributes, { price: unitPrice, quantity }),
+    );
 
     toast.success(TOAST.CART.ITEM_ADDED(product.item_name ?? 'Item'));
     dispatch(openCart());

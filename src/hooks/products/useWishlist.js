@@ -10,6 +10,10 @@ import {
 import { useCustomerSession } from '@/hooks/customer/useCustomerSession';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 import TOAST from '@/constants/toastMessages';
+import tracker from '@/lib/analytics/tracker';
+import { WEBENGAGE_EVENTS } from '@/lib/analytics/events';
+import { buildWishlistData } from '@/lib/analytics/webengageEvents';
+import { resolveImageSrc } from '@/lib/resolveImageSrc';
 
 export function useIsWishlisted(itemId, itemSizeId = null) {
   const wishlistedIds = useSelector(selectWishlistedItemIds);
@@ -39,6 +43,10 @@ export function useToggleWishlist() {
     const wishlistQueryKey = QUERY_KEYS.CUSTOMERS.WISHLIST(Number(customerId));
 
     const sizeId = product.item_size_id ?? null;
+    const image = resolveImageSrc(product.image ?? product.image_url ?? product.image_1 ?? null);
+    const wishlistData = buildWishlistData(product, {
+      image: /^https?:\/\//.test(image ?? '') ? image : null,
+    });
 
     if (wishlistedIds.has(wishlistKey(product.item_id, sizeId))) {
       dispatch(removeWishlistItemLocal({ item_id: product.item_id, item_size_id: sizeId }));
@@ -48,6 +56,7 @@ export function useToggleWishlist() {
           : old
       ));
       toast.success(TOAST.WISHLIST.ITEM_REMOVED(product.item_name ?? 'Item'));
+      tracker.trackWebEngage(WEBENGAGE_EVENTS.REMOVE_FROM_WISHLIST, wishlistData);
     } else {
       const item = {
         item_id:    product.item_id,
@@ -78,6 +87,7 @@ export function useToggleWishlist() {
           : old
       ));
       toast.success(TOAST.WISHLIST.ITEM_ADDED(item.item_name ?? 'Item'));
+      tracker.trackWebEngage(WEBENGAGE_EVENTS.ADD_TO_WISHLIST, wishlistData);
     }
   };
 }

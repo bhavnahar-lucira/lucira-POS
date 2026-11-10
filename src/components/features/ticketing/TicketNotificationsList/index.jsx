@@ -3,13 +3,13 @@
 import Link from 'next/link';
 import { ClipboardCheck, ClipboardList, Clock, PenTool } from 'lucide-react';
 
-import { useTicketNotifications } from '@/hooks/ticketing/useTickets';
 import { ticketHref } from '@/components/features/ticketing/TicketList';
 
-function NoticeRow({ href, icon: Icon, tone, children }) {
+function NoticeRow({ href, icon: Icon, tone, onNavigate, children }) {
   return (
     <Link
       href={href}
+      onClick={onNavigate}
       className={`flex items-start gap-3 rounded-xl border p-3 text-sm transition-colors hover:shadow-sm ${tone}`}
     >
       <Icon size={18} className="mt-0.5 shrink-0" aria-hidden="true" />
@@ -19,9 +19,8 @@ function NoticeRow({ href, icon: Icon, tone, children }) {
   );
 }
 
-/** Shown only to the store that raised each ticket, until someone acts on it. */
-export default function TicketNotificationsCard() {
-  const { data } = useTicketNotifications();
+/** Ticket notices for the store that raised each ticket, until someone acts on it. */
+export default function TicketNotificationsList({ data, onNavigate }) {
   const g2dShared = data?.g2dShared ?? [];
   const designReady = data?.designReady ?? [];
   const finalReceived = data?.finalReceived ?? [];
@@ -32,6 +31,7 @@ export default function TicketNotificationsCard() {
     <div className="flex flex-col gap-2">
       {g2dShared.map((t) => (
         <NoticeRow
+          onNavigate={onNavigate}
           key={t.ticket_number}
           href={ticketHref(t.ticket_number)}
           icon={ClipboardList}
@@ -43,6 +43,7 @@ export default function TicketNotificationsCard() {
       ))}
       {designReady.map((t) => (
         <NoticeRow
+          onNavigate={onNavigate}
           key={t.ticket_number}
           href={ticketHref(t.ticket_number)}
           icon={PenTool}
@@ -54,6 +55,7 @@ export default function TicketNotificationsCard() {
       ))}
       {finalReceived.map((t) => (
         <NoticeRow
+          onNavigate={onNavigate}
           key={t.ticket_number}
           href={ticketHref(t.ticket_number)}
           icon={ClipboardCheck}
@@ -65,6 +67,7 @@ export default function TicketNotificationsCard() {
       ))}
       {cadOverdue.map((t) => (
         <NoticeRow
+          onNavigate={onNavigate}
           key={t.ticket_number}
           href={ticketHref(t.ticket_number)}
           icon={Clock}

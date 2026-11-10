@@ -23,6 +23,16 @@ export async function getPosDashboard(params) {
   return (await runSalesReport('summary', params)).data ?? null;
 }
 
+/** @returns {Promise<object[]>} one POS Dashboard row per store */
+export async function getSummaryByStore(params) {
+  return (await runSalesReport('summaryStores', params)).rows ?? [];
+}
+
+/** Total / MTO / RTS bill counts for the Sales Summary. */
+export async function getSummaryBillCounts(params) {
+  return (await runSalesReport('summaryBills', params)).data ?? null;
+}
+
 /** @returns {Promise<object[]>} category totals, one row per store × category */
 export async function getCategoryWiseSales(params) {
   return (await runSalesReport('category', params)).rows ?? [];

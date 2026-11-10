@@ -55,6 +55,8 @@ export async function getShopifyProductMedia(externalProductId) {
       images: Array.isArray(data.images) ? data.images : [],
       videos: Array.isArray(data.videos) ? data.videos : [],
       description: typeof data.description === 'string' ? data.description : null,
+      handle: typeof data.handle === 'string' ? data.handle : null,
+      variants: Array.isArray(data.variants) ? data.variants : [],
     };
 
   } catch (err) {

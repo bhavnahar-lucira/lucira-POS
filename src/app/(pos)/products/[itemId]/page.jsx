@@ -38,18 +38,14 @@ import { resolveActiveProductImage } from '@/lib/productImages';
 
 import TOAST      from '@/constants/toastMessages';
 import tracker from '@/lib/analytics/tracker';
-import EVENTS, { GA_ECOMMERCE_EVENTS } from '@/lib/analytics/events';
+import EVENTS, { GA_ECOMMERCE_EVENTS, WEBENGAGE_EVENTS } from '@/lib/analytics/events';
+import { buildProductViewData, resolveShopifyIds } from '@/lib/analytics/webengageEvents';
 import { buildProductAttributes } from '@/lib/analytics/productAttributes';
 import { formatPrice } from '@/lib/priceUtils';
 import { Settings2, CheckCircle2, Copy, Check, Info } from 'lucide-react';
 
 const selectActiveStoreId   = (s) => s.store.activeStoreId;
 const selectActiveStoreName = (s) => s.store.activeStoreName;
-const selectActiveStoreCode = (s) => s.store.activeStoreCode;
-const selectCartCustomerId       = (s) => s.cart.customerId;
-const selectCartCustomerName     = (s) => s.cart.customerName;
-const selectCartCustomerMobile   = (s) => s.cart.customerMobile;
-const selectCartCustomerAddress  = (s) => s.cart.customerAddress;
 
 // ── Not found ─────────────────────────────────────────────────────────────────
 
@@ -70,11 +66,6 @@ function ProductDetailScreen() {
   const { itemId } = useParams();
   const activeStoreId   = useSelector(selectActiveStoreId);
   const activeStoreName = useSelector(selectActiveStoreName);
-  const activeStoreCode = useSelector(selectActiveStoreCode);
-  const cartCustomerId      = useSelector(selectCartCustomerId);
-  const cartCustomerName    = useSelector(selectCartCustomerName);
-  const cartCustomerMobile  = useSelector(selectCartCustomerMobile);
-  const cartCustomerAddress = useSelector(selectCartCustomerAddress);
 
   // ── Server state ──────────────────────────────────────────────────────────
   const {
@@ -122,6 +113,7 @@ function ProductDetailScreen() {
   const {
     images: shopifyImages, videos: shopifyVideos,
     description: shopifyDescription, isLoading: shopifyImagesLoading,
+    handle: shopifyHandle, variants: shopifyVariants,
   } = useShopifyProductImages(externalProductId);
   
   const imagesLoading = variantsLoading || shopifyImagesLoading;
@@ -191,9 +183,17 @@ function ProductDetailScreen() {
     : null;
     
   const activeSku = livePricing?.sku && livePricing.sku.trim() ? livePricing.sku : null;
+  const shopifyIds = useMemo(() => resolveShopifyIds({
+    externalProductId,
+    handle:   shopifyHandle,
+    variants: shopifyVariants,
+    itemCode: activeItem?.item_code ?? product?.item_code,
+  }), [externalProductId, shopifyHandle, shopifyVariants, activeItem?.item_code, product?.item_code]);
+
   const trackedItemIdRef = useRef(null);
   useEffect(() => {
     if (!product || numericUnitPrice == null) return;
+    if (externalProductId && shopifyImagesLoading) return;
     if (trackedItemIdRef.current === product.item_id) return;
     trackedItemIdRef.current = product.item_id;
 
@@ -206,38 +206,21 @@ function ProductDetailScreen() {
         item_sku:  product.item_code ?? '',
         price:     numericUnitPrice,
       }],
-    }, {
-      ...buildProductAttributes({
-        product,
-        activeItem,
-        pricedItem: livePricing,
-        image: activePrimaryImage?.src ?? null,
-        productUrl: product?.item_id != null
-          ? `${typeof window !== 'undefined' ? window.location.origin : ''}/products/${product.item_id}`
-          : null,
-        selectedSizeId: activeItem?.item_size_id ?? null,
-        selectedSizeName: activeSize,
-        hasStock: stockStatus === 'in_stock' ? true : stockStatus === 'out_stock' ? false : null,
-      }),
-      product_sku: activeSku,
-      product_stock_status: stockStatus,
-      price_currency: 'INR',
-      customer_id:              cartCustomerId ?? 'guest',
-      customer_name:            cartCustomerName,
-      customer_mobile:          cartCustomerMobile,
-      customer_city:            cartCustomerAddress?.city,
-      customer_state:           cartCustomerAddress?.state,
-      customer_country:         cartCustomerAddress?.country,
-      customer_zip:             cartCustomerAddress?.zip,
-      store_id:                 activeStoreId,
-      store_code:               activeStoreCode,
-      store_name:               activeStoreName,
     });
-  }, [
-    product, numericUnitPrice, activeItem, activeSku, activeKarat, activeColor, activeSize,
-    livePricing, activePrimaryImage, stockStatus, cartCustomerId, cartCustomerName, cartCustomerMobile,
-    cartCustomerAddress, activeStoreId, activeStoreCode, activeStoreName,
-  ]);
+
+    tracker.trackWebEngage(WEBENGAGE_EVENTS.PRODUCT_VIEW, buildProductViewData(
+      {
+        ...buildProductAttributes({
+          product,
+          activeItem,
+          pricedItem: livePricing,
+          image: activePrimaryImage?.src ?? null,
+        }),
+        ...shopifyIds,
+      },
+      livePricing?.net_amount ?? numericUnitPrice,
+    ));
+  }, [product, numericUnitPrice, activeItem, livePricing, activePrimaryImage, shopifyIds, externalProductId, shopifyImagesLoading]);
   
   const madeToOrderQty = Math.max(0, quantity - availableStock);
   const { data: masterPricing } = useMasterPricing(activeItem ?? null, madeToOrderQty > 0);
@@ -514,6 +497,7 @@ function ProductDetailScreen() {
         stockStatus={stockStatus}
         primaryImage={activePrimaryImage}
         pricedItem={livePricing}
+        shopifyIds={shopifyIds}
       />
 
       <CustomizeSheet

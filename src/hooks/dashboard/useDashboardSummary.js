@@ -49,7 +49,7 @@ function isPendingReturn(item) {
  *   activityToday: { returns: number, exchanges: number, buybacks: number },
  * }}
  */
-export function useDashboardSummary() {
+export function useDashboardSummary({ jcId = null } = {}) {
   const {
     allOrders, isLoading: ordersLoading, isError: ordersError, refetch: refetchOrders,
   } = useAllOrders({
@@ -72,6 +72,10 @@ export function useDashboardSummary() {
   };
 
   const summary = useMemo(() => {
+    // Same rule as the Sales reports: cancelled and draft documents are not sales.
+    const NOT_SALES = [APP_CONFIG.ORDER_STATUS.CANCELLED, APP_CONFIG.ORDER_STATUS.DRAFT];
+    const jcOrders = jcId == null ? allOrders : allOrders.filter((o) => o.salesPersonId === jcId);
+    const salesDocs = jcOrders.filter((o) => !NOT_SALES.includes(o.status));
     const todayPrefix     = toLocalPrefix(new Date());
     const yesterdayPrefix = daysAgoPrefix(1);
 
@@ -80,7 +84,7 @@ export function useDashboardSummary() {
     let yesterdayRevenue = 0;
     let yesterdayOrderCount = 0;
 
-    for (const order of allOrders) {
+    for (const order of salesDocs) {
       if (!order.orderDate) continue;
       const prefix = getLocalDatePrefix(order.orderDate);
       const amount = order.totalAmount ?? 0;
@@ -105,7 +109,7 @@ export function useDashboardSummary() {
     for (let i = 6; i >= 0; i--) {
       dayBuckets.set(daysAgoPrefix(i), 0);
     }
-    for (const order of allOrders) {
+    for (const order of salesDocs) {
       if (!order.orderDate) continue;
       const prefix = getLocalDatePrefix(order.orderDate);
       if (dayBuckets.has(prefix)) {
@@ -117,8 +121,8 @@ export function useDashboardSummary() {
       .filter((o) => !!o.orderDate)
       .sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate))
       .slice(0, 4);
-    const recentMTO      = sortByOrderDate(allOrders.filter((o) => o.documentType === 'order'));
-    const recentInvoices = sortByOrderDate(allOrders.filter((o) => o.documentType === 'invoice'));
+    const recentMTO      = sortByOrderDate(jcOrders.filter((o) => o.documentType === 'order'));
+    const recentInvoices = sortByOrderDate(jcOrders.filter((o) => o.documentType === 'invoice'));
     const sortByDocumentDate = (list) => [...list]
       .filter((r) => !!r.documentDate)
       .sort((a, b) => new Date(b.documentDate) - new Date(a.documentDate))
@@ -138,9 +142,17 @@ export function useDashboardSummary() {
       urdPurchases: countToday(urdPurchases),
     };
 
+    const jcOptions = new Map();
+    for (const o of allOrders) {
+      if (o.salesPersonId != null && !jcOptions.has(o.salesPersonId)) {
+        jcOptions.set(o.salesPersonId, o.salesPersonName?.trim() || `JC #${o.salesPersonId} (name not found)`);
+      }
+    }
+
     return {
       isLoading,
       isError,
+      jcOptions,
       todayRevenue,
       revenueTrendPct,
       todayOrderCount,
@@ -153,7 +165,7 @@ export function useDashboardSummary() {
       pendingReturnsCount,
       activityToday,
     };
-  }, [allOrders, returns, exchanges, buybacks, urdPurchases, isLoading, isError]);
+  }, [allOrders, jcId, returns, exchanges, buybacks, urdPurchases, isLoading, isError]);
   
   return { ...summary, refetch };
 }

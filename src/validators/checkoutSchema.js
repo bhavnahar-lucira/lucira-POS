@@ -76,10 +76,10 @@ export const checkoutSchema = z
 
     // Confirmed against the vendor's own POS Sale screen, which requires this too.
     salesPersonId: z
-      .number({ message: 'Select a sales person before placing the order' })
+      .number({ message: 'Select a jewelry consultant before placing the order' })
       .nullable()
       .refine((val) => val !== null, {
-        message: 'Select a sales person before placing the order',
+        message: 'Select a jewelry consultant before placing the order',
       }),
 
     // Emptiness is checked in superRefine, not here: an ORDER may legitimately be

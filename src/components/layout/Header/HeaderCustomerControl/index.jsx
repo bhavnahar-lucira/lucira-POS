@@ -49,7 +49,7 @@ export default function HeaderCustomerControl() {
           type="button"
           variant="outline"
           onClick={guardedSheetOpen}
-          className="flex items-center gap-2 min-h-[44px] px-4"
+          className="flex items-center gap-2 min-h-[44px] px-3 sm:px-4"
           aria-label="Add customer"
         >
           <UserPlus size={16} aria-hidden="true" />

@@ -38,7 +38,7 @@ const enrollSchema = z.object({
   scheme_amount:    z.coerce.number().min(1, 'Enter monthly amount'),
   tenure:           z.coerce.number().min(1, 'Enter tenure in months'),
   document_date:    z.string().min(1, 'Required'),
-  sales_person_id:  z.coerce.number().min(1, 'Select a sales person'),
+  sales_person_id:  z.coerce.number().min(1, 'Select a jewelry consultant'),
   nominee:          z.string().optional(),
   nominee_age:      z.coerce.number().optional(),
 });
@@ -280,13 +280,14 @@ function EnrollScreen() {
         )}
 
         <div className="flex flex-col gap-1.5">
-          <Label>Sales Person <span className="text-destructive">*</span></Label>
+          <Label>Jewelry Consultant <span className="text-destructive">*</span></Label>
           <Controller
             name="sales_person_id"
             control={control}
             render={({ field }) => (
               <SalesPersonSelect
                 companyId={storeId}
+                placeholder="Select jewelry consultant"
                 value={field.value ? Number(field.value) : null}
                 onChange={field.onChange}
               />

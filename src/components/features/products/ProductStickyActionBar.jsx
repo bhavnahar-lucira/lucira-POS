@@ -50,6 +50,7 @@ export default function ProductStickyActionBar({
   stockStatus,
   primaryImage,
   pricedItem = null,
+  shopifyIds = null,
 }) {
   
   const effectiveUnitPrice        = madeToOrderQty > 0 ? masterUnitPrice        : unitPrice;
@@ -103,6 +104,7 @@ export default function ProductStickyActionBar({
               primaryImage={primaryImage}
               stockStatus={cartStockStatus}
               pricedItem={pricedItem}
+              shopifyIds={shopifyIds}
               disabled={effectiveUnitPrice == null}
               className="w-full sm:w-auto"
             />

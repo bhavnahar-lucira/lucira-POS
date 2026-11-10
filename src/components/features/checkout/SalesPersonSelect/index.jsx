@@ -8,7 +8,7 @@ import { useSalesPersonOptions } from '@/hooks/schemes/useSalesPersonOptions';
 /**
  * @param {{ companyId: number|null, value: number|null, onChange: (employeeId: number) => void }} props
  */
-export default function SalesPersonSelect({ companyId, value, onChange }) {
+export default function SalesPersonSelect({ companyId, value, onChange, placeholder = 'Select jewelry consultant' }) {
   const { salesPersons, isLoading } = useSalesPersonOptions(companyId);
 
   return (
@@ -18,7 +18,7 @@ export default function SalesPersonSelect({ companyId, value, onChange }) {
       disabled={isLoading}
     >
       <SelectTrigger className="h-11 w-full">
-        <SelectValue placeholder={isLoading ? 'Loading…' : 'Select sales person'} />
+        <SelectValue placeholder={isLoading ? 'Loading…' : placeholder} />
       </SelectTrigger>
       <SelectContent className="max-h-56 overflow-y-auto">
         {salesPersons.map((p) => (

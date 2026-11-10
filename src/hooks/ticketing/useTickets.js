@@ -20,7 +20,8 @@ export function useTicket(ticketNumber, { partyId } = {}) {
     queryKey: QUERY_KEYS.TICKETING.DETAIL(ticketNumber),
     queryFn: () => getTicket(ticketNumber, { partyId }),
     enabled: !!ticketNumber,
-    staleTime: TICKETS_STALE_MS,
+    // The CAD team updates tickets outside the POS, so a cached copy can be out of date.
+    staleTime: 0,
   });
 }
 
@@ -29,7 +30,7 @@ export function useTicketNotifications() {
     queryKey: QUERY_KEYS.TICKETING.NOTIFICATIONS(),
     queryFn: getTicketNotifications,
     staleTime: TICKETS_STALE_MS,
-    refetchInterval: 5 * 60 * 1000,
+    refetchInterval: 3 * 60 * 1000,
   });
 }
 

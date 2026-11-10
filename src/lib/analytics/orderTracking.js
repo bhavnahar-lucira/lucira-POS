@@ -1,5 +1,6 @@
 import tracker from './tracker';
-import EVENTS, { GA_ECOMMERCE_EVENTS } from './events';
+import EVENTS, { GA_ECOMMERCE_EVENTS, WEBENGAGE_EVENTS } from './events';
+import { buildPurchaseData, pricedRowsToCheckoutItems } from './webengageEvents';
 import APP_CONFIG from '@/constants/appConfig';
 
 // A promo can produce more than one row (e.g. once per qualifying line), so
@@ -61,7 +62,6 @@ export function toOrderItems(lineItems = []) {
  */
 export function trackDocumentPlaced({
   documentType, transactionId, entity, lineItems,
-  customerId, customerName, customerMobile, customerAddress,
   activeStoreId, activeStoreCode, activeStoreName,
   paymentModes, salesPersonId, salesPersonName,
 }) {
@@ -116,16 +116,14 @@ export function trackDocumentPlaced({
     store_code:      activeStoreCode,
     store_name:      activeStoreName,
     items:           toOrderItems(lineItems),
-  }, {
-    customer_id:      customerId ?? 'guest',
-    customer_name:    customerName,
-    customer_mobile:  customerMobile,
-    customer_city:    customerAddress?.city,
-    customer_state:   customerAddress?.state,
-    customer_country: customerAddress?.country,
-    customer_zip:     customerAddress?.zip,
-    narration:        entity.narration,
   });
+  tracker.trackWebEngage(WEBENGAGE_EVENTS.PURCHASE, buildPurchaseData({
+    transactionId,
+    value:       entity.net_amount,
+    tax:         entity.tax_amount,
+    items:       pricedRowsToCheckoutItems(lineItems),
+    couponCodes: appliedPromotions.map((p) => p.code),
+  }), { onceKey: `${documentType}:${transactionId}` });
 }
 
 /**

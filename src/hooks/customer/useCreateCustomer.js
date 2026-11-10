@@ -1,6 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
+import tracker from '@/lib/analytics/tracker';
+import { WEBENGAGE_EVENTS } from '@/lib/analytics/events';
+import { buildUserEventData } from '@/lib/analytics/webengageEvents';
 import { createCustomer, getCustomer } from '@/services/customerService';
 import { buildCustomerCreatePayload, normalizeCustomer } from '@/lib/normalizers/customer';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
@@ -51,6 +54,11 @@ export function useCreateCustomer() {
       } else {
         const customerId = result.response?.data?.EntityId;
         toast.success(TOAST.CUSTOMER.CREATED(customerName));
+        tracker.trackWebEngage(
+          WEBENGAGE_EVENTS.SIGNUP,
+          buildUserEventData({ mobile: customerMobile, email: formValues.email, name: customerName }),
+          { identityMobile: customerMobile },
+        );
         syncCustomerToShopify({
           party_id:   customerId,
           party_name: customerName,

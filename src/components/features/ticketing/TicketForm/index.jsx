@@ -46,7 +46,7 @@ export default function TicketForm({ onCreated }) {
     event.preventDefault();
     if (!customerId) return toast.error('Assign a customer from the header before raising a ticket.');
     const salesPerson = salesPersons.find((p) => p.employee_id === salesPersonId);
-    if (!salesPerson) return toast.error('Select the sales person.');
+    if (!salesPerson) return toast.error('Select the jewelry consultant.');
     if (!specs.category) return toast.error('Select the jewellery category.');
     if (specs.requirement_notes.trim().length < 3) return toast.error('Describe the customer requirement.');
     if (!files.length) return toast.error('Add at least one reference image.');
@@ -80,9 +80,9 @@ export default function TicketForm({ onCreated }) {
         emptyMessage="Assign or create the customer from the header before raising a ticket."
       />
 
-      <Section title="Sales person">
+      <Section title="Jewelry Consultant">
         <div className="flex flex-col gap-1.5 sm:max-w-sm">
-          <Label>Sales person <span className="text-destructive">*</span></Label>
+          <Label>Jewelry Consultant <span className="text-destructive">*</span></Label>
           <SalesPersonSelect companyId={storeId} value={salesPersonId} onChange={setSalesPersonId} />
         </div>
       </Section>

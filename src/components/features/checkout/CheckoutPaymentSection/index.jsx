@@ -17,7 +17,9 @@ import BankPosSelect from '../BankPosSelect';
 import { paymentRequiresBank } from '@/lib/checkout/paymentModeRules';
 import APP_CONFIG from '@/constants/appConfig';
 import tracker from '@/lib/analytics/tracker';
-import EVENTS from '@/lib/analytics/events';
+import EVENTS, { WEBENGAGE_EVENTS } from '@/lib/analytics/events';
+import { buildPaymentInfoData, pricedRowsToCheckoutItems } from '@/lib/analytics/webengageEvents';
+import { selectAppliedPromos } from '@/store/slices/cartSlice';
 
 const { LOYALTY_MODE_TYPE } = APP_CONFIG.PAYMENT_MODES;
 
@@ -71,6 +73,7 @@ export default function CheckoutPaymentSection({
   const { bankPosAccounts } = useBankPosAccounts();
   const { customerId, customerMobile } = useCustomerSession();
   const activeStoreId  = useSelector(selectActiveStoreId);
+  const appliedPromos  = useSelector(selectAppliedPromos);
 
   const helpers = useInvoiceHelpers({
     partyId:   customerId,
@@ -111,6 +114,17 @@ export default function CheckoutPaymentSection({
   const requiresBank = paymentRequiresBank;
 
   const handleModeToggle = (modeId) => {
+    const selectedMode = paymentModes.find((m) => m.modeId === modeId);
+    const isBlockedLoyalty = selectedMode?.modeType === LOYALTY_MODE_TYPE && loyaltyClaimable <= 0;
+    const isAdding = !payments.some((p) => p.modeId === modeId) && !isBlockedLoyalty;
+    if (isAdding) {
+      tracker.trackWebEngage(WEBENGAGE_EVENTS.ADD_PAYMENT_INFO, buildPaymentInfoData({
+        value:       total,
+        paymentType: selectedMode?.modeName ?? selectedMode?.modeCode ?? null,
+        items:       pricedRowsToCheckoutItems(lineItems),
+        couponCodes: appliedPromos.map((p) => p.promoCode),
+      }));
+    }
     setPayments((prev) => {
       const exists = prev.find((p) => p.modeId === modeId);
       if (exists) return prev.filter((p) => p.modeId !== modeId);
