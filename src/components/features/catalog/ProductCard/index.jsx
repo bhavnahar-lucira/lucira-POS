@@ -184,7 +184,7 @@ function ProductCard({
     if (!item_id) return;
     tracker.trackWebEngage(
       WEBENGAGE_EVENTS.PRODUCT_CLICK,
-      buildProductClickData(product, { externalProductId, image: publicImage, names: catalogNames }),
+      buildProductClickData(product, { externalProductId, image: publicImage, names: catalogNames, index: listIndex }),
     );
     if (similarProductsSurface) {
       tracker.track(EVENTS.SIMILAR_PRODUCT_CLICKED, {

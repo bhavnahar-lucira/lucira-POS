@@ -14,42 +14,59 @@ const WEBSITE_EVENT_NAMES = new Set(Object.values(WEBENGAGE_EVENTS));
 const PRODUCT_EVENT_FIELDS = {
   [WEBENGAGE_EVENTS.PRODUCT_VIEW]:         ['thumbnailImage', 'productUrl', 'variantId'],
   [WEBENGAGE_EVENTS.PRODUCT_IMPRESSION]:   ['thumbnailImage', 'image', 'productId', 'variantId', 'productUrl'],
-  [WEBENGAGE_EVENTS.PRODUCT_CLICK]:        ['thumbnailImage', 'image', 'productId', 'variantId', 'productUrl'],
+  [WEBENGAGE_EVENTS.PRODUCT_CLICK]:        ['thumbnailImage', 'productId', 'variantId', 'productUrl'],
   [WEBENGAGE_EVENTS.ADD_TO_CART]:          ['thumbnailImage', 'image', 'productId', 'variantId', 'productUrl'],
-  [WEBENGAGE_EVENTS.REMOVE_FROM_CART]:     ['thumbnailImage', 'image', 'productId', 'variantId', 'productUrl'],
+  [WEBENGAGE_EVENTS.REMOVE_FROM_CART]:     ['thumbnail_image', 'productId', 'variantId'],
   [WEBENGAGE_EVENTS.ADD_TO_WISHLIST]:      ['thumbnailImage', 'productId', 'variantId', 'productUrl'],
   [WEBENGAGE_EVENTS.REMOVE_FROM_WISHLIST]: ['thumbnailImage', 'productId', 'variantId', 'productUrl'],
+};
+
+const URL_FIELDS = new Set(['thumbnailImage', 'thumbnail_image', 'image', 'productUrl']);
+const SHOPIFY_SOURCE = { image: 'thumbnailImage', thumbnail_image: 'thumbnailImage' };
+
+const numericId = (value) => (value == null || value === '' ? undefined : Number(value) || undefined);
+const stringId = (value) => (value == null || value === '' ? undefined : String(value));
+
+// Item fields the website's own checkout code sends per event, filled from Shopify by the item's SKU.
+const ITEM_FIELDS = {
+  [WEBENGAGE_EVENTS.VIEW_CART]:         (s) => ({ id: stringId(s.productId), variant_id: stringId(s.variantId), thumbnail_image: s.thumbnailImage }),
+  [WEBENGAGE_EVENTS.BEGIN_CHECKOUT]:    (s) => ({ item_id: numericId(s.productId), variant_id: stringId(s.variantId) }),
+  [WEBENGAGE_EVENTS.ADD_SHIPPING_INFO]: (s) => ({ item_id: numericId(s.productId), image_url: s.thumbnailImage }),
+  [WEBENGAGE_EVENTS.ADD_PAYMENT_INFO]:  (s) => ({ item_id: numericId(s.productId), variant_id: numericId(s.variantId) }),
+  [WEBENGAGE_EVENTS.PURCHASE]:          (s) => ({ item_id: numericId(s.productId), variant_id: numericId(s.variantId) }),
+  [WEBENGAGE_EVENTS.PAYMENT_FAILURE]:   (s) => ({ item_id: numericId(s.productId), variant_id: numericId(s.variantId) }),
 };
 
 function isPublicUrl(value) {
   return typeof value === 'string' && /^https:\/\//.test(value) && !/localhost|127\.0\.0\.1/.test(value);
 }
 
-async function fillItemsFromShopify(items) {
+async function fillItemsFromShopify(eventName, items) {
+  const pick = ITEM_FIELDS[eventName];
   return Promise.all(items.map(async (item) => {
-    if (!item?.item_sku || (isPublicUrl(item.item_image) && isPublicUrl(item.item_url))) return item;
-    const shopify = await lookupShopifyBySku(item.item_sku);
-    if (!shopify) return item;
+    if (!item || typeof item !== 'object') return item;
+    const { _sku: sku, ...rest } = item;
+    if (!pick || !sku) return rest;
+    const shopify = await lookupShopifyBySku(sku);
+    if (!shopify) return rest;
+    const nameKey = 'product_name' in rest ? 'product_name' : 'item_name';
     return {
-      ...item,
-      item_name:       item.item_name || shopify.productName || undefined,
-      item_image:      isPublicUrl(item.item_image) ? item.item_image : shopify.thumbnailImage ?? undefined,
-      item_url:        isPublicUrl(item.item_url) ? item.item_url : shopify.productUrl ?? undefined,
-      item_product_id: item.item_product_id ?? shopify.productId ?? undefined,
-      item_variant_id: item.item_variant_id ?? shopify.variantId ?? undefined,
+      ...rest,
+      ...pick(shopify),
+      [nameKey]: rest[nameKey] || shopify.productName || undefined,
     };
   }));
 }
 
 async function fillFromShopify(eventName, properties) {
   if (Array.isArray(properties?.items) && properties.items.length) {
-    properties = { ...properties, items: await fillItemsFromShopify(properties.items) };
+    properties = { ...properties, items: await fillItemsFromShopify(eventName, properties.items) };
   }
   const fields = PRODUCT_EVENT_FIELDS[eventName];
   if (!fields || !properties?.sku) return properties;
   const needs = (key) => {
     const v = properties[key];
-    if (key === 'thumbnailImage' || key === 'image' || key === 'productUrl') return !isPublicUrl(v);
+    if (URL_FIELDS.has(key)) return !isPublicUrl(v);
     return v === undefined || v === null || v === '';
   };
   if (!fields.some(needs) && properties.productName && properties.productType) return properties;
@@ -60,7 +77,7 @@ async function fillFromShopify(eventName, properties) {
   const filled = { ...properties };
   for (const key of fields) {
     if (!needs(key)) continue;
-    const value = key === 'image' ? shopify.thumbnailImage : shopify[key];
+    const value = shopify[SHOPIFY_SOURCE[key] ?? key];
     if (value) filled[key] = value;
   }
   if (!filled.productName && shopify.productName) filled.productName = shopify.productName;

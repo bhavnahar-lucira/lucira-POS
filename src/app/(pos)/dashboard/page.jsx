@@ -13,6 +13,7 @@ import MetalRatesTicker     from '@/components/features/dashboard/MetalRatesTick
 import UpcomingEventsCard   from '@/components/features/dashboard/UpcomingEventsCard';
 import SchemeRemindersCard  from '@/components/features/dashboard/SchemeRemindersCard';
 import LapsedBuyersCard     from '@/components/features/dashboard/LapsedBuyersCard';
+import NonBuyersCard        from '@/components/features/dashboard/NonBuyersCard';
 import VocTodayCard         from '@/components/features/dashboard/VocTodayCard';
 import InlineLoader         from '@/components/shared/InlineLoader';
 import ErrorState           from '@/components/shared/ErrorState';
@@ -172,9 +173,10 @@ function DashboardScreen() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
           <VocTodayCard jcId={jcId} />
           <LapsedBuyersCard />
+          <NonBuyersCard />
         </div>
 
         {/* ── ROW 4: Today's activity ────────────────────────────── */}

@@ -2,10 +2,10 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import Link from 'next/link';
-import { Check, CheckCircle2, Calculator, MessageSquareWarning, Pencil, XCircle } from 'lucide-react';
+import { Check, CheckCircle2, MessageSquareWarning, Pencil, XCircle } from 'lucide-react';
 
 import TicketFileThumb from '@/components/features/ticketing/TicketFileThumb';
+import TicketOrderPanel from '@/components/features/ticketing/TicketOrderPanel';
 import TicketRequestFields, { NameSelect, specsFromTicket } from '@/components/features/ticketing/TicketRequestFields';
 import ConfirmDialog from '@/components/shared/ConfirmDialog';
 import { Button } from '@/components/ui/button';
@@ -73,6 +73,9 @@ const ACTION_LABELS = {
   order_created:      'Final details sent · manufacturing order created by workflow team',
   design_approved:    'Design approved',
   design_rejected:    'Design changes requested',
+  pricing_acknowledged: 'Workflow figures accepted despite highlighted differences',
+  final_reopened:     'Final details sent back – revised final details requested',
+  final_reopened_cad: 'Final details sent back – design changes requested from CAD',
   ticket_cancelled:   'Ticket cancelled',
   pos_order_placed:   'Order placed in OrnaVerse',
 };
@@ -196,7 +199,7 @@ function ReasonDialog({ isOpen, onOpenChange, title, description, label, confirm
           <Button
             type="button"
             variant={confirmVariant}
-            className="h-11"
+            className={confirmVariant === 'destructive' ? 'h-11 bg-red-600 text-white hover:bg-red-700 hover:text-white' : 'h-11'}
             disabled={isPending || text.trim().length < 3}
             onClick={() => onConfirm(text.trim())}
           >
@@ -558,6 +561,70 @@ function ConfirmOrderDialog({ ticket, isOpen, onOpenChange, isPending, onSave, a
   );
 }
 
+const REOPEN_TARGETS = [
+  { value: 'cad', label: 'Design changes', hint: 'Goes back to the CAD team for a new design version.' },
+  { value: 'final', label: 'Final details only', hint: 'Design stays approved; the workflow team re-sends the final details & SKU.' },
+];
+
+function ReopenFinalDialog({ isOpen, onOpenChange, isPending, onConfirm }) {
+  const [target, setTarget] = useState('cad');
+  const [reason, setReason] = useState('');
+  return (
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Request changes to the final details</DialogTitle>
+          <DialogDescription>The received final details are kept on the ticket as a previous version.</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-2" role="radiogroup" aria-label="What needs to change">
+          {REOPEN_TARGETS.map((t) => (
+            <label
+              key={t.value}
+              className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm ${target === t.value ? 'border-primary bg-primary/5' : 'border-border'}`}
+            >
+              <input type="radio" name="reopen-target" className="mt-1" value={t.value} checked={target === t.value} onChange={() => setTarget(t.value)} />
+              <span className="flex flex-col">
+                <span className="font-medium text-foreground">{t.label}</span>
+                <span className="text-xs text-muted-foreground">{t.hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="reopen-reason">Changes the customer wants <span className="text-destructive">*</span></Label>
+          <Textarea id="reopen-reason" rows={4} maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} />
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" className="h-11" onClick={() => onOpenChange(false)}>Back</Button>
+          <Button type="button" className="h-11" disabled={isPending || reason.trim().length < 3} onClick={() => onConfirm({ target, reason: reason.trim() })}>
+            {isPending ? 'Saving…' : target === 'cad' ? 'Send to CAD' : 'Send to workflow team'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PreviousFinalDetails({ revisions }) {
+  return (
+    <details className="rounded-lg border border-border p-3 text-sm">
+      <summary className="cursor-pointer font-medium text-foreground">Previous final details ({revisions.length})</summary>
+      <div className="mt-3 flex flex-col gap-4">
+        {[...revisions].reverse().map((r, i) => (
+          <div key={i} className="flex flex-col gap-3 border-t border-border pt-3 first:border-0 first:pt-0">
+            <p className="text-xs text-muted-foreground">
+              Sent back {formatDateTime(r.requested_at)} by {r.requested_by} · {r.target === 'cad' ? 'design changes' : 'final details only'}
+              {r.design_version ? ` · design ${versionText(r.design_version)}` : ''}
+            </p>
+            <TextBlock label="Changes requested">{r.reason}</TextBlock>
+            {r.estimation && <FinalDetails details={{ ...r.estimation, manufacturing_order_number: r.manufacturing_order_number, panel_status_label: r.panel_status_label }} />}
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 function EditRequestDialog({ ticket, isOpen, onOpenChange, isPending, onSave }) {
   const [specs, setSpecs] = useState(() => specsFromTicket(ticket.requested_specs));
   const [files, setFiles] = useState([]);
@@ -637,7 +704,7 @@ export default function TicketDetail({ ticket, partyId }) {
           </p>
         </div>
         {!isCancelled && (
-          <Button type="button" variant="outline" className="h-11 gap-1.5 text-destructive hover:text-destructive" onClick={() => setDialog('cancel')}>
+          <Button type="button" className="h-11 gap-1.5 bg-red-600 text-white hover:bg-red-700 hover:text-white" onClick={() => setDialog('cancel')}>
             <XCircle size={16} aria-hidden="true" /> Cancel ticket
           </Button>
         )}
@@ -788,16 +855,17 @@ export default function TicketDetail({ ticket, partyId }) {
             title="Final details & order"
             isCurrent={[TICKET_STATUS.AWAITING_FINAL, TICKET_STATUS.FINAL_RECEIVED].includes(status)}
             prompt={status === TICKET_STATUS.FINAL_RECEIVED
-              ? 'Final details received. Create the estimate, then proceed to checkout to apply offers and place the order.'
+              ? 'Final details received. Check the figures below, print the estimate, then proceed to checkout to apply offers and place the order.'
               : 'Design approved. Waiting for the team to send the final details.'}
-            actions={status === TICKET_STATUS.FINAL_RECEIVED && (
-              <Button asChild className="h-11 gap-1.5">
-                <Link href={`/estimation?ticket=${encodeURIComponent(ticket.ticket_number)}`}>
-                  <Calculator size={16} aria-hidden="true" /> Create estimate
-                </Link>
-              </Button>
-            )}
           >
+            {status === TICKET_STATUS.FINAL_RECEIVED && ticket.final_details && (
+              <TicketOrderPanel
+                key={`${ticket.ticket_number}|${ticket.updated_at ?? ''}`}
+                ticket={ticket}
+                partyId={partyId}
+                onRequestChanges={() => setDialog('reopen_final')}
+              />
+            )}
             {ticket.pos_order?.document_no && (
               <InfoGrid
                 items={[
@@ -811,6 +879,7 @@ export default function TicketDetail({ ticket, partyId }) {
             ) : (
               <p className="text-sm text-muted-foreground">The final details, will appear here once the team sends them.</p>
             )}
+            {ticket.final_revisions?.length > 0 && <PreviousFinalDetails revisions={ticket.final_revisions} />}
           </StepCard>
         </div>
 
@@ -870,6 +939,12 @@ export default function TicketDetail({ ticket, partyId }) {
                   {entry.note && <p className="text-xs text-muted-foreground whitespace-pre-line">“{entry.note}”</p>}
                   {entry.changes?.feedback && <p className="text-xs text-muted-foreground whitespace-pre-line">“{entry.changes.feedback}”</p>}
                   {entry.changes?.reason && <p className="text-xs text-muted-foreground whitespace-pre-line">“{entry.changes.reason}”</p>}
+                  {entry.changes?.mismatches?.map((m) => (
+                    <p key={m.label} className="text-xs text-red-700 dark:text-red-300">
+                      {m.label}: {formatAmountOrDash(m.workflow)} vs {formatAmountOrDash(m.reference)}
+                    </p>
+                  ))}
+                  {entry.changes?.note && <p className="text-xs text-muted-foreground whitespace-pre-line">“{entry.changes.note}”</p>}
                 </li>
               ))}
             </ol>
@@ -937,6 +1012,17 @@ export default function TicketDetail({ ticket, partyId }) {
         isPending={action.isPending}
         onConfirm={(reason) => run({ action: 'cancel', reason }, 'Ticket cancelled.')}
       />
+      {status === TICKET_STATUS.FINAL_RECEIVED && dialog === 'reopen_final' && (
+        <ReopenFinalDialog
+          isOpen
+          onOpenChange={(open) => setDialog(open ? 'reopen_final' : null)}
+          isPending={action.isPending}
+          onConfirm={({ target, reason }) => run(
+            { action: 'reopen_final', target, reason },
+            target === 'cad' ? 'Design changes sent to the CAD team.' : 'Revised final details requested.',
+          )}
+        />
+      )}
       {dialog === 'edit' && (
         <EditRequestDialog
           ticket={ticket}

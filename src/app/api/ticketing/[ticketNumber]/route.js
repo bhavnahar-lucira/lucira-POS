@@ -209,6 +209,63 @@ export async function POST(request, { params }) {
           }),
         },
       };
+    } else if (input.action === 'reopen_final') {
+      const design = designs[0];
+      if (status !== TICKET_STATUS.FINAL_RECEIVED || !design || !ticket.estimation) {
+        return Response.json({ error: 'Changes can only be requested once the final details are received and before the order is placed.' }, { status: 409 });
+      }
+      const toCad = input.target === 'cad';
+      filter.pos_order = null;
+      filter.estimation = { $exists: true };
+      // The received final details are archived on the ticket in the same write, so nothing is lost.
+      const revision = {
+        target: input.target,
+        reason: input.reason,
+        estimation: ticket.estimation,
+        manufacturing_order_number: ticket.orderNumber ?? ticket.order_number ?? null,
+        panel_status: ticket.status ?? null,
+        panel_status_label: ticket.status_label ?? null,
+        design_version: design.version,
+        requested_at: now,
+        requested_by: session.username,
+      };
+      const hasCadVersion = toCad && ticket.cadVersions?.some((v) => String(v.version) === design.version);
+      if (hasCadVersion) arrayFilters = [{ 'v.version': design.version }];
+      update = {
+        $set: {
+          ...(toCad
+            ? { ...PANEL_STATE.CAD_DESIGN, awaiting_cad_since: now, customer_feedback: input.reason }
+            : { ...PANEL_STATE.SKU_PENDING, customer_feedback: input.reason }),
+          ...(hasCadVersion && { 'cadVersions.$[v].status': 'changes_requested' }),
+          updated_at: now,
+        },
+        $unset: { estimation: '' },
+        $push: {
+          final_revisions: revision,
+          ...(toCad && {
+            design_decisions: {
+              version: design.version,
+              decision: 'rejected',
+              feedback: input.reason,
+              decided_at: now,
+              decided_by: session.username,
+              after_final: true,
+            },
+          }),
+          history: historyEntry(session, store, toCad ? 'final_reopened_cad' : 'final_reopened', {
+            version: design.version,
+            reason: input.reason,
+          }),
+        },
+      };
+    } else if (input.action === 'acknowledge_pricing') {
+      if (status !== TICKET_STATUS.FINAL_RECEIVED) {
+        return Response.json({ error: 'Pricing can only be acknowledged while the final details are ready to order.' }, { status: 409 });
+      }
+      update = {
+        $set: { updated_at: now },
+        $push: { history: historyEntry(session, store, 'pricing_acknowledged', { mismatches: input.mismatches, note: input.note }) },
+      };
     } else if (input.action === 'order_placed') {
       if (status !== TICKET_STATUS.FINAL_RECEIVED) {
         return Response.json({ error: 'An order can only be linked once the final details are received.' }, { status: 409 });

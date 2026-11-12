@@ -88,6 +88,20 @@ export const ticketActionSchema = z.discriminatedUnion('action', [
     version:  text(20),
     feedback: text(2000).min(3, 'Enter the customer feedback for the CAD team'),
   }),
+  z.object({
+    action: z.literal('reopen_final'),
+    target: z.enum(['cad', 'final']),
+    reason: text(2000).min(3, 'Enter the changes the customer wants'),
+  }),
+  z.object({
+    action: z.literal('acknowledge_pricing'),
+    mismatches: z.array(z.object({
+      label:     text(200),
+      workflow:  z.number().nullable(),
+      reference: z.number().nullable(),
+    })).min(1).max(30),
+    note: optionalText(1000),
+  }),
   z.object({ action: z.literal('cancel'), reason: text(1000).min(3, 'Enter the cancellation reason') }),
   z.object({ action: z.literal('order_placed'), transaction_id: z.coerce.number().int().positive() }),
 ]);

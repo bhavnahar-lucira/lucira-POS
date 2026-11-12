@@ -1,5 +1,5 @@
-// Payloads mirror the website's WebEngage schema (Data Management → Custom Events):
-// exact key names and data types, flat, no POS-only extras.
+// Payloads mirror lucirajewelry.com's own WebEngage/GTM pushes (read from the live site 2026-11-11):
+// same key names and data types only, so the POS never creates new WebEngage attributes.
 
 import { toE164India } from './phoneFormat';
 
@@ -93,53 +93,93 @@ export function buildCartItemData(attributes, { price, quantity } = {}) {
 
 export function cartItemsToCheckoutItems(items = []) {
   return items.map((item) => ({
-    item_id:       item.itemId != null ? String(item.itemId) : undefined,
-    item_name:     item.itemName ?? undefined,
-    item_sku:      item.sku ?? undefined,
-    item_category: item.attributes?.category ?? undefined,
-    price:         toMoney(item.attributes?.price_net_amount) ?? toMoney(item.unitPrice),
-    quantity:      toNumber(item.quantity) ?? 1,
+    sku:         item.sku ?? item.attributes?.item_code ?? undefined,
+    name:        item.itemName ?? item.attributes?.item_name ?? undefined,
+    productType: clean(item.attributes?.category),
+    subCategory: clean(item.attributes?.sub_category),
+    variant:     clean(item.attributes?.karat),
+    price:       toMoney(item.attributes?.price_net_amount) ?? toMoney(item.unitPrice),
+    quantity:    toNumber(item.quantity) ?? 1,
   }));
 }
 
 export function pricedRowsToCheckoutItems(rows = []) {
   return rows.map((row) => ({
-    item_id:       row.item_id != null ? String(row.item_id) : undefined,
-    item_name:     row.item_name ?? undefined,
-    item_sku:      row.item_code ?? row.sku ?? undefined,
-    item_category: row.type_name ?? undefined,
-    price:         toMoney(row.net_amount) ?? toMoney(row.sub_total),
-    quantity:      toNumber(row.pieces) ?? 1,
+    sku:         row.item_code ?? row.sku ?? undefined,
+    name:        row.item_name ?? undefined,
+    productType: clean(row.type_name),
+    subCategory: clean(row.sub_type_name),
+    variant:     clean(row.karat_name),
+    price:       toMoney(row.net_amount) ?? toMoney(row.sub_total),
+    quantity:    toNumber(row.pieces) ?? 1,
   }));
 }
 
+// Item shapes copied from the website's checkout code; item_id, variant_id, image_url and
+// thumbnail_image are filled server-side from Shopify by _sku.
+const BRAND_FULL = 'Lucira Jewelry';
+
+function checkoutItem(item, index, extra = {}) {
+  return {
+    _sku:          item.sku,
+    item_name:     item.name,
+    item_variant:  item.variant ?? '',
+    item_brand:    BRAND_FULL,
+    item_category: '',
+    price:         item.price ?? 0,
+    quantity:      item.quantity,
+    category:      item.productType,
+    index,
+    ...extra,
+  };
+}
+
+function cartItem(item, index) {
+  return {
+    _sku:           item.sku,
+    sku:            item.sku,
+    product_name:   item.name,
+    product_type:   item.productType,
+    category:       BRAND_FULL,
+    sub_category:   item.subCategory ?? item.productType,
+    price:          item.price ?? 0,
+    offer_price:    item.price ?? 0,
+    quantity:       item.quantity,
+    index_position: index + 1,
+  };
+}
+
+const sumQuantity = (items) => (items ?? []).reduce((sum, i) => sum + (toNumber(i.quantity) ?? 0), 0);
+
 export function buildBeginCheckoutData({ value, items, couponCodes }) {
   return {
-    currency: CURRENCY,
     value:    toMoney(value),
-    coupon:   couponFrom(couponCodes),
-    items,
+    currency: CURRENCY,
+    items:    (items ?? []).map((item, i) => checkoutItem(item, i, { shopify_product_id: item.sku })),
+    coupon:   couponFrom(couponCodes) ?? 'NA',
   };
 }
 
 export function buildPaymentInfoData({ value, paymentType, items, couponCodes }) {
   return {
-    currency:     CURRENCY,
-    value:        toMoney(value),
     payment_type: paymentType ?? undefined,
-    coupon:       couponFrom(couponCodes),
-    items,
+    value:        toMoney(value),
+    currency:     CURRENCY,
+    coupon:       couponFrom(couponCodes) ?? 'NA',
+    items:        (items ?? []).map((item, i) => checkoutItem(item, i)),
   };
 }
 
 export function buildPurchaseData({ transactionId, value, tax, items, couponCodes }) {
   return {
-    transaction_id: transactionId != null ? String(transactionId) : undefined,
     currency:       CURRENCY,
     value:          toMoney(value),
     tax:            toMoney(tax),
-    coupon:         couponFrom(couponCodes),
-    items,
+    shipping:       0,
+    affiliation:    BRAND_FULL,
+    transaction_id: transactionId != null ? String(transactionId) : undefined,
+    coupon:         couponFrom(couponCodes) ?? 'NA',
+    items:          (items ?? []).map((item, i) => checkoutItem(item, i)),
   };
 }
 
@@ -170,11 +210,20 @@ export function buildProductImpressionData(product, { externalProductId, image, 
   };
 }
 
-export function buildProductClickData(product, { externalProductId, image, names } = {}) {
+export function buildProductClickData(product, { externalProductId, image, names, index } = {}) {
+  const fields = catalogFields({ ...product, thumbnailImage: image }, externalProductId, names);
+  const amount = toMoney(product?.price);
   return {
-    ...catalogFields({ ...product, thumbnailImage: image }, externalProductId, names),
-    offer_price: toMoney(product?.price),
-    quantity:    1,
+    productId:      fields.productId,
+    sku:            fields.sku,
+    productName:    fields.productName,
+    productType:    fields.productType,
+    category:       fields.category,
+    thumbnailImage: fields.thumbnailImage,
+    purity:         fields.purity,
+    price:          amount !== undefined ? String(amount) : undefined,
+    offerPrice:     amount !== undefined ? String(amount) : undefined,
+    indexPosition:  index != null ? String(index) : undefined,
   };
 }
 
@@ -197,32 +246,49 @@ export function buildWishlistData(product, { externalProductId, image, names } =
 }
 
 export function buildViewCartData({ value, items }) {
+  const total = toMoney(value) ?? 0;
   return {
-    currency: CURRENCY,
-    value:    toMoney(value),
-    quantity: (items ?? []).reduce((sum, i) => sum + (toNumber(i.quantity) ?? 0), 0),
-    items,
+    currency:        CURRENCY,
+    cart_total:      total,
+    grand_total:     total,
+    discount_amount: 0,
+    total_quantity:  sumQuantity(items),
+    total_product:   (items ?? []).length,
+    items:           (items ?? []).map(cartItem),
   };
 }
 
-export function buildShippingInfoData({ value, items, couponCodes, address }) {
+export function buildShippingInfoData({ value, items, couponCodes }) {
   return {
-    currency: CURRENCY,
     value:    toMoney(value),
-    coupon:   couponFrom(couponCodes),
-    city:     address?.city ?? undefined,
-    state:    address?.state ?? undefined,
-    pincode:  address?.zip ?? undefined,
-    items,
+    currency: CURRENCY,
+    items:    (items ?? []).map((item, i) => checkoutItem(item, i)),
+    coupon:   couponFrom(couponCodes) ?? 'NA',
   };
 }
 
-export function buildPaymentFailureData({ value, items, reason }) {
+export function buildPaymentFailureData({ value, items }) {
   return {
     currency: CURRENCY,
     value:    toMoney(value),
-    reason:   reason ?? undefined,
-    items,
+    items:    (items ?? []).map((item, i) => checkoutItem(item, i)),
+  };
+}
+
+export function buildRemoveFromCartData(attributes, { price, quantity } = {}) {
+  const amount = toMoney(attributes?.price_net_amount) ?? toMoney(price);
+  return {
+    productId:       attributes?.shopify_product_id ?? undefined,
+    sku:             attributes?.item_code ?? undefined,
+    variantId:       attributes?.shopify_variant_id ?? undefined,
+    productName:     attributes?.item_name ?? undefined,
+    productType:     clean(attributes?.category),
+    category:        clean(attributes?.category),
+    sub_category:    clean(attributes?.sub_category),
+    price:           amount !== undefined ? String(amount) : undefined,
+    offerPrice:      amount !== undefined ? String(amount) : undefined,
+    quantity:        String(toNumber(quantity) ?? 1),
+    thumbnail_image: attributes?.image ?? undefined,
   };
 }
 

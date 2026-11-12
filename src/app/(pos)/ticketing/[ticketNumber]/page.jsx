@@ -35,7 +35,7 @@ function TicketScreen() {
       {isError && !isLoading && (
         <ErrorState title={error?.message ?? 'Failed to load this ticket.'} onRetry={refetch} />
       )}
-      {ticket && <TicketDetail ticket={ticket} partyId={partyId} />}
+      {ticket && <TicketDetail key={ticket.ticket_number} ticket={ticket} partyId={partyId} />}
       {!ticket && !isLoading && !isError && (
         <Button asChild variant="outline"><Link href="/ticketing">Back to tickets</Link></Button>
       )}

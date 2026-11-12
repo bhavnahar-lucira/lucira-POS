@@ -147,7 +147,6 @@ function CheckoutScreen() {
         value:       total,
         items:       cartItemsToCheckoutItems(items),
         couponCodes: appliedPromos.map((p) => p.promoCode),
-        address:     customerAddress,
       }), { onceKey: checkoutKey });
     }
   }, []);
@@ -215,7 +214,6 @@ function CheckoutScreen() {
     tracker.trackWebEngage(WEBENGAGE_EVENTS.PAYMENT_FAILURE, buildPaymentFailureData({
       value:  amountCollected,
       items:  cartItemsToCheckoutItems(items),
-      reason: 'declined',
     }));
     router.push('/order-failed?reason=declined');
   };

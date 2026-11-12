@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSelector } from 'react-redux';
-import { UserRoundSearch } from 'lucide-react';
+import { ChevronRight, UserRoundSearch } from 'lucide-react';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import { useBuyerPurchases } from '@/hooks/buyers/useBuyerPurchases';
@@ -89,6 +90,10 @@ export default function LapsedBuyersCard() {
           ))}
         </div>
       )}
+
+      <Link href="/buyers" className="mt-3 inline-flex items-center gap-0.5 text-sm font-medium text-primary hover:underline">
+        View all buyers <ChevronRight size={14} aria-hidden="true" />
+      </Link>
     </div>
   );
 }

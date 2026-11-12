@@ -6,7 +6,7 @@
 
 import tracker from '@/lib/analytics/tracker';
 import EVENTS, { WEBENGAGE_EVENTS } from '@/lib/analytics/events';
-import { buildCartItemData, buildViewCartData, buildUserEventData, cartItemsToCheckoutItems } from '@/lib/analytics/webengageEvents';
+import { buildRemoveFromCartData, buildViewCartData, buildUserEventData, cartItemsToCheckoutItems } from '@/lib/analytics/webengageEvents';
 import { getPromotionDiscountType } from '@/lib/normalizers/promotion';
 
 // Looks up the full cart line (with its `attributes`) from the pre-dispatch cart,
@@ -74,7 +74,7 @@ export const analyticsMiddleware = (store) => (next) => (action) => {
       if (item) {
         tracker.trackWebEngage(
           WEBENGAGE_EVENTS.REMOVE_FROM_CART,
-          buildCartItemData(item.attributes, { price: item.unitPrice, quantity: item.quantity }),
+          buildRemoveFromCartData(item.attributes, { price: item.unitPrice, quantity: item.quantity }),
         );
       }
       break;
