@@ -301,7 +301,11 @@ async function claimStockPieces({ item, activeStoreId, claimed, candidatesByItem
   // wanted units on its own.
   const neededForThisItem = item.fulfillmentItemLineNo != null ? 1 : (item.quantity ?? 1);
   const availablePieces = (rows) => rows.reduce((sum, r) => sum + (r.pieces > 0 ? r.pieces : 1), 0);
-  if (availablePieces(available) < neededForThisItem) {
+  const findReserved = (rows) => rows.find((r) => r.item_line_no === item.fulfillmentItemLineNo && !claimed.has(r.stock_journal_id));
+  const needsRefetch = item.fulfillmentItemLineNo != null
+    ? !findReserved(rows)
+    : availablePieces(available) < neededForThisItem;
+  if (needsRefetch) {
     const response = await getStockPieces({ itemId: item.itemId, companyId: activeStoreId });
     rows = response?.data?.Entities ?? [];
     available = rows.filter((r) => !r.is_allocated && !claimed.has(r.stock_journal_id));
@@ -314,7 +318,8 @@ async function claimStockPieces({ item, activeStoreId, claimed, candidatesByItem
     // order would never close out, since correlation is keyed off this exact
     // item_line_no) — surfacing a clear error beats an operator believing
     // they fulfilled an order they didn't.
-    const row = available.find((r) => r.item_line_no === item.fulfillmentItemLineNo);
+    // The reserved piece is allocated to this very order (is_allocated: true), so it is looked up in all rows.
+    const row = findReserved(rows);
     if (!row) {
       throw new Error(
         `"${item.itemName}" is no longer available to fulfill — the reserved piece may have just been claimed by another sale. Refresh "Fulfill from Order" and try again.`
@@ -396,6 +401,9 @@ async function buildOrderLineItems({ items, documentId }) {
         findRealBomComponents(item.itemId),
       ]);
       if (!master) return null;
+      // A default-SKU item (e.g. the 0.1 g gold coin) is stocked in bulk bags; a bag's BOM carries the whole
+      // bag's weight, which OrnaVerse rejects for one piece ("Weight cannot exceed 0.300 for 3 pcs").
+      if (master.is_default_sku) return master;
       return bomComponents ? { ...master, item_components: bomComponents } : master;
     })
   );
@@ -734,6 +742,26 @@ function cartLineKey(item) {
   return `${item.itemId}-${item.sizeId}-${item.styleId}-${item.freeGiftPromoCode ?? ''}-${item.customLineId ?? ''}`;
 }
 
+const isOrderOnlyCart = ({ invoice, order }) => !invoice?.lineItems?.length && !!order?.lineItems?.length;
+
+export const isFreeGiftRow = (row) => !!row?.is_gift && (Number(row.net_amount) || 0) <= 0.01;
+
+/**
+ * Free gifts (the gold coin) on an order are only the offer: OrnaVerse adds the coins when the order is billed.
+ * In Order mode ApplyPromotions returns the entitlement as gift_qty on the promotion, not as coin rows,
+ * and it does so whether or not the cart holds a coin line.
+ */
+export function getDeferredFreeGifts(items, { invoice, order }) {
+  if (!items?.length || !isOrderOnlyCart({ invoice, order })) return null;
+  const fromPromos = (order.promotionDetails ?? [])
+    .filter((p) => p.free_item_id)
+    .reduce((sum, p) => sum + (Number(p.gift_qty) || 0), 0);
+  const fromRows = order.lineItems.filter(isFreeGiftRow).reduce((sum, r) => sum + (Number(r.pieces) || 1), 0);
+  const quantity = fromPromos || fromRows;
+  if (!quantity) return null;
+  return { quantity, name: items.find((i) => i.freeGiftPromoCode != null)?.itemName ?? null };
+}
+
 /**
  * Builds the rows a cart/checkout screen actually renders, expanding ONE
  * original cart line into TWO display rows when buildPricedLineItems had to
@@ -768,9 +796,11 @@ export function buildCartDisplayRows(items, { invoice, order }) {
 
   const invoiceMap = invoice ? mapPricedLinesToCart(invoice.cartItems, invoice.lineItems, invoice.lineCounts) : null;
   const orderMap   = order   ? mapPricedLinesToCart(order.cartItems, order.lineItems)     : null;
+  const hideFreeGifts = isOrderOnlyCart({ invoice, order });
 
   const rows = [];
   items.forEach((item) => {
+    if (hideFreeGifts && item.freeGiftPromoCode != null) return;
     const key = cartLineKey(item);
     let matched = false;
 

@@ -103,6 +103,7 @@ export function useCart() {
       customerMobile:     order.mobile,
       fulfillmentOrderId: order.transactionId,
       fulfillmentOrderNo: order.documentNo,
+      promoCodes:         order.promoCodes ?? [],
     }));
     toast.success(TOAST.CART.LOADED_FROM_ORDER(order.documentNo));
   };

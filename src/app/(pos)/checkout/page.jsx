@@ -13,9 +13,11 @@ import CheckoutTrustStrip       from '@/components/features/checkout/CheckoutTru
 import SalesPersonSelect        from '@/components/features/checkout/SalesPersonSelect';
 import { useSalesPersonOptions } from '@/hooks/schemes/useSalesPersonOptions';
 import CartItemRow              from '@/components/features/cart/CartItemRow';
+import DeferredFreeGiftNote     from '@/components/features/cart/DeferredFreeGiftNote';
 import CartSummary              from '@/components/features/cart/CartSummary';
 import PlaceOrderButton         from '@/components/features/checkout/PlaceOrderButton';
 import { useCart }                    from '@/hooks/cart/useCart';
+import { useCarryOverOrderPromos }    from '@/hooks/checkout/useCarryOverOrderPromos';
 import { useCartTotals }              from '@/hooks/cart/useCartTotals';
 import { useCustomerSession }         from '@/hooks/customer/useCustomerSession';
 import { useRedirectOnCustomerChange } from '@/hooks/checkout/useRedirectOnCustomerChange';
@@ -61,6 +63,7 @@ function CheckoutScreen() {
     isLoading: isPricing,
     error: pricingError,
   } = useCheckoutPricing();
+  useCarryOverOrderPromos({ invoice, order, isPricing });
   const doc = invoice ?? order;
   const hasDoc = !!doc;
   const documentType = invoice ? 'invoice' : 'order';
@@ -275,6 +278,7 @@ function CheckoutScreen() {
                 />
               ))}
             </div>
+            <DeferredFreeGiftNote items={items} invoice={invoice} order={order} className="mt-3" />
           </section>
 
           {hasDoc && (

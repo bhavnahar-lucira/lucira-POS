@@ -38,12 +38,17 @@ async function proxy(request, { params }) {
     redirect: 'manual',
   });
 
-  const responseBody = await upstreamRes.arrayBuffer();
+  const contentTypeOut = upstreamRes.headers.get('content-type') ?? 'application/octet-stream';
+  let responseBody = await upstreamRes.arrayBuffer();
+  // Zero page margins make the browser drop its own print header/footer (page title, URL, date, page numbers).
+  if (/printReport/i.test(targetUrl.pathname) && contentTypeOut.includes('text/html')) {
+    const html = new TextDecoder().decode(responseBody);
+    const style = '<style>@page { margin: 0; } @media print { html, body { margin: 0; } }</style>';
+    responseBody = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => `${m}${style}`) : `${style}${html}`;
+  }
   return new Response(responseBody, {
     status:  upstreamRes.status,
-    headers: {
-      'Content-Type': upstreamRes.headers.get('content-type') ?? 'application/octet-stream',
-    },
+    headers: { 'Content-Type': contentTypeOut },
   });
 }
 

@@ -30,6 +30,7 @@ const initialState = {
   // from this is unverified — see API.ORDER_FULFILLMENT.
   fulfillmentOrderId:  null,
   fulfillmentOrderNo:  null,
+  pendingOrderPromoCodes: [], // the source order's offers, re-applied at checkout (useCarryOverOrderPromos)
 };
 
 // Recalculates subtotal, tax and total after any cart mutation.
@@ -311,15 +312,20 @@ const cartSlice = createSlice({
     // useCreateInvoice can reference the source order. unitPrice here is a display
     // estimate only; buildPricedLineItems re-prices against today's rates at submission.
     hydrateFromOrder: (state, action) => {
-      const { items, customerId, customerName, customerMobile, fulfillmentOrderId, fulfillmentOrderNo } = action.payload;
+      const { items, customerId, customerName, customerMobile, fulfillmentOrderId, fulfillmentOrderNo, promoCodes } = action.payload;
       const next = {
         ...initialState,
         items,
         customerId, customerName, customerMobile,
         fulfillmentOrderId, fulfillmentOrderNo,
+        pendingOrderPromoCodes: promoCodes ?? [],
       };
       recalculateTotals(next);
       return next;
+    },
+
+    clearPendingOrderPromos: (state) => {
+      state.pendingOrderPromoCodes = [];
     },
 
   },
@@ -381,7 +387,10 @@ export const {
   clearCartKeepCustomer,
   restoreCart,
   hydrateFromOrder,
+  clearPendingOrderPromos,
 } = cartSlice.actions;
+
+export const selectPendingOrderPromoCodes = (state) => state.cart.pendingOrderPromoCodes ?? [];
 
 export const selectCartItems          = (state) => state.cart.items;
 export const selectCartItemCount      = (state) => state.cart.items.reduce((sum, i) => sum + i.quantity, 0);

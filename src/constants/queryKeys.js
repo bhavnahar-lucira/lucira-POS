@@ -126,6 +126,7 @@ export const QUERY_KEYS = {
   ORDER_FULFILLMENT: {
     READY_TO_INVOICE: (partyId) => ['order-fulfillment', 'ready', partyId],
     ALL_OPEN:          (partyId) => ['order-fulfillment', 'all-open', partyId],
+    ADVANCE:           (orderId) => ['order-fulfillment', 'advance', orderId],
   },
 
   INVOICES: {

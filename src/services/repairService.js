@@ -1,559 +1,599 @@
-// POS Repair workflow — full lifecycle management.
-// All functions are pure HTTP wrappers — no business logic.
-//
-// REPAIR WORKFLOW:
-//   1. RepairIn   — customer drops item at store (intake, assessment, estimation)
-//   2. RepairOut  — item sent to craftsman/workshop for work
-//   3. RepairInvoice — item returned to customer, billing raised
-//
-// Each stage has its own create/post flow.
-// RepairInvoice has its own helpers (GET_SCHEME, GET_ADVANCES, etc.)
-// mirroring the main invoice helpers but scoped to repair transactions.
+// Repairs, mirroring OrnaVerse's own flow:
+//   store  Repair Order (REP, 75) ── Transfer to HO ──▶ HO Receipt From Store (REPI, 117, authorise)
+//   HO     Return To Store (RPO, 118) ──▶ store Receipt From HO (REPIR, 120, authorise)
+//   store  Repair Invoice (RIN, 119) — lines are the REP lines back in stock, billed for the repair charge.
 
 import axiosInstance from '@/lib/axios/axiosInstance';
 import API from '@/constants/apiEndpoints';
-import APP_CONFIG from '@/constants/appConfig';
+import { localDocumentDate } from '@/lib/checkout/documentFields';
 
-// ─── REPAIR ORDER (the workshop job the intake is raised against) ─────────────
-//
-// A Repair In line item is COPIED from a Repair Order line, not free-typed —
-// it points back at its source via ref_document_id/ref_transaction_id/
-// ref_transaction_item_id. mapOrderLineToRepairInLine() below performs that
-// projection.
+const EP = API.REPAIR;
+const post = async (url, body) => (await axiosInstance.post(url, body)).data;
 
-/** document_id of the workshop Repair Order. */
-export const REPAIR_ORDER_DOCUMENT_ID = 75;
-
-/**
- * repair_type — read out of OrnaVerse's own bundle (RepairForm,
- * formKey "Inventory.Repair"). It drives which items can be picked.
- */
-export const REPAIR_TYPE = {
-  STOCK_ITEM:    1,  // repairing a piece from our own stock
-  CUSTOMER_ITEM: 2,  // repairing something the customer bought from us
+export const REPAIR_DOC = {
+  ORDER: 75,
+  RECEIPT_FROM_STORE: 117,
+  RETURN_TO_STORE: 118,
+  INVOICE: 119,
+  RECEIPT_FROM_HO: 120,
 };
 
-/** "Where will this be repaired?" — their counter's toggle. */
-export const REPAIR_LOCATION_TYPE = {
-  OUR_WORKSHOP: 1,
-  HEAD_OFFICE:  2,
-};
+export const REPAIR_TYPE = { STOCK_ITEM: 1, SOLD_ITEM: 2, CUSTOMER_ITEM: 3 };
+export const REPAIR_LOCATION_TYPE = { WORKSHOP: 1, HEAD_OFFICE: 2 };
 
-/**
- * Sold items eligible for repair.
- *
- * `transaction_type: 3` CONFIRMED LIVE 2026-10-02 (real network capture of
- * OrnaVerse's own Repair > Accept for Repair screen) — this part was
- * already correct. What was NOT correct, and is the actual root cause of
- * "no products show for a genuinely-purchased customer" (reported
- * directly): their own client sends `company_id: null` here — no store
- * restriction at all, since a customer can reasonably bring an item in for
- * repair at a different branch than the one they bought it from. This used
- * to send the ACTIVE store's real company_id instead, silently hiding every
- * item purchased at any other branch. `companyId` param kept (unused in the
- * request) only so existing callers don't need to change.
- *
- * @param {{ partyId: number, companyId?: number, take?: number }} params
- */
-export async function getRepairableSoldItems({ partyId, take = 25 }) {
+export const DOCUMENT_STATUS = { DRAFT: 0, POSTED: 1, CANCELLED: 2 };
+
+const pad = (value, length) => String(value).padStart(length, '0');
+
+/** Port of OrnaVerse's client document-number builder; repair Creates need document_no from the client. */
+async function getDocumentDefinition(documentId) {
+  const doc = (await post(EP.DOCUMENT_BY_ID, { document_id: documentId }))?.Entity;
+  if (!doc) throw new Error('Document type not found.');
+  return doc;
+}
+
+export async function nextDocumentNo({ documentId, companyId, companyCode, definition }) {
+  const doc = definition ?? await getDocumentDefinition(documentId);
+  const now = new Date();
+  const month = now.getUTCMonth() + 1;
+  const mm = pad(month, 2);
+  const yy = String(now.getUTCFullYear()).slice(2);
+  const yyyy = String(now.getUTCFullYear());
+  const mon = now.toLocaleString('default', { month: 'short' }).toLocaleUpperCase();
+  const fyYear = month < 4 ? now.getUTCFullYear() - 1 : now.getUTCFullYear();
+  const rows = (await post(EP.DOCUMENT_NUMBERING, {
+    document_id: documentId,
+    current_month: doc.reset_monthly ? month : undefined,
+    current_year: doc.reset_monthly ? now.getUTCFullYear() : fyYear,
+    company_id: companyId,
+  }))?.Entities ?? [];
+  const last = rows.reduce((max, r) => Math.max(max, r.last_number ?? 0), 0);
+  const sep = doc.separator ?? '';
+  let prefix = doc.branch_wise ? `${companyCode ?? ''}${sep}` : '';
+  if (doc.prefix) prefix = prefix ? `${prefix}${doc.prefix}${sep}` : `${doc.prefix}${sep}`;
+  const datePart = {
+    '[MM]/[YY]': `${mm}${sep}${yy}${sep}`,
+    '[MM]/[YYYY]': `${mm}${sep}${yyyy}${sep}`,
+    '[MON]/[YYYY]': `${mon}${sep}${yy}${sep}`,
+    '[MM][YY]': `${mm}${yy}${sep}`,
+    '[MM][YYYY]': `${mm}${yyyy}${sep}`,
+    '[MON][YYYY]': `${mon}${yy}${sep}`,
+    '[YY]': `${yy}${sep}`,
+    '[YYYY]': `${yyyy}${sep}`,
+    '[YYYY][MM]': `${yyyy}${mm}`,
+    '[YY][MM]': `${yy}${mm}`,
+  }[doc.prefix_date] ?? '';
+  const next = last === 0 ? 1 : last + (doc.increment_by ?? 0);
+  const width = doc.prefill_with_zero ? (doc.no_of_zeroes ?? 0) : 0;
+  return `${prefix}${datePart}${pad(next, width)}`;
+}
+
+function listBody({ take = 50, skip = 0, partyId } = {}) {
+  return {
+    Take: take,
+    Skip: skip,
+    Sort: ['transaction_id DESC'],
+    ...(partyId ? { EqualityFilter: { party_id: partyId } } : {}),
+  };
+}
+
+const listOf = (url) => async (params) => {
+  const data = await post(url, listBody(params));
+  return { items: data?.Entities ?? [], total: data?.TotalCount ?? 0 };
+};
+const retrieveOf = (url) => async (id) => (await post(url, { EntityId: id }))?.Entity ?? null;
+
+export const listRepairOrders = listOf(EP.REPAIR_ORDER_LIST);
+export const retrieveRepairOrder = retrieveOf(EP.REPAIR_ORDER_RETRIEVE);
+export const listRepairReceipts = listOf(EP.REPAIR_RECEIPT_LIST);
+export const retrieveRepairReceipt = retrieveOf(EP.REPAIR_RECEIPT_RETRIEVE);
+export const listRepairInvoices = listOf(EP.REPAIR_INVOICE_LIST);
+export const retrieveRepairInvoice = retrieveOf(EP.REPAIR_INVOICE_RETRIEVE);
+export const listRepairIns = listOf(EP.REPAIR_IN_LIST);
+export const retrieveRepairIn = retrieveOf(EP.REPAIR_IN_RETRIEVE);
+export const listRepairOuts = listOf(EP.REPAIR_OUT_LIST);
+export const retrieveRepairOut = retrieveOf(EP.REPAIR_OUT_RETRIEVE);
+
+/** Repair-order ids already billed on a (non-cancelled) repair invoice at this store. */
+export async function getBilledRepairOrderIds() {
+  const { items } = await listRepairInvoices({ take: 500 });
+  const live = items.filter((inv) => inv.document_status !== DOCUMENT_STATUS.CANCELLED);
+  const docs = await Promise.all(live.map((inv) => retrieveRepairInvoice(inv.transaction_id).catch(() => null)));
+  const billed = new Map();
+  for (const doc of docs) {
+    for (const line of doc?.line_items ?? []) {
+      if (line.ref_document_id === REPAIR_DOC.ORDER && line.ref_transaction_id) {
+        billed.set(line.ref_transaction_id, doc.document_no);
+      }
+    }
+  }
+  return billed;
+}
+
+// ─── Repair Order (REP) ──────────────────────────────────────────────────────
+
+/** Sold items the customer can bring in, from any branch (OrnaVerse's Sold Items picker). */
+export async function getRepairableSoldItems({ partyId, take = 50 }) {
   if (!partyId) return [];
-  const response = await axiosInstance.post(API.REPAIR.REPAIR_SOLD_ITEMS, {
+  const data = await post(EP.REPAIR_SOLD_ITEMS, {
     Take: take,
     party_id: partyId,
     company_id: null,
     transaction_type: 3,
     get_child: true,
   });
-  return response.data?.Entities ?? [];
-}
-
-/**
- * Prices picked items for a Repair Order via Helpers/SetReturnItems — the
- * same helper Return uses — with document_id 75 and labour/tax off. Line
- * items are server-computed, so this is the only correct way to build them.
- *
- * @param {{ selectedProducts: object[], companyId: number }} params
- */
-export async function priceRepairItems({ selectedProducts, companyId }) {
-  const response = await axiosInstance.post(API.HELPERS.SET_RETURN_ITEMS, {
-    selected_products:    selectedProducts,
-    is_labour_applicable: false,
-    is_tax_applicable:    false,
-    document_id:          REPAIR_ORDER_DOCUMENT_ID,
-    exchange_rate:        1,
-    company_id:           companyId,
+  const seen = new Set();
+  return (data?.Entities ?? []).filter((row) => {
+    if (row.base_item_id !== 11) return true;
+    const key = `${row.sku}-${row.item_line_no}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
-  return response.data?.Entities ?? response.data ?? [];
 }
 
-/**
- * Resolves the stock location a repair lands in. Matched by name ("Repair")
- * rather than hardcoded, since the id is per-tenant. Falls back to the first
- * location.
- *
- * @param {number} companyId
- * @returns {Promise<number|null>}
- */
-export async function getRepairLocationId(companyId) {
-  const response = await axiosInstance.post(API.REPAIR.COMPANY_LOCATIONS, {
-    Take: 50,
+export async function priceRepairOrderLines({ selectedProducts, companyId }) {
+  const data = await post(API.HELPERS.SET_RETURN_ITEMS, {
+    selected_products: selectedProducts,
+    is_labour_applicable: false,
+    is_tax_applicable: false,
+    document_id: REPAIR_DOC.ORDER,
+    exchange_rate: 1,
     company_id: companyId,
   });
-  const rows = response.data?.Entities ?? [];
-  const repairLocation = rows.find(
-    (l) => /^repair$/i.test((l.location_name ?? l.name ?? '').trim()),
-  );
-  return (repairLocation ?? rows[0])?.location_id ?? null;
+  return (data?.Entities ?? []).map((line) => ({ ...line, document_id: REPAIR_DOC.ORDER }));
 }
 
-/**
- * Builds the Inventory/Repair Entity.
- *
- * Field list transcribed from OrnaVerse's own RepairForm definition (formKey
- * "Inventory.Repair", 49 fields) — their Save button never fires a Create on
- * this tenant, so the payload could not be captured from live traffic.
- *
- * NARROWED 2026-09-17 (previous note here said "500s even for a bare
- * minimal payload, needs OrnaVerse's team" — that was too broad, and
- * turned out to be exactly the kind of assumption RepairIn's own fix this
- * same day disproved for that sibling endpoint; re-tested properly rather
- * than left as "not our bug"). Isolated live on UAT:
- *   - `{document_id: 75}` alone → clean validation ("Date extends Number
- *     of Backdated days") — the endpoint is reachable and validates
- *     normally.
- *   - `document_date` alone, or `party_id` alone → each individually
- *     clean (different, sensible validation messages).
- *   - `document_date` + `party_id` TOGETHER → the opaque 500, reproduced
- *     with a real ISO date, `.toDateString()` format, `company_id` added
- *     or not, and two different real party_ids — always the same crash.
- * So the actual reachable minimal set here is genuinely narrower than
- * "everything but document_id/party_id/document_date" — something in
- * this specific pair's interaction (very possibly a customer-record date
- * lookup, e.g. registration/DOB, given how specifically it needs BOTH a
- * real date and a real party to trigger) breaks server-side. Line items
- * were never reached in this testing since the header alone already
- * fails with these three together. Flagging for OrnaVerse support with
- * this exact reproduction, rather than the previous blanket dead-end.
- */
-export function buildRepairOrderPayload({
-  partyId, partyName, phoneCode, address, stateName,
-  companyId, financialYearId, ledgerId,
-  documentDate, deliveryDate,
-  repairType = REPAIR_TYPE.CUSTOMER_ITEM,
-  repairLocationType = REPAIR_LOCATION_TYPE.OUR_WORKSHOP,
-  repairLocation, locationId,
-  lineItems, narration, remark,
-  allowBackdatedEntry, numberOfBackdatedDays, isDocumentNumberEditable,
-  autoPosting, isTaxApplicable,
-}) {
-  const sum = (field) =>
-    +lineItems.reduce((s, l) => s + (Number(l[field]) || 0), 0).toFixed(3);
-  const money = (field) =>
-    +lineItems.reduce((s, l) => s + (Number(l[field]) || 0), 0).toFixed(2);
+/** Designs from the item master, for a piece the customer brings in that isn't on any of their bills. */
+export async function searchItemMaster(text, take = 30) {
+  const q = text?.trim();
+  if (!q || q.length < 3) return [];
+  const data = await post(EP.ITEM_MASTER_LIST, { Take: take, base_item_id: 11, ContainsText: q });
+  return data?.Entities ?? [];
+}
 
-  const subTotal = money('sub_total');
-  const netAmount = money('net_amount') || subTotal;
-
+/** Port of OrnaVerse's masterItemToCreditLine: an item-master design as a zero-value customer line. */
+export function masterItemToRepairProduct(item, { pieces, netWeight } = {}) {
+  const metalCount = (item.item_components ?? []).filter((c) => c.base_item_id === 12).length;
+  const metalWeight = (c) => (c.base_item_id === 12 && netWeight > 0 && metalCount === 1 ? netWeight : c.weight);
+  const components = item.is_bom ? (item.item_components ?? []).map((c) => ({
+    item_id: c.item_id, item_code: c.item_code, rm_id: c.rm_id, rm_attribute_id: c.rm_attribute_id,
+    rate: 0, amount: 0, base_amount: 0, uoc_id: c.uoc_id, uom_id: c.uom_id, pieces: c.pieces, weight: metalWeight(c),
+    base_item_id: c.base_item_id, item_group_id: c.item_group_id, type_id: c.type_id, sub_type_id: c.sub_type_id,
+    karat_id: c.karat_id, metal_color_id: c.metal_color_id, certificate_no: c.certificate_no, purity: c.purity,
+    pure_weight: c.pure_weight, ref_transaction_bom_id: 0, is_customer_item: true,
+    purchase_costing_id: c.purchase_costing_id, sales_costing_id: c.sales_costing_id, setting_id: 0, parts: 0,
+    stone_status_id: 1, is_center_stone: c.is_center_stone, discount: 0, discount_percent: 0, markup: 0,
+    pointer_weight: c.pointer_weight, shape_id: c.shape_id, stone_color_id: c.stone_color_id,
+    quality_id: c.quality_id, sieve_id: c.sieve_id, stone_size_id: c.stone_size_id,
+  })) : [];
   return {
-    // document_no deliberately omitted — the server assigns it.
-    document_id:   REPAIR_ORDER_DOCUMENT_ID,
-    document_date: documentDate,
-    delivery_date: deliveryDate ?? null,
-    party_id:      partyId,
-    party_name:    partyName ?? '',
-    phone_code:    phoneCode ?? '',
-    address:       address ?? '',
-    state_name:    stateName ?? '',
-    company_id:        companyId,
-    financial_year_id: financialYearId,
-    ledger_id:         ledgerId,
-    currency_id:   103,
+    item_id: item.item_id, item_attribute_id: item.item_attribute_id, attribute: item.attribute, sku: item.sku,
+    item_code: item.item_code, item_name: item.item_name, base_item_id: item.base_item_id, is_bom: item.is_bom,
+    type_id: item.type_id, type_name: item.type_name, item_group_id: item.item_group_id,
+    item_group_name: item.item_group_name, sub_type_id: item.sub_type_id, sub_type_name: item.sub_type_name,
+    brand_id: item.brand_id, super_type_id: item.super_type_id, collection_id: item.collection_id,
+    item_size_id: item.item_size_id, item_rate: 0, item_labour: 0, item_cost: 0,
+    pieces: pieces ?? item.pieces, weight: item.weight, net_weight: netWeight || item.net_weight,
+    other_pieces: item.other_pieces, other_weight: item.other_weight, stone_pieces: item.stone_pieces,
+    stone_weight: item.stone_weight, sub_total: 0, net_amount: 0, diamond_pieces: item.diamond_pieces,
+    diamond_weight: item.diamond_weight, color_stone_pieces: item.color_stone_pieces,
+    color_stone_weight: item.color_stone_weight, uoc_id: item.uoc_id, item_components: components, hsn: item.hsn,
+    tax_template_id: item.tax_template_id, metal_id: item.metal_id, karat_id: item.karat_id,
+    metal_color_id: item.metal_color_id, quality_id: item.quality_id, sieve_id: item.sieve_id,
+    shape_id: item.shape_id, stone_color_id: item.stone_color_id, stone_size_id: item.stone_size_id,
+    image: item.image, is_finished: false, cut_id: item.cut_id, polish_id: item.polish_id,
+    symmetry_id: item.symmetry_id, fluorescence_id: item.fluorescence_id, culet_id: item.culet_id,
+    girdle_id: item.girdle_id, table: item.table, depth: item.depth, purity: item.purity ?? 0, pure_weight: 0,
+    ref_document_id: 0, ref_transaction_id: 0, ref_transaction_item_id: 0, base_net_amount: 0, base_sub_total: 0,
+    lot_no: '', bag_no: '', certificate_no: '', parts: item.parts, style_id: item.style_id, item_taxes: null,
+    tax_amount: 0, base_tax_amount: 0, mf: 0, mf_amount: 0, export_pieces: 0,
+    is_configurable: item.is_configurable, is_solitaire: item.is_solitaire, diamond_amount: 0,
+    color_stone_amount: 0, stone_amount: 0, metal_amount: 0, stone_rate: 0, other_rate: 0, other_amount: 0,
+    uom_id: item.uom_id, discount: 0, discount_percent: 0, purchase_costing_id: item.purchase_costing_id,
+    sales_costing_id: item.sales_costing_id, stock_ledger_id: item.stock_ledger_id,
+    wip_ledger_id: item.wip_ledger_id, loss_ledger_id: item.loss_ledger_id, narration: item.narration,
+    stamp_id: item.stamp_id, color_quality_id: item.color_quality_id, other_charges: 0,
+    pointer_weight: item.pointer_weight,
+  };
+}
+
+export async function priceCustomerItemLines({ products, companyId }) {
+  const lines = await priceRepairOrderLines({ selectedProducts: products, companyId });
+  return lines.map((line) => ({
+    ...line,
+    item_components: (line.item_components ?? []).map((c) => ({ ...c, is_customer_item: true })),
+  }));
+}
+
+/** Workshop repairs stay in this store; Head Office repairs are booked against the parent company. */
+export async function resolveRepairLocation(companyId, locationType) {
+  if (locationType !== REPAIR_LOCATION_TYPE.HEAD_OFFICE) return companyId;
+  const company = (await post(EP.COMPANY_RETRIEVE, { EntityId: companyId }))?.Entity;
+  return company?.parent_company ?? null;
+}
+
+export async function listRepairStockLocations(repairCompanyId) {
+  if (!repairCompanyId) return [];
+  const data = await post(EP.COMPANY_LOCATIONS, {
+    company_id: repairCompanyId,
+    is_repair_location: true,
+    current_user: true,
+    Take: 20,
+  });
+  return (data?.Entities ?? []).filter((l) => l.location_id > 0);
+}
+
+function omit(obj, ...keys) {
+  const copy = { ...obj };
+  for (const k of keys) delete copy[k];
+  return copy;
+}
+
+function prepareLinesForSave(lines, documentId) {
+  return lines.map((line) => ({
+    ...omit(line, 'transaction_item_id'),
+    document_id: documentId,
+    item_components: (line.item_components ?? []).map((c) => omit(c, 'transaction_item_bom_id', 'transaction_bom_id')),
+    item_operations: (line.item_operations ?? []).map((o) => omit(o, 'transaction_item_labour_id', 'transaction_labour_id')),
+    item_taxes: (line.item_taxes ?? []).map((t) => omit(t, 'transaction_item_tax_id', 'transaction_tax_id')),
+  }));
+}
+
+/** OrnaVerse's own retail-line rounding: net = round(Σ line nets), round_off = the difference. */
+export function aggregateLineTotals(lines) {
+  let subTotal = 0; let exact = 0; let discount = 0; let tax = 0; let pieces = 0; let weight = 0; let netWeight = 0;
+  for (const l of lines) {
+    const lineTax = Number(l.tax_amount) || 0;
+    const taxable = l.taxable_amount ?? Math.max(0, (Number(l.sub_total) || 0) - (Number(l.discount) || 0));
+    subTotal += Number(l.sub_total) || 0;
+    exact += Math.round((Number(taxable) + lineTax) * 100) / 100;
+    discount += Number(l.discount) || 0;
+    tax += lineTax;
+    pieces += Number(l.pieces) || 0;
+    weight += Number(l.weight) || 0;
+    netWeight += Number(l.net_weight) || 0;
+  }
+  const net = Math.round(exact);
+  return {
+    sub_total: +subTotal.toFixed(2),
+    net_amount: net,
+    round_off: +(net - exact).toFixed(2),
+    discount: +discount.toFixed(2),
+    tax_amount: +tax.toFixed(2),
+    pieces,
+    weight: +weight.toFixed(3),
+    net_weight: +netWeight.toFixed(3),
+  };
+}
+
+/** OrnaVerse's document header: number and posting flags from the document definition, year from the store config. */
+async function documentHeader({ documentId, companyId, companyCode, headerConfig }) {
+  const definition = await getDocumentDefinition(documentId);
+  return {
+    document_no: await nextDocumentNo({ documentId, companyId, companyCode, definition }),
+    document_id: documentId,
+    financial_year_id: headerConfig.financialYearId,
+    company_id: companyId,
+    currency_id: 103,
     exchange_rate: 1,
-    user_id:       null,
-    ref_transaction_id: 0,
-    // what kind of repair, and where it happens
-    repair_type:          repairType,
+    document_date: localDocumentDate(),
+    is_einvoice: definition.is_einvoice ?? false,
+    auto_posting: (definition.auto_posting ?? headerConfig.autoPosting) !== false,
+    is_tax_applicable: definition.is_tax_applicable ?? headerConfig.isTaxApplicable,
+    number_of_backdated_days: definition.number_of_backdated_days ?? headerConfig.numberOfBackdatedDays ?? 0,
+    allow_backdated_entry: definition.allow_backdated_entry ?? true,
+    ledger_id: definition.ledger_id ?? headerConfig.ledgerId,
+    user_id: null,
+    is_document_number_editable: definition.is_document_number_editable ?? false,
+  };
+}
+
+export async function buildRepairOrderEntity({
+  companyId, companyCode, headerConfig, customer, repairType, repairLocationType,
+  repairLocation, locationId, lines, narration,
+}) {
+  const lineItems = prepareLinesForSave(lines, REPAIR_DOC.ORDER);
+  const totals = aggregateLineTotals(lineItems);
+  return {
+    ...(await documentHeader({ documentId: REPAIR_DOC.ORDER, companyId, companyCode, headerConfig })),
+    party_id: customer.partyId,
+    party_name: customer.name ?? '',
+    repair_type: repairType,
     repair_location_type: repairLocationType,
-    repair_location:      repairLocation,
-    location_id:          locationId,
-    is_transferred:       false,
-    // aggregates, summed from the priced lines
-    pieces:     sum('pieces'),
-    weight:     sum('weight'),
-    net_weight: sum('net_weight'),
-    sub_total:      subTotal,
-    base_sub_total: subTotal,
-    taxable_amount: money('taxable_amount') || subTotal,
-    tax_amount:     money('tax_amount'),
-    discount:       money('discount'),
-    additional_charges: 0,
-    round_off:      0,
-    net_amount:      netAmount,
-    base_net_amount: netAmount,
-    bill_no: '', bill_date: null, challan_no: '', challan_date: null,
-    narration: narration ?? '',
-    remark:    remark ?? '',
-    payable_ledger_id:    155,
-    receivable_ledger_id: 173,
-    is_document_number_editable: isDocumentNumberEditable ?? false,
-    allow_backdated_entry:       allowBackdatedEntry ?? true,
-    number_of_backdated_days:    numberOfBackdatedDays ?? 60,
-    auto_posting:      autoPosting ?? true,
-    is_tax_applicable: isTaxApplicable ?? false,
+    repair_location: repairLocation,
+    location_id: locationId,
     line_items: lineItems,
+    pieces: totals.pieces,
+    weight: totals.weight,
+    net_weight: totals.net_weight,
+    sub_total: totals.sub_total,
+    net_amount: totals.net_amount,
+    round_off: totals.round_off,
+    discount: totals.discount,
+    tax_amount: totals.tax_amount,
+    narration: narration ?? '',
+    is_transferred: false,
   };
 }
 
-/**
- * Creates a Repair Order (document 75).
- * @param {object} entity — output of buildRepairOrderPayload()
- */
 export async function createRepairOrder(entity) {
-  const response = await axiosInstance.post(API.REPAIR.REPAIR_ORDER_CREATE, {
-    Entity: entity,
-  });
-  return response.data;
+  return post(EP.REPAIR_ORDER_CREATE, { Entity: entity });
 }
 
-/**
- * Posts a Repair Order. Document 75 is auto_posting TRUE on this tenant, so
- * callers should gate on their own header config rather than calling blindly.
- * @param {number} transactionId
- */
-export async function postRepairOrder(transactionId) {
-  const response = await axiosInstance.post(API.REPAIR.REPAIR_ORDER_POST, {
-    EntityId: transactionId,
-  });
-  return response.data;
+export async function transferRepairOrderToHO(transactionId) {
+  return post(EP.REPAIR_ORDER_TRANSFER, { transaction_id: transactionId });
 }
 
-/**
- * Repair orders available to raise an intake against.
- * @param {{ partyId?: number, take?: number, company_id?: number }} params
- * @returns {Promise<object[]>}
- */
-export async function getRepairOrders({ partyId, take = 50, company_id } = {}) {
-  const response = await axiosInstance.post(API.REPAIR.REPAIR_ORDER_LIST, {
-    Take: take,
-    party_id: partyId ?? undefined,
-    company_id: company_id ?? undefined,
-  });
-  return response.data?.Entities ?? [];
+export async function recallRepairOrderTransfer(transactionId) {
+  return post(EP.REPAIR_ORDER_RECALL, { transaction_id: transactionId });
 }
 
-/**
- * Full repair order including its line_items — the source for an intake.
- * @param {number} transactionId
- */
-export async function getRepairOrderDetail(transactionId) {
-  const response = await axiosInstance.post(API.REPAIR.REPAIR_ORDER_RETRIEVE, {
-    EntityId: transactionId,
-  });
-  return response.data?.Entity ?? null;
+// ─── Authorise (Receipt From Store at HO, Receipt From HO at the store) ─────
+
+async function authorizeAndPost(url, retrieve, { id, username, password }) {
+  const entity = await retrieve(id);
+  if (!entity) throw new Error('Document not found.');
+  return post(url, { TransactionId: id, Entity: entity, Username: username, Password: password });
 }
 
+export const authorizeRepairReceipt = (args) => authorizeAndPost(EP.REPAIR_RECEIPT_AUTHORIZE, retrieveRepairReceipt, args);
+export const authorizeRepairIn = (args) => authorizeAndPost(EP.REPAIR_IN_AUTHORIZE, retrieveRepairIn, args);
+
+// ─── Repair Invoice (RIN) ────────────────────────────────────────────────────
+
+/** Repaired pieces back in this store for the customer, ready to bill (OrnaVerse's "Add Repaired Items"). */
+export async function getRepairedItemsReadyForBilling({ partyId, companyId }) {
+  if (!partyId || !companyId) return [];
+  const data = await post(EP.REPAIRED_ITEMS, {
+    Take: 50,
+    party_id: partyId,
+    company_id: companyId,
+    document_id: REPAIR_DOC.RECEIPT_FROM_HO,
+  });
+  return data?.Entities ?? [];
+}
+
+export async function priceRepairInvoiceLines({ selectedProducts, partyId }) {
+  const data = await post(EP.REPAIRED_ITEMS_PRICE, {
+    selected_products: selectedProducts,
+    generate_line_no: true,
+    generate_lot_no: false,
+    document_date: new Date().toDateString(),
+    exchange_rate: 1,
+    is_tax_applicable: true,
+    calculate_rates: true,
+    document_id: REPAIR_DOC.INVOICE,
+    party_id: partyId,
+  });
+  return data?.Entities ?? [];
+}
+
+const MAKING_CHARGES_OPERATION_ID = 1;
+const round2 = (n) => Math.round(n * 100) / 100;
+
 /**
- * Projects a Repair Order line into the Repair In line the server expects.
- *
- * REWRITTEN 2026-09-17 — the previous version ("pass the line through
- * LARGELY INTACT... trimming to a hand-picked subset breaks Create") was
- * never actually verified live and turned out backwards: tested for real
- * against a genuine existing repair order on UAT (order 130, party 2221),
- * the full order line (even with item_components/item_operations/
- * check_list stripped, ~182 remaining fields) crashes RepairIn/Create with
- * an opaque 500 every time. A minimal, hand-picked line — item identity +
- * the ref_* linkage back to the order + weight/net_weight/pieces +
- * item_attribute_id/location_id — succeeded on 3 independent live Creates
- * (transaction_id 43, 44, 46), each followed by a real Cancel to confirm
- * the full lifecycle.
- *
- * Individually adding ANY ONE of karat_id/metal_id/item_group_id/type_id/
- * sub_type_id/base_item_id/base_item/hsn/tax_template_id (9/9 tried) OR
- * ANY of the financial fields (sub_total/net_amount/taxable_amount/
- * item_cost/item_rate/purity/pure_weight/tax_amount, tried together)
- * reproduced the same crash — a 100% failure rate across everything tried
- * beyond the minimal set, not one specific poison field. That pattern
- * suggests the server takes a genuinely different (and broken) code path
- * once ANY of these richer fields is present, most likely revalidating the
- * item's classification against master data rather than trusting item_id —
- * not something worth guessing further at per-field. The classification
- * OrnaVerse itself shows back on Retrieve/List for a real intake is very
- * likely resolved server-side from item_id at read time regardless of what
- * Create was given, the same way many denormalized display fields work
- * elsewhere in this API — so omitting them here isn't expected to lose
- * information, only to avoid the field set that's confirmed to crash.
- *
- * @param {object} orderLine — a line_items[] entry from getRepairOrderDetail()
- * @param {object} order     — the parent order entity
+ * A repair invoice line bills only the repair charge (as the Making Charges operation) plus its tax;
+ * the piece's metal and stone value is the customer's own and is not charged again.
  */
-export function mapOrderLineToRepairInLine(orderLine, order) {
+export function applyRepairCharge(line, charge) {
+  const amount = round2(Math.max(0, Number(charge) || 0));
+  const chargeWeight = Number(line.net_weight) || Number(line.weight) || 0;
+  const ops = line.item_operations ?? [];
+  const template = ops.find((o) => o.operation_id === MAKING_CHARGES_OPERATION_ID) ?? ops[0] ?? {
+    operation_id: MAKING_CHARGES_OPERATION_ID,
+    operation_name: 'Making Charges',
+    item_group_id: line.item_group_id,
+    base_item_id: line.base_item_id,
+    pieces: line.pieces ?? 1,
+    parts: 1,
+    uoc_id: 62,
+    labour_rate_type: 1,
+    markup: 1,
+    calculate_to: 1,
+  };
+  const operation = {
+    ...template,
+    weight: chargeWeight,
+    rate: chargeWeight ? round2(amount / chargeWeight) : amount,
+    amount,
+    base_amount: amount,
+    discount: 0,
+    discount_percent: 0,
+  };
+  const taxes = (line.item_taxes ?? []).map((t) => {
+    const taxAmount = round2((amount * (Number(t.tax_rate) || 0)) / 100);
+    return { ...t, taxable_amount: amount, tax_amount: taxAmount, base_tax_amount: taxAmount };
+  });
+  const taxAmount = round2(taxes.reduce((s, t) => s + t.tax_amount, 0));
   return {
-    item_id:   orderLine.item_id,
-    item_code: orderLine.item_code,
-    item_name: orderLine.item_name,
-    item_attribute_id: orderLine.item_attribute_id,
-    location_id:       orderLine.location_id,
-    weight:     orderLine.weight,
-    net_weight: orderLine.net_weight,
-    pieces:     orderLine.pieces,
-    document_id: APP_CONFIG.DOCUMENT_TYPES.REPAIR_IN,
-    party_id:    order.party_id,
-    company_id:  order.company_id,
-    financial_year_id: order.financial_year_id,
-    // ← what makes this an intake AGAINST that order
-    ref_document_id:         REPAIR_ORDER_DOCUMENT_ID,
-    ref_transaction_id:      order.transaction_id,
-    ref_transaction_item_id: orderLine.transaction_item_id,
+    ...line,
+    metal_amount: 0,
+    diamond_amount: 0,
+    stone_amount: 0,
+    color_stone_amount: 0,
+    other_amount: 0,
+    item_rate: 0,
+    item_labour: amount,
+    discount: 0,
+    discount_percent: 0,
+    item_operations: [operation],
+    item_taxes: taxes,
+    sub_total: amount,
+    base_sub_total: amount,
+    taxable_amount: amount,
+    tax_amount: taxAmount,
+    base_tax_amount: taxAmount,
+    net_amount: round2(amount + taxAmount),
+    base_net_amount: round2(amount + taxAmount),
   };
 }
 
-/**
- * Convenience: order + its lines, already projected for a Repair In.
- * @param {number} transactionId
- */
-export async function getRepairOrderAsIntakeLines(transactionId) {
-  const order = await getRepairOrderDetail(transactionId);
-  if (!order) return { order: null, lines: [] };
-  const lines = (order.line_items ?? []).map((l) => mapOrderLineToRepairInLine(l, order));
-  return { order, lines };
+/** OrnaVerse books a repair invoice against the customer's own ledgers. */
+export async function getPartyLedgers(partyId) {
+  const customer = (await post(EP.CUSTOMER_RETRIEVE, { EntityId: partyId }))?.Entity;
+  const payable = customer?.payable_ledger_id;
+  const receivable = customer?.receivable_ledger_id;
+  if (!(payable > 0) || !(receivable > 0)) {
+    throw new Error("This customer has no ledger in OrnaVerse yet — open the customer once in OrnaVerse, then retry.");
+  }
+  return { payable_ledger_id: payable, receivable_ledger_id: receivable };
 }
 
-/** document_id of the POS Repair In (see APP_CONFIG.DOCUMENT_TYPES.REPAIR_IN). */
-const REPAIR_IN_DOCUMENT_ID = 117;
-
-/**
- * Builds the RepairIn Entity from an order + its already-projected lines.
- *
- * document_id is REQUIRED at the header level, not just on each line item.
- * Everything else here is deliberately minimal — only party_id/company_id/
- * document_date/line_items are required beyond it.
- *
- * @param {{ order: object, lines: object[], documentDate?: string }} params
- */
-export function buildRepairInPayload({ order, lines, documentDate }) {
+export async function buildRepairInvoiceEntity({
+  companyId, companyCode, headerConfig, customer, salesPersonId, lines, receiptDetails, narration,
+}) {
+  const lineItems = prepareLinesForSave(lines, REPAIR_DOC.INVOICE)
+    .map((l) => ({ ...l, sales_person_id: salesPersonId }));
+  const totals = aggregateLineTotals(lineItems);
+  const ledgers = await getPartyLedgers(customer.partyId);
+  const receiptAmount = round2((receiptDetails ?? []).reduce((s, r) => s + (Number(r.amount) || 0), 0));
+  const header = await documentHeader({ documentId: REPAIR_DOC.INVOICE, companyId, companyCode, headerConfig });
   return {
-    document_id:       REPAIR_IN_DOCUMENT_ID,
-    party_id:          order.party_id,
-    company_id:        order.company_id,
-    financial_year_id: order.financial_year_id,
-    document_date:     documentDate ?? order.document_date,
-    line_items:        lines,
+    ...header,
+    ...ledgers,
+    party_id: customer.partyId,
+    party_name: customer.name ?? '',
+    mobile: customer.mobile ?? undefined,
+    sales_person_id: salesPersonId,
+    line_items: lineItems,
+    receipt_details: receiptDetails ?? [],
+    pieces: totals.pieces,
+    weight: totals.weight,
+    net_weight: totals.net_weight,
+    sub_total: totals.sub_total,
+    net_amount: totals.net_amount,
+    round_off: totals.round_off,
+    discount: totals.discount,
+    tax_amount: totals.tax_amount,
+    taxable_amount: header.is_tax_applicable ? round2(totals.sub_total - totals.discount) : undefined,
+    base_sub_total: totals.sub_total,
+    base_net_amount: totals.net_amount,
+    base_tax_amount: totals.tax_amount,
+    receipt_amount: receiptAmount,
+    balance_amount: Math.max(0, round2(totals.net_amount - receiptAmount)),
+    narration: narration ?? '',
   };
 }
 
-/**
- * Paginated list of repair intake records.
- * @param {{ take?: number, skip?: number, company_id?: number }} params
- * @returns {Promise<object>} { Entities[], TotalCount }
- */
-export async function getRepairIns({ take = 50, skip = 0, company_id } = {}) {
-  const response = await axiosInstance.post(API.REPAIR.REPAIR_IN_LIST, {
-    Take:       take,
-    Skip:       skip,
-    company_id: company_id ?? undefined,
-  });
-  return response.data;
+export async function createRepairInvoice(entity) {
+  return post(EP.REPAIR_INVOICE_CREATE, { Entity: entity });
 }
 
-/**
- * Full detail of a single repair intake.
- * @param {number} transactionId
- * @returns {Promise<object>} { Entity: RepairInRow }
- */
-export async function getRepairInDetail(transactionId) {
-  const response = await axiosInstance.post(API.REPAIR.REPAIR_IN_RETRIEVE, {
-    EntityId: transactionId,
-  });
-  return response.data;
+// ─── Return To Store (RPO, HO only) ──────────────────────────────────────────
+
+/** Stores Head Office can return repaired pieces to: every company with its own party, except HO itself. */
+export async function listReturnDestinations(currentCompanyId) {
+  const data = await post(EP.COMPANY_LIST, { Take: 200 });
+  return (data?.Entities ?? [])
+    .filter((c) => c.party_id && c.company_id !== currentCompanyId)
+    .map((c) => ({
+      companyId: c.company_id,
+      companyCode: c.company_code,
+      partyId: c.party_id,
+      name: c.mailing_name ?? c.company_name ?? c.company_code,
+    }));
 }
 
-/**
- * Create a repair intake (customer drops item).
- * @param {object} repairInEntity — see buildRepairInPayload()
- *   Required: document_id, party_id, company_id, document_date, line_items[]
- * @returns {Promise<object>} SaveResponse { EntityId }
- *
- * NOTE: a header-only Create (empty line_items) succeeds; Create with a real
- * projected line item currently still 500s server-side, and the upstream
- * Inventory/Repair/Create this whole chain starts from 500s even on a bare
- * payload — so end-to-end creation is blocked upstream of this function
- * regardless. Needs OrnaVerse's team.
- */
-export async function createRepairIn(repairInEntity) {
-  const response = await axiosInstance.post(API.REPAIR.REPAIR_IN_CREATE, {
-    Entity: repairInEntity,
-  });
-  return response.data;
+/** Pieces received from that store (Receipt From Store) and not yet returned. */
+export async function listPendingReturnItems(partyId) {
+  if (!partyId) return [];
+  const data = await post(EP.REPAIR_IN_ITEMS, { Take: 200, party_id: partyId });
+  return data?.Entities ?? [];
 }
 
-/**
- * Post (finalise) a repair intake.
- * @param {number} transactionId
- * @returns {Promise<object>} PostResponse
- */
-export async function postRepairIn(transactionId) {
-  const response = await axiosInstance.post(API.REPAIR.REPAIR_IN_POST, {
-    EntityId: transactionId,
-  });
-  return response.data;
+export async function listCompanyLocations(companyId) {
+  if (!companyId) return [];
+  const data = await post(EP.COMPANY_LOCATIONS, { company_id: companyId, Take: 50 });
+  return (data?.Entities ?? []).filter((l) => l.location_id > 0);
 }
 
-/**
- * Cancel a repair intake.
- * @param {number} transactionId
- * @returns {Promise<object>} OrnaVerse response
- */
-export async function cancelRepairIn(transactionId) {
-  const response = await axiosInstance.post(API.REPAIR.REPAIR_IN_CANCEL, {
-    EntityId: transactionId,
-  });
-  return response.data;
+/** Same line OrnaVerse's Return To Store item dialog builds from a received bag. */
+async function receivedItemToReturnLine(row, { companyId, financialYearId }) {
+  const bom = row.bag_no
+    ? (await post(EP.BAG_BOM, { bag_no: row.bag_no }))?.Entities ?? []
+    : row.item_components ?? [];
+  return {
+    lot_no: row.lot_no, bag_no: row.bag_no, location_id: row.location_id, pieces: row.pieces,
+    item_id: row.item_id, item_group_name: row.item_group_name, base_item_id: row.base_item_id,
+    item_group_id: row.item_group_id, item_line_no: row.item_line_no, item_attribute_id: row.item_attribute_id,
+    item_code: row.item_code, item_name: row.item_name, item_size_id: row.item_size_id, weight: row.weight,
+    net_weight: row.net_weight, purity: row.purity, pure_weight: row.pure_weight,
+    company_id: companyId, financial_year_id: financialYearId,
+    ref_document_id: row.document_id, ref_transaction_id: row.transaction_id,
+    ref_transaction_item_id: row.transaction_item_id, order_type_id: row.order_type_id, order_id: row.order_id,
+    bag_status_id: row.bag_status_id, diamond_pieces: row.diamond_pieces, diamond_weight: row.diamond_weight,
+    color_stone_pieces: row.color_stone_pieces, color_stone_weight: row.color_stone_weight,
+    stone_pieces: row.stone_pieces, stone_weight: row.stone_weight, other_pieces: row.other_pieces,
+    other_weight: row.other_weight, parts: row.parts, sku: row.sku, sub_bag_no: row.sub_bag_no,
+    tree_id: row.tree_id ?? 0, tree_item_id: row.tree_item_id ?? 0, tree_no: row.tree_no,
+    color_quality_id: row.color_quality_id, purchase_costing_id: row.purchase_costing_id,
+    sales_costing_id: row.sales_costing_id, style_id: row.style_id, certificate_no: row.certificate_no,
+    huid: row.huid, supplier_batch: row.supplier_batch, supplier_style: row.supplier_style,
+    stamp_id: row.stamp_id, ref_no: row.ref_no, lab_id: row.lab_id, is_bom: row.is_bom,
+    document_id: REPAIR_DOC.RETURN_TO_STORE,
+    item_rate: 0, item_labour: 0, item_cost: 0, sub_total: 0, net_amount: 0, tax_amount: 0, discount: 0,
+    item_components: bom.map((c) => omit(c, 'transaction_item_id', 'transaction_bom_id', 'transaction_item_bom_id')),
+    item_operations: [],
+    item_taxes: [],
+  };
 }
 
-/**
- * Paginated list of repair-out records.
- * @param {{ take?: number, skip?: number, company_id?: number }} params
- * @returns {Promise<object>} { Entities[], TotalCount }
- */
-export async function getRepairOuts({ take = 50, skip = 0, company_id } = {}) {
-  const response = await axiosInstance.post(API.REPAIR.REPAIR_OUT_LIST, {
-    Take:       take,
-    Skip:       skip,
-    company_id: company_id ?? undefined,
-  });
-  return response.data;
+export async function buildReturnToStoreEntity({
+  companyId, companyCode, headerConfig, destination, locationId, items, narration,
+}) {
+  const party = (await post(EP.PARTY_RETRIEVE, { EntityId: destination.partyId }))?.Entity;
+  if (!party) throw new Error('Store party not found in OrnaVerse.');
+  const header = await documentHeader({ documentId: REPAIR_DOC.RETURN_TO_STORE, companyId, companyCode, headerConfig });
+  const lineItems = await Promise.all(items.map((row) => receivedItemToReturnLine(row, {
+    companyId, financialYearId: header.financial_year_id,
+  })));
+  const totals = aggregateLineTotals(lineItems);
+  return {
+    ...header,
+    party_id: party.party_id,
+    party_name: party.party_name,
+    state_name: party.state_name,
+    payable_ledger_id: party.payable_ledger_id,
+    receivable_ledger_id: party.receivable_ledger_id,
+    tax_reg_type: party.tax_reg_type,
+    tax_no: party.tax_no,
+    location_id: locationId,
+    cost_policy: 1,
+    coef: 1,
+    stone_markup: 1,
+    labour_markup: 1,
+    line_items: lineItems,
+    pieces: totals.pieces,
+    weight: totals.weight,
+    net_weight: totals.net_weight,
+    sub_total: totals.sub_total,
+    net_amount: totals.sub_total,
+    base_sub_total: totals.sub_total,
+    base_net_amount: totals.sub_total,
+    discount: totals.discount,
+    tax_amount: 0,
+    round_off: 0,
+    narration: narration ?? '',
+  };
 }
 
-/**
- * Create a repair-out (send item to craftsman).
- * @param {object} repairOutEntity — RepairOutRow fields
- * @returns {Promise<object>} SaveResponse { EntityId }
- */
-export async function createRepairOut(repairOutEntity) {
-  const response = await axiosInstance.post(API.REPAIR.REPAIR_OUT_CREATE, {
-    Entity: repairOutEntity,
-  });
-  return response.data;
+export async function createReturnToStore(entity) {
+  return post(EP.REPAIR_OUT_CREATE, { Entity: entity });
 }
 
-/**
- * Post (finalise) a repair-out.
- * @param {number} transactionId
- * @returns {Promise<object>} PostResponse
- */
-export async function postRepairOut(transactionId) {
-  const response = await axiosInstance.post(API.REPAIR.REPAIR_OUT_POST, {
-    EntityId: transactionId,
-  });
-  return response.data;
-}
-
-/**
- * Paginated list of repair invoices.
- * @param {{ take?: number, skip?: number, company_id?: number }} params
- * @returns {Promise<object>} { Entities[], TotalCount }
- */
-export async function getRepairInvoices({ take = 50, skip = 0, company_id } = {}) {
-  const response = await axiosInstance.post(API.REPAIR.REPAIR_INVOICE_LIST, {
-    Take:       take,
-    Skip:       skip,
-    company_id: company_id ?? undefined,
-  });
-  return response.data;
-}
-
-/**
- * Full detail of a single repair invoice.
- * @param {number} transactionId
- * @returns {Promise<object>} { Entity: RepairInvoiceRow }
- */
-export async function getRepairInvoiceDetail(transactionId) {
-  const response = await axiosInstance.post(API.REPAIR.REPAIR_INVOICE_RETRIEVE, {
-    EntityId: transactionId,
-  });
-  return response.data;
-}
-
-/**
- * Create a repair invoice (item ready, bill the customer).
- * @param {object} repairInvoiceEntity — RepairInvoiceRow fields
- * @returns {Promise<object>} SaveResponse { EntityId }
- */
-export async function createRepairInvoice(repairInvoiceEntity) {
-  const response = await axiosInstance.post(API.REPAIR.REPAIR_INVOICE_CREATE, {
-    Entity: repairInvoiceEntity,
-  });
-  return response.data;
-}
-
-/**
- * Post (finalise) a repair invoice.
- * @param {number} transactionId
- * @returns {Promise<object>} PostResponse
- */
-export async function postRepairInvoice(transactionId) {
-  const response = await axiosInstance.post(API.REPAIR.REPAIR_INVOICE_POST, {
-    EntityId: transactionId,
-  });
-  return response.data;
-}
-
-/**
- * Create a payment receipt against a repair invoice.
- * @param {object} receiptEntity — RepairInvoiceReceiptRow fields
- * @returns {Promise<object>} SaveResponse { EntityId }
- */
-export async function createRepairInvoiceReceipt(receiptEntity) {
-  const response = await axiosInstance.post(API.REPAIR.REPAIR_INVOICE_RECEIPT, {
-    Entity: receiptEntity,
-  });
-  return response.data;
-}
-
-/**
- * Get customer's advance payments available for repair invoice.
- * @param {{ party_id: number, company_id: number }} params
- */
 export async function getRepairInvoiceAdvances({ party_id, company_id }) {
-  const response = await axiosInstance.post(
-    API.REPAIR.REPAIR_INVOICE_HELPERS_GET_ADVANCES,
-    { party_id, company_id }
-  );
-  return response.data;
+  return post(EP.REPAIR_INVOICE_HELPERS_GET_ADVANCES, { party_id, company_id });
 }
 
-/**
- * Get customer's scheme balance available for repair invoice.
- * @param {{ party_id: number, company_id: number }} params
- */
 export async function getRepairInvoiceScheme({ party_id, company_id }) {
-  const response = await axiosInstance.post(
-    API.REPAIR.REPAIR_INVOICE_HELPERS_GET_SCHEME,
-    { party_id, company_id }
-  );
-  return response.data;
+  return post(EP.REPAIR_INVOICE_HELPERS_GET_SCHEME, { party_id, company_id });
 }
 
-/**
- * Get customer's credit note balance available for repair invoice.
- * @param {{ party_id: number, company_id: number }} params
- */
 export async function getRepairInvoiceCreditNote({ party_id, company_id }) {
-  const response = await axiosInstance.post(
-    API.REPAIR.REPAIR_INVOICE_HELPERS_GET_CREDIT,
-    { party_id, company_id }
-  );
-  return response.data;
+  return post(EP.REPAIR_INVOICE_HELPERS_GET_CREDIT, { party_id, company_id });
 }
 
-/**
- * Get customer's exchange value available for repair invoice.
- * @param {{ party_id: number, company_id: number }} params
- */
 export async function getRepairInvoiceExchange({ party_id, company_id }) {
-  const response = await axiosInstance.post(
-    API.REPAIR.REPAIR_INVOICE_HELPERS_GET_EXCHANGE,
-    { party_id, company_id }
-  );
-  return response.data;
+  return post(EP.REPAIR_INVOICE_HELPERS_GET_EXCHANGE, { party_id, company_id });
 }

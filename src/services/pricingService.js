@@ -133,7 +133,8 @@ export async function findRealBomComponents(itemId) {
   try {
     const stockResponse = await getStockPieces({ itemId, take: 1 });
     const row = stockResponse?.data?.Entities?.[0];
-    if (!row) return null;
+    // A multi-piece (bulk) row's BOM covers the whole bag, not one piece.
+    if (!row || (row.pieces ?? 1) > 1) return null;
 
     const bomResponse = await getStockJournalBOM({
       itemId:     row.item_id,

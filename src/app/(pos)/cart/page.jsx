@@ -7,6 +7,7 @@ import CartSummary from '@/components/features/cart/CartSummary';
 import CartCustomerTag from '@/components/features/cart/CartCustomerTag';
 import DiscountSection from '@/components/features/checkout/DiscountSection';
 import ProceedToCheckoutButton from '@/components/features/cart/ProceedToCheckoutButton';
+import DeferredFreeGiftNote from '@/components/features/cart/DeferredFreeGiftNote';
 import { useCart } from '@/hooks/cart/useCart';
 import { useCheckoutPricing } from '@/hooks/checkout/useCheckoutPricing';
 import { buildCartDisplayRows, combineGroupTotals, getPromoBreakdown } from '@/services/checkoutPricingService';
@@ -78,6 +79,7 @@ export default function CartPage() {
               />
             ))}
           </div>
+          <DeferredFreeGiftNote items={items} invoice={invoice} order={order} />
 
           <div className="rounded-xl border border-border bg-card p-4">
             <CartSummary totals={pricedTotals} isPricing={isPricing} discountBreakdown={discountBreakdown} />

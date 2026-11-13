@@ -1,7 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useDispatch } from 'react-redux';
+import { useQuery } from '@tanstack/react-query';
+import { getUserStores } from '@/services/storeService';
+import { setAvailableStores } from '@/store/slices/storeSlice';
 import { toast } from 'sonner';
 import Image from 'next/image';
 import { LogOut, ChevronsUpDown, Check, CheckCircle2, Store, ArrowRight } from 'lucide-react';
@@ -26,8 +30,26 @@ import {
 
 export default function StoreSelectionGrid() {
   const router = useRouter();
+  const dispatch = useDispatch();
   const { availableStores, switchStore } = useActiveStore();
   const { logout } = useAuth();
+
+  // The list is normally loaded at login; a session restored without that step (server restart, env switch,
+  // cleared store) reaches this screen with none, so load it here rather than claim no stores are assigned.
+  const storesQuery = useQuery({
+    queryKey: ['auth', 'user-stores'],
+    queryFn: async () => {
+      const data = await getUserStores();
+      return Array.isArray(data) ? data : data?.Entities ?? [];
+    },
+    enabled: availableStores.length === 0,
+    staleTime: 0,
+    retry: 1,
+  });
+  useEffect(() => {
+    if (availableStores.length === 0 && storesQuery.data?.length) dispatch(setAvailableStores(storesQuery.data));
+  }, [availableStores.length, storesQuery.data, dispatch]);
+  const isLoadingStores = availableStores.length === 0 && storesQuery.isFetching;
 
   const [open, setOpen]           = useState(false);
   const [selected, setSelected]   = useState(null);
@@ -104,10 +126,17 @@ export default function StoreSelectionGrid() {
             </h2>
 
           {availableStores.length === 0 ? (
-            <div className="rounded-lg bg-muted px-4 py-6 text-center">
+            <div className="flex flex-col items-center gap-3 rounded-lg bg-muted px-4 py-6 text-center">
               <p className="text-sm text-muted-foreground">
-                No stores are assigned to your account. Please contact your administrator.
+                {isLoadingStores
+                  ? 'Loading your stores…'
+                  : storesQuery.isError
+                    ? "Couldn't load your stores from OrnaVerse."
+                    : 'No stores are assigned to your account. Please contact your administrator.'}
               </p>
+              {!isLoadingStores && (
+                <Button type="button" variant="outline" size="sm" onClick={() => storesQuery.refetch()}>Try again</Button>
+              )}
             </div>
           ) : (
             <div className="flex flex-col gap-4">

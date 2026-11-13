@@ -13,6 +13,7 @@ import CrossStoreStockPanel from '@/components/features/products/CrossStoreStock
 import { useStockByStores } from '@/hooks/products/useStockByStores';
 import { selectFreeGiftDiscoveryPromoCode } from '@/store/slices/uiSlice';
 import { cn } from '@/lib/utils';
+import { resolveImageSrc } from '@/lib/resolveImageSrc';
 import { isShopifyImageUrl, shopifyImageLoader } from '@/lib/shopifyImageLoader';
 
 /**
@@ -50,7 +51,7 @@ export default function CartItemRow({
 
   const unitPrice = priced ? priced.unitPrice : item.unitPrice;
   const lineTotal = priced ? priced.lineTotal : item.unitPrice * displayQuantity;
-  const imageSrc = item.image ?? null;
+  const imageSrc = resolveImageSrc(item.image);
   const showImage = imageSrc && !imgError;
 
   const canViewProduct = !!item.itemId && !item.customLine;

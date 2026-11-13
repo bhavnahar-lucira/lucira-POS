@@ -78,6 +78,7 @@ export default function FulfillOrderAction({ raw }) {
         mobile:        raw.mobile,
         transactionId: raw.transaction_id,
         documentNo:    raw.document_no,
+        promoCodes:    [...new Set((raw.promotion_details ?? []).map((p) => p.promotion_code).filter(Boolean))],
       },
       lines: thisOrderReady,
     });

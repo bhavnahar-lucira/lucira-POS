@@ -40,8 +40,10 @@ const SERVICE_WORKER_SOURCE = `// Lucira POS service worker — offline app-shel
 //     sends once it's safe to reload (see ServiceWorkerRegistration — it
 //     holds off while a sale is mid-payment).
 
-const SHELL_CACHE = 'lucira-pos-shell-v1';
-const RUNTIME_CACHE = 'lucira-pos-runtime-v1';
+// v2: v1 also cached Next's page-data (RSC) requests, which pinned old deploys' pages until the cache was cleared.
+// Bumping the names makes activate() delete those v1 caches.
+const SHELL_CACHE = 'lucira-pos-shell-v2';
+const RUNTIME_CACHE = 'lucira-pos-runtime-v2';
 const KNOWN_CACHES = [SHELL_CACHE, RUNTIME_CACHE];
 
 // Small and deliberately static — NOT an attempt to precache hashed JS/CSS
@@ -81,6 +83,16 @@ self.addEventListener('message', (event) => {
 
 function isLiveData(url) {
   return url.pathname.startsWith('/api/');
+}
+
+// Only files whose URL changes when their content changes are safe to serve from cache forever.
+// Page data (RSC requests, ?_rsc=…) and everything else must always come from the network.
+const STATIC_FILE = /\\.(?:png|jpe?g|webp|avif|gif|svg|ico|woff2?|ttf|otf)$/i;
+function isImmutableAsset(url, request) {
+  if (request.headers.get('RSC') || url.searchParams.has('_rsc')) return false;
+  return url.pathname.startsWith('/_next/static/')
+    || SHELL_URLS.includes(url.pathname)
+    || (url.pathname.startsWith('/images/') && STATIC_FILE.test(url.pathname));
 }
 
 async function trimRuntimeCache() {
@@ -146,7 +158,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (url.origin === self.location.origin) {
+  if (url.origin === self.location.origin && isImmutableAsset(url, request)) {
     event.respondWith(cacheFirst(request));
   }
 });

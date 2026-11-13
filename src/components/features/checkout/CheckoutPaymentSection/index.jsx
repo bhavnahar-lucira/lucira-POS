@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { usePaymentModes } from '@/hooks/checkout/usePaymentModes';
 import { useBankPosAccounts } from '@/hooks/checkout/useBankPosAccounts';
 import { useInvoiceHelpers } from '@/hooks/checkout/useInvoiceHelpers';
+import { useOrderAdvance } from '@/hooks/checkout/useOrderAdvance';
 import { useCustomerSession } from '@/hooks/customer/useCustomerSession';
 import { useNectorCheckoutInfo } from '@/hooks/checkout/useNectorCheckoutInfo';
 import { useSelector } from 'react-redux';
@@ -79,6 +80,7 @@ export default function CheckoutPaymentSection({
     partyId:   customerId,
     companyId: activeStoreId,
   });
+  const { orderAdvance, isLoading: orderAdvanceLoading } = useOrderAdvance();
   const loyaltyMode = paymentModes.find((m) => m.modeType === LOYALTY_MODE_TYPE) ?? null;
   const {
     promotion: loyaltyPromotion, isEligible: loyaltyEligible,
@@ -103,6 +105,7 @@ export default function CheckoutPaymentSection({
     : null;
   const [payments, setPayments] = useState([]);
   const [lastPricedTotal, setLastPricedTotal] = useState(total);
+  const [autoAppliedAdvanceFor, setAutoAppliedAdvanceFor] = useState(null);
   const dailyCashTaken = helpers.dailyCash?.amount ?? 0;
   const cashHeadroom   = Math.max(0, APP_CONFIG.COMPLIANCE.CASH_DAILY_LIMIT - dailyCashTaken);
   const isCashBlocked  = !helpers.dailyCash?.isLoading && cashHeadroom <= 0;
@@ -246,6 +249,15 @@ export default function CheckoutPaymentSection({
     };
   });
 
+  // The order's advance is applied as soon as the bill is priced, as OrnaVerse's own counter does.
+  const advanceOrderId = orderAdvance?.row.transaction_id ?? null;
+  if (advanceOrderId && total > 0 && autoAppliedAdvanceFor !== advanceOrderId) {
+    setAutoAppliedAdvanceFor(advanceOrderId);
+    if (!payments.some((p) => p.helperCategory === 'OrderAdvance')) {
+      handleHelperToggle({ modeCode: 'OrderAdvance', label: 'Order Advance', amount: orderAdvance.amount, rows: [orderAdvance.row] });
+    }
+  }
+
   useEffect(() => {
     onChange?.(emittedPayments);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -259,6 +271,10 @@ export default function CheckoutPaymentSection({
   const isBalanced = payments.length > 0 && remaining === 0;
 
   const helperItems = [
+    {
+      label: 'Order Advance', code: 'OrderAdvance', loading: orderAdvanceLoading,
+      data: orderAdvance ? { amount: orderAdvance.amount, rows: [orderAdvance.row] } : null,
+    },
     { label: 'Scheme Balance',  code: 'Scheme',      data: helpers.scheme,     loading: helpers.scheme?.isLoading },
     { label: 'Exchange Credit', code: 'Exchange',    data: helpers.exchange,   loading: helpers.exchange?.isLoading },
     { label: 'Credit Note',     code: 'CreditNote',  data: helpers.creditNote, loading: helpers.creditNote?.isLoading },

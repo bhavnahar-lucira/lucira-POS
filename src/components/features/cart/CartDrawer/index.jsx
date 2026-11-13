@@ -8,6 +8,7 @@ import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import BottomSheet from '@/components/shared/BottomSheet';
 import CartItemRow from '@/components/features/cart/CartItemRow';
+import DeferredFreeGiftNote from '@/components/features/cart/DeferredFreeGiftNote';
 import CartEmptyState from '@/components/features/cart/CartEmptyState';
 import CartSummary from '@/components/features/cart/CartSummary';
 import CartCustomerTag from '@/components/features/cart/CartCustomerTag';
@@ -102,6 +103,7 @@ export default function CartDrawer({ isOpen, onClose }) {
                 priced={row.priced}
               />
             ))}
+            <DeferredFreeGiftNote items={items} invoice={invoice} order={order} className="mt-2" />
           </div>
         </div>
       )}

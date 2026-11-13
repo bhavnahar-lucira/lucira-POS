@@ -23,6 +23,32 @@ export default function ServiceWorkerRegistration() {
   const checkoutInProgressRef = useRef(checkoutInProgress);
   useEffect(() => { checkoutInProgressRef.current = checkoutInProgress; }, [checkoutInProgress]);
 
+  // A tab left open across a deploy can ask for a JS chunk that no longer exists; reload once instead of erroring.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const RELOAD_KEY = 'lucira-chunk-reload-at';
+    const isChunkError = (reason) => {
+      const text = `${reason?.name ?? ''} ${reason?.message ?? reason ?? ''}`;
+      return /ChunkLoadError|Loading chunk [\w-]+ failed|Failed to fetch dynamically imported module|Importing a module script failed/i.test(text);
+    };
+    const recover = (reason) => {
+      if (!isChunkError(reason)) return;
+      let last = 0;
+      try { last = Number(sessionStorage.getItem(RELOAD_KEY)) || 0; } catch {}
+      if (Date.now() - last < 60_000) return;
+      try { sessionStorage.setItem(RELOAD_KEY, String(Date.now())); } catch {}
+      window.location.reload();
+    };
+    const onError = (e) => recover(e.error ?? e.message);
+    const onRejection = (e) => recover(e.reason);
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onRejection);
+    return () => {
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onRejection);
+    };
+  }, []);
+
   useEffect(() => {
     // Dev-only skip: sw.js's own static-asset strategy is cache-first,
     // correct for production where chunk filenames are content-hashed (a
