@@ -2,11 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useSelector } from 'react-redux';
 import Logo from '@/components/shared/Logo';
 import { ChevronLeft, ChevronRight, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSidebar } from '@/hooks/ui/useSidebar';
 import { useAuth } from '@/hooks/auth/useAuth';
+import { selectIsSuperAdmin } from '@/store/slices/authSlice';
 import { useMediaQuery } from '@/hooks/ui/useMediaQuery';
 import { useHasMounted } from '@/hooks/ui/useHasMounted';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -101,6 +103,7 @@ export default function Sidebar() {
   // also pop the drawer open over the page on a phone (see uiSlice).
   const { sidebarOpen, collapsed, close, setCollapsed } = useSidebar();
   const { user, logout } = useAuth();
+  const isSuperAdmin = useSelector(selectIsSuperAdmin);
 
   const mode = collapsed === null ? 'auto' : collapsed ? 'rail' : 'expanded';
 
@@ -113,6 +116,8 @@ export default function Sidebar() {
   const isRail = collapsed ?? (hasMounted ? !isLaptop : false);
 
   const toggleRail = () => setCollapsed(!isRail);
+
+  const visibleNavItems = NAV_ITEMS.filter((item) => !item.superAdminOnly || isSuperAdmin);
 
   return (
     <>
@@ -155,7 +160,7 @@ export default function Sidebar() {
           className="flex flex-col gap-1 flex-1 overflow-y-auto scrollbar-none p-2"
           aria-label="Primary"
         >
-          {NAV_ITEMS.map((item) => (
+          {visibleNavItems.map((item) => (
             <SidebarNavItem key={item.href} item={item} mode={mode} isRail={isRail} onNavigate={close} />
           ))}
         </nav>

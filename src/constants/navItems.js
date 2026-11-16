@@ -18,6 +18,7 @@ import {
   UserX,
   Ticket,
   MessageSquareHeart,
+  Target,
 } from 'lucide-react';
 
 export const NAV_ITEMS = [
@@ -38,6 +39,7 @@ export const NAV_ITEMS = [
   { label: 'Non-Buyers',   href: '/non-buyers',   icon: UserX           },
   { label: 'Voice of Lucira', href: '/voc',     icon: MessageSquareHeart },
   { label: 'Reports',      href: '/reports',      icon: BarChart3       },
+  { label: 'CRM Deals',    href: '/deals',        icon: Target, superAdminOnly: true },
 ];
 
 export const BOTTOM_ITEMS = [

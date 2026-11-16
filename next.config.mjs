@@ -30,6 +30,14 @@ const nextConfig = {
         protocol: 'https',
         hostname: 's3.amazonaws.com',
       },
+      {
+        protocol: 'https',
+        hostname: 'shopify-staged-uploads.storage.googleapis.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'lucirajewelry.cloud',
+      },
     ],
   },
 
@@ -79,7 +87,7 @@ const nextConfig = {
               "img-src 'self' data: https://lucirajewelry.cloud https://shopify-staged-uploads.storage.googleapis.com https://lucira.live.ornaverse.in https://lucira.uat.ornaverse.in https://cdn.shopify.com https://luciraonline.myshopify.com https://www.lucirajewelry.com https://cdn.nector.io https://s3.amazonaws.com https://*.google-analytics.com https://www.googletagmanager.com",
               "font-src 'self' https://cdn.shopify.com",
               "media-src 'self' https://cdn.shopify.com",
-              "connect-src 'self' https://cdn.shopify.com https://*.google-analytics.com https://www.googletagmanager.com",
+              "connect-src 'self' https://cdn.shopify.com https://shopify-staged-uploads.storage.googleapis.com https://lucirajewelry.cloud https://lucira.live.ornaverse.in https://lucira.uat.ornaverse.in https://*.google-analytics.com https://www.googletagmanager.com",
               "frame-ancestors 'none'",
               "base-uri 'self'",
               "form-action 'self'",

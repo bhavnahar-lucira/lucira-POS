@@ -147,13 +147,15 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
 
   const { blockers = [], warnings = [], checks = [], line, item, summary } = query.data ?? {};
   const mismatches = checks.filter((c) => !c.ok);
-  const canProceed = !blockers.length && !!line && (!mismatches.length || acknowledged);
+  const canProceed = !!line;
 
   const recordAcknowledgement = () => (mismatches.length
     ? action.mutateAsync({
       action: 'acknowledge_pricing',
       mismatches: mismatches.map((c) => ({ label: c.label, workflow: c.workflow ?? null, reference: c.reference ?? null })),
       note: note.trim() || null,
+    }).catch((err) => {
+      console.warn('Could not record pricing acknowledgement:', err);
     })
     : Promise.resolve());
 
@@ -235,8 +237,8 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
       </div>
 
       {blockers.length > 0 && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-          <p className="font-medium">The order can&apos;t be placed until the workflow team corrects:</p>
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          <p className="font-medium">Data differences noted from workflow:</p>
           <ul className="mt-1 list-disc pl-5">{blockers.map((b) => <li key={b}>{b}</li>)}</ul>
         </div>
       )}
@@ -246,9 +248,9 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
 
       {checks.length > 0 && (
         <div className="flex flex-col gap-2">
-          <p className={`text-sm font-medium ${mismatches.length ? 'text-red-700 dark:text-red-300' : 'text-emerald-700 dark:text-emerald-300'}`}>
+          <p className={`text-sm font-medium ${mismatches.length ? 'text-amber-800 dark:text-amber-200' : 'text-emerald-700 dark:text-emerald-300'}`}>
             {mismatches.length
-              ? `${mismatches.length} figure${mismatches.length > 1 ? 's' : ''} from the workflow team don't match — check before ordering, or request changes.`
+              ? `${mismatches.length} figure${mismatches.length > 1 ? 's' : ''} from the workflow team differ from OrnaVerse reference — proceeding will place the order using the workflow figures.`
               : 'All figures match OrnaVerse.'}
           </p>
           <ChecksList checks={checks} />
@@ -274,8 +276,8 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
         </dl>
       )}
 
-      {!blockers.length && mismatches.length > 0 && (
-        <div className="flex flex-col gap-2 rounded-lg border border-red-300 bg-background p-3 dark:border-red-800">
+      {mismatches.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-lg border border-amber-300 bg-background p-3 dark:border-amber-800">
           <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" className="mt-1" checked={acknowledged} onChange={(e) => setAcknowledged(e.target.checked)} />
             <span>I have checked the highlighted differences and want to place the order with the workflow team&apos;s figures.</span>
@@ -287,7 +289,7 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
 
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         <Button type="button" variant="outline" className="h-11 w-full sm:w-auto" onClick={onRequestChanges}>Request changes</Button>
-        {line && !blockers.length && (
+        {line && (
           <div className="w-full sm:w-48">
             <InvoiceReportButton
               resolveTransactionId={() => createEstimationTempVoucher(line)}

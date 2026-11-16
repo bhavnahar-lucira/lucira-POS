@@ -70,10 +70,11 @@ function HelperBalanceRow({ label, amount, modeCode, rows, isApplied, onToggle, 
  */
 export default function CheckoutPaymentSection({
   onChange, amountDue = 0, allowPartial = false, lineItems = [], bare = false,
-  hideHelpers = false, partyId, partyMobile, storeId,
+  hideHelpers = false, partyId, partyMobile, storeId, customModes = null,
 }) {
   const total = amountDue;
-  const { paymentModes, isLoading: modesLoading, isError: modesError } = usePaymentModes();
+  const { paymentModes: defaultModes, isLoading: modesLoading, isError: modesError } = usePaymentModes();
+  const paymentModes = customModes ?? defaultModes;
   const { bankPosAccounts } = useBankPosAccounts();
   const sessionCustomer = useCustomerSession();
   const customerId = partyId !== undefined ? partyId : sessionCustomer.customerId;
@@ -290,9 +291,11 @@ export default function CheckoutPaymentSection({
   ]; // each `data.rows` is the underlying POSReceiptsSelect rows for that bucket — see useInvoiceHelpers.js
 
   const hasVisibleHelpers = !hideHelpers && customerId && helperItems.some((h) => h.data?.amount > 0);
-  const availableModes = hideHelpers
-    ? paymentModes.filter((m) => m.modeType !== LOYALTY_MODE_TYPE)
-    : paymentModes;
+  const availableModes = customModes
+    ? customModes
+    : (hideHelpers
+      ? paymentModes.filter((m) => m.modeType !== LOYALTY_MODE_TYPE)
+      : paymentModes);
 
   const Wrapper = bare ? 'div' : 'section';
 
@@ -359,8 +362,8 @@ export default function CheckoutPaymentSection({
         paymentModes={availableModes}
         selectedModeIds={selectedModeIds}
         onToggle={handleModeToggle}
-        isLoading={modesLoading}
-        isError={modesError}
+        isLoading={customModes ? false : modesLoading}
+        isError={customModes ? false : modesError}
         disabledModeIds={loyaltyMode && loyaltyDisabledReason ? [loyaltyMode.modeId] : []}
         disabledReasons={loyaltyMode ? { [loyaltyMode.modeId]: loyaltyDisabledReason } : {}}
       />

@@ -35,6 +35,7 @@ export const confirmOrderSchema = z.object({
   reference_no:           optionalText(100),
   payment_details:        z.record(z.string(), z.string().trim().max(100)).default({}),
   advance_receipt_id:     optionalId,
+  payments:               z.array(z.any()).optional(),
   expected_delivery_date: isoDate('Select the expected delivery date'),
   karat:                  text().min(1, 'Select the karat'),
   metal:                  optionalText(),
@@ -44,7 +45,7 @@ export const confirmOrderSchema = z.object({
 }).superRefine((o, ctx) => {
   if (!o.amount_received) return;
   if (!o.advance_received_on) ctx.addIssue({ code: 'custom', message: 'Select the advance received date', path: ['advance_received_on'] });
-  if (!o.payment_mode_id) ctx.addIssue({ code: 'custom', message: 'Select the payment mode', path: ['payment_mode_id'] });
+  if (!o.payment_mode_id && (!o.payments || o.payments.length === 0)) ctx.addIssue({ code: 'custom', message: 'Select the payment mode', path: ['payment_mode_id'] });
   if (!o.advance_receipt_id) ctx.addIssue({ code: 'custom', message: 'The advance receipt was not created', path: ['advance_receipt_id'] });
   for (const field of advanceModeFields(o.payment_mode)) {
     const value = o.payment_details[field.key];
@@ -54,10 +55,14 @@ export const confirmOrderSchema = z.object({
 }).transform((o) => {
   // Payment details only travel with an advance, and only the fields of the chosen mode.
   if (!o.amount_received) {
-    return { ...o, payment_mode_id: null, payment_mode: null, bank_pos_id: null, reference_no: null, payment_details: {}, advance_receipt_id: null };
+    return { ...o, payment_mode_id: null, payment_mode: null, bank_pos_id: null, reference_no: null, payment_details: {}, advance_receipt_id: null, payments: [] };
   }
   const fields = advanceModeFields(o.payment_mode);
-  return { ...o, payment_details: Object.fromEntries(fields.filter((f) => o.payment_details[f.key]).map((f) => [f.key, o.payment_details[f.key]])) };
+  return {
+    ...o,
+    payments: o.payments || [],
+    payment_details: Object.fromEntries(fields.filter((f) => o.payment_details[f.key]).map((f) => [f.key, o.payment_details[f.key]]))
+  };
 });
 
 export const createTicketSchema = z.object({

@@ -1049,20 +1049,19 @@ function RefundNewForm({ onDone }) {
         </div>
       )}
 
-      {total > 0 && (
-        <div className="flex flex-col gap-2">
-          <Label>Paid Out By <span className="text-destructive">*</span></Label>
-          <CheckoutPaymentSection
-            bare
-            hideHelpers
-            allowPartial={false}
-            amountDue={total}
-            onChange={setPayments}
-            partyId={customerId}
-            storeId={storeId}
-          />
-        </div>
-      )}
+      <div className="flex flex-col gap-2">
+        <Label>Paid Out By <span className="text-destructive">*</span></Label>
+        <CheckoutPaymentSection
+          bare
+          hideHelpers
+          allowPartial={false}
+          amountDue={total}
+          onChange={setPayments}
+          partyId={customerId}
+          storeId={storeId}
+          customModes={paymentModes}
+        />
+      </div>
 
       <Button
         type="submit"
@@ -1151,20 +1150,18 @@ function AdvanceReceiptNewForm({ onDone }) {
         <Input type="number" step="0.01" min="0" className="h-11" {...register('amount')} />
       </FormField>
 
-      {Number(watchAmount) > 0 && (
-        <div className="pt-1">
-          <Label className="text-sm font-medium mb-1.5 block">Payment Mode <span className="text-destructive">*</span></Label>
-          <CheckoutPaymentSection
-            bare={true}
-            hideHelpers={true}
-            allowPartial={false}
-            amountDue={Number(watchAmount) || 0}
-            onChange={setPayments}
-            partyId={customerId}
-            storeId={storeId}
-          />
-        </div>
-      )}
+      <div className="pt-1">
+        <Label className="text-sm font-medium mb-1.5 block">Payment Mode <span className="text-destructive">*</span></Label>
+        <CheckoutPaymentSection
+          bare={true}
+          hideHelpers={true}
+          allowPartial={false}
+          amountDue={Number(watchAmount) || 0}
+          onChange={setPayments}
+          partyId={customerId}
+          storeId={storeId}
+        />
+      </div>
 
       <FormField label="Narration">
         <Input className="h-11" placeholder="Optional note" {...register('narration')} />

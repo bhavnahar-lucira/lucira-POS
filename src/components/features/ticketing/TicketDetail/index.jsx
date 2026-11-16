@@ -435,7 +435,18 @@ function ConfirmOrderDialog({ ticket, isOpen, onOpenChange, isPending, onSave, a
       }
     }
     const modeLabel = advancePayments.map((p) => p.modeName).join(', ') || order.payment_mode || null;
-    onSave({ ...order, payment_mode: modeLabel, advance_receipt_id: receiptId });
+    const primaryModeId = advancePayments[0]?.modeId ?? order.payment_mode_id ?? null;
+    const bankPosId = advancePayments.find((p) => p.bankPosId)?.bankPosId ?? order.bank_pos_id ?? null;
+    const refNo = advancePayments.find((p) => p.refNo)?.refNo ?? order.reference_no ?? null;
+    onSave({
+      ...order,
+      payment_mode: modeLabel,
+      payment_mode_id: primaryModeId,
+      bank_pos_id: bankPosId,
+      reference_no: refNo,
+      advance_receipt_id: receiptId,
+      payments: advancePayments,
+    });
   };
 
   return (
@@ -498,8 +509,9 @@ function ConfirmOrderDialog({ ticket, isOpen, onOpenChange, isPending, onSave, a
           <FormField label="Advance received date" htmlFor="co-adv-date" required={hasAdvance}>
             <Input id="co-adv-date" className="h-11" type="date" max={todayIso()} disabled={receiptLocked} value={order.advance_received_on} onChange={set('advance_received_on')} />
           </FormField>
-          {!receiptLocked && hasAdvance && (
+          {!receiptLocked && (
             <div className="sm:col-span-2 pt-1">
+              <Label className="text-sm font-medium mb-1.5 block">Payment Mode {hasAdvance && <span className="text-destructive">*</span>}</Label>
               <CheckoutPaymentSection
                 bare={true}
                 hideHelpers={true}

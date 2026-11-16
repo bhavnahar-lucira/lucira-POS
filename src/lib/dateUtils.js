@@ -84,3 +84,18 @@ export function formatDateSlashed(iso) {
   if (!iso) return null;
   return new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
+
+/** "08 Sep 2026, 03:45 PM" — date zero-padded + time 12hr. Missing → null; unparseable → raw string. */
+export function formatDateTime(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return typeof iso === 'string' ? iso : null;
+  return d.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+}

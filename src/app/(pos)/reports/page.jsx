@@ -40,19 +40,19 @@ import { useAdhocReportRun } from '@/hooks/reports/useAdhocReportRun';
 function firstOfMonthDateString() {
   const d = new Date();
   const yyyy = d.getFullYear();
-  const mm   = String(d.getMonth() + 1).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
   return `${yyyy}-${mm}-01`;
 }
 
 const BASE_TABS = [
-  { key: 'summary',     label: 'Sales Summary' },
-  { key: 'category',    label: 'Category Wise' },
+  { key: 'summary', label: 'Sales Summary' },
+  { key: 'category', label: 'Category Wise' },
   { key: 'salesperson', label: 'Jewelry Consultant Wise' },
-  { key: 'velocity',    label: 'SKU Velocity' },
-  { key: 'openOrders',  label: 'Open Orders' },
-  { key: 'stock',       label: 'Stock' },
-  { key: 'walkins',     label: 'Walk-in Visits' },
-  { key: 'repeat',      label: 'Repeat Customers' },
+  { key: 'velocity', label: 'SKU Velocity' },
+  { key: 'openOrders', label: 'Open Orders' },
+  { key: 'stock', label: 'Stock' },
+  { key: 'walkins', label: 'Walk-in Visits' },
+  { key: 'repeat', label: 'Repeat Customers' },
 ];
 const ADHOC_TAB = { key: 'adhoc', label: 'Ad-hoc Reports' };
 
@@ -90,7 +90,7 @@ function AdhocReportsTab({ reportsList, selectedReportId, selectedReport, onSele
     const trimmed = search.trim().toLowerCase();
     const filtered = trimmed
       ? reportsList.reports.filter((r) =>
-          r.Name.toLowerCase().includes(trimmed) || r.Description?.toLowerCase().includes(trimmed))
+        r.Name.toLowerCase().includes(trimmed) || r.Description?.toLowerCase().includes(trimmed))
       : reportsList.reports;
 
     if (reportsList.isPermissionError) {
@@ -201,15 +201,15 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 function buildSummaryKpis(data, bills) {
   return [
-    { label: 'Total Sales',       value: data.total_sales_amount },
-    { label: 'New MTO',           value: data.total_order_amount, count: data.new_mto_count, unit: 'order' },
-    { label: 'Closed MTO',        value: data.mto_orders, count: bills?.mto_bill_count, unit: 'bill', billCount: true },
-    { label: 'RTS',               value: data.mto_sales, count: bills?.rts_bill_count, unit: 'bill', billCount: true },
-    { label: 'RTS / MTO',         value: data.rts_and_mto, count: bills?.total_bill_count, unit: 'bill', billCount: true },
-    { label: 'Return/Exchange',   value: data.returns },
-    { label: 'Pending MTO',       value: data.pending_mto },
-    { label: 'Total URD',         value: data.total_urd },
-    { label: 'Schemes',           value: data.scheme },
+    { label: 'Total Sales', value: data.total_sales_amount },
+    { label: 'New MTO', value: data.total_order_amount, count: data.new_mto_count, unit: 'order' },
+    { label: 'Closed MTO', value: data.mto_orders, count: bills?.mto_bill_count, unit: 'bill', billCount: true },
+    { label: 'RTS', value: data.mto_sales, count: bills?.rts_bill_count, unit: 'bill', billCount: true },
+    { label: 'RTS / MTO', value: data.rts_and_mto, count: bills?.total_bill_count, unit: 'bill', billCount: true },
+    { label: 'Return/Exchange', value: data.returns },
+    { label: 'Pending MTO', value: data.pending_mto },
+    { label: 'Total URD', value: data.total_urd },
+    { label: 'Schemes', value: data.scheme },
   ];
 }
 
@@ -230,21 +230,21 @@ function TotalBillsCard({ bills, isLoading, isError }) {
 }
 
 const STORE_SUMMARY_COLUMNS = [
-  { key: 'store_code',         label: 'Store', mobile: true },
-  { key: 'store_name',         label: 'Store Name' },
-  { key: 'total_bill_count',   label: 'Bills',        align: 'right', total: true, mobile: true },
-  { key: 'mto_bill_count',     label: 'MTO Bills',    align: 'right', total: true },
-  { key: 'rts_bill_count',     label: 'RTS Bills',    align: 'right', total: true },
-  { key: 'total_sales_amount', label: 'Total Sales',  align: 'right', format: formatAmountOrDash, total: true, mobile: true },
-  { key: 'total_order_amount', label: 'New MTO',      align: 'right', format: formatAmountOrDash, total: true },
-  { key: 'new_mto_count',      label: 'New MTO Orders', align: 'right', total: true },
-  { key: 'mto_orders',         label: 'Closed MTO',   align: 'right', format: formatAmountOrDash, total: true },
-  { key: 'mto_sales',          label: 'RTS',          align: 'right', format: formatAmountOrDash, total: true },
-  { key: 'rts_and_mto',        label: 'RTS / MTO',    align: 'right', format: formatAmountOrDash, total: true },
-  { key: 'returns',            label: 'Return/Exchange', align: 'right', format: formatAmountOrDash, total: true },
-  { key: 'pending_mto',        label: 'Pending MTO',  align: 'right', format: formatAmountOrDash, total: true },
-  { key: 'total_urd',          label: 'Total URD',    align: 'right', format: formatAmountOrDash, total: true },
-  { key: 'scheme',             label: 'Schemes',      align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'store_code', label: 'Store', mobile: true },
+  { key: 'store_name', label: 'Store Name' },
+  { key: 'total_bill_count', label: 'Bills', align: 'right', total: true, mobile: true },
+  { key: 'mto_bill_count', label: 'MTO Bills', align: 'right', total: true },
+  { key: 'rts_bill_count', label: 'RTS Bills', align: 'right', total: true },
+  { key: 'total_sales_amount', label: 'Total Sales', align: 'right', format: formatAmountOrDash, total: true, mobile: true },
+  { key: 'total_order_amount', label: 'New MTO', align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'new_mto_count', label: 'New MTO Orders', align: 'right', total: true },
+  { key: 'mto_orders', label: 'Closed MTO', align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'mto_sales', label: 'RTS', align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'rts_and_mto', label: 'RTS / MTO', align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'returns', label: 'Return/Exchange', align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'pending_mto', label: 'Pending MTO', align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'total_urd', label: 'Total URD', align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'scheme', label: 'Schemes', align: 'right', format: formatAmountOrDash, total: true },
 ];
 
 function StoreSummaryTable({ rows, isLoading, isError, onRetry, tableKey }) {
@@ -313,11 +313,11 @@ function SalesSummaryTab({ data, isLoading, isError, onRetry, billsState, storeT
 }
 
 const CATEGORY_COLUMNS = [
-  { key: 'type_name',       label: 'Category', mobile: true },
-  { key: 'total_pieces',    label: 'Pieces',     align: 'right', total: true },
-  { key: 'total_weight',    label: 'Weight (g)', align: 'right', total: true },
-  { key: 'total_sub_total', label: 'Subtotal',   align: 'right', format: formatAmountOrDash, total: true },
-  { key: 'total_tax_amount', label: 'Tax',        align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'type_name', label: 'Category', mobile: true },
+  { key: 'total_pieces', label: 'Pieces', align: 'right', total: true },
+  { key: 'total_weight', label: 'Weight (g)', align: 'right', total: true },
+  { key: 'total_sub_total', label: 'Subtotal', align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'total_tax_amount', label: 'Tax', align: 'right', format: formatAmountOrDash, total: true },
   { key: 'total_Net_Amount', label: 'Net Amount', align: 'right', format: formatAmountOrDash, total: true, mobile: true },
 ];
 
@@ -360,35 +360,35 @@ const SALESPERSON_COLUMNS = [
     },
   },
   { key: 'top_categories', label: 'Categories Sold' },
-  { key: 'walkin_count',  label: 'Walk-ins Attended', align: 'right', total: true },
-  { key: 'buyers_count',  label: 'Customers Sold',    align: 'right', total: true },
-  { key: 'invoice_count', label: 'Invoices',      align: 'right', total: true },
+  { key: 'walkin_count', label: 'Walk-ins Attended', align: 'right', total: true },
+  { key: 'buyers_count', label: 'Customers Sold', align: 'right', total: true },
+  { key: 'invoice_count', label: 'Invoices', align: 'right', total: true },
   { key: 'invoice_value', label: 'Invoice Value', align: 'right', format: formatAmountOrDash, total: true },
-  { key: 'mto_count',     label: 'MTO Orders',    align: 'right', total: true },
-  { key: 'mto_value',     label: 'MTO Value',     align: 'right', format: formatAmountOrDash, total: true },
-  { key: 'pieces',        label: 'Pieces',        align: 'right', total: true },
-  { key: 'weight',        label: 'Weight (g)',    align: 'right', total: true },
-  { key: 'sub_total',     label: 'Subtotal',      align: 'right', format: formatAmountOrDash, total: true },
-  { key: 'net_amount',    label: 'Net Amount',    align: 'right', format: formatAmountOrDash, total: true, mobile: true },
+  { key: 'mto_count', label: 'MTO Orders', align: 'right', total: true },
+  { key: 'mto_value', label: 'MTO Value', align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'pieces', label: 'Pieces', align: 'right', total: true },
+  { key: 'weight', label: 'Weight (g)', align: 'right', total: true },
+  { key: 'sub_total', label: 'Subtotal', align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'net_amount', label: 'Net Amount', align: 'right', format: formatAmountOrDash, total: true, mobile: true },
 ];
 
 const VELOCITY_COLUMNS = [
-  { key: 'ItemCode',           label: 'Item Code', mobile: true },
-  { key: 'ItemGroup',          label: 'Group', filter: true },
-  { key: 'TotalQuantity',      label: 'Qty Sold',  align: 'right', mobile: true },
-  { key: 'TotalValue',         label: 'Value',     align: 'right', format: formatAmountOrDash },
-  { key: 'NormalizedVelocity', label: 'Velocity',  align: 'right', format: (v) => (v == null ? '—' : v.toFixed(2)) },
-  { key: 'VelocityRank',       label: 'Rank',      align: 'right' },
-  { key: 'Recommendation',     label: 'Recommendation', filter: true },
+  { key: 'ItemCode', label: 'Item Code', mobile: true },
+  { key: 'ItemGroup', label: 'Group', filter: true },
+  { key: 'TotalQuantity', label: 'Qty Sold', align: 'right', mobile: true },
+  { key: 'TotalValue', label: 'Value', align: 'right', format: formatAmountOrDash },
+  { key: 'NormalizedVelocity', label: 'Velocity', align: 'right', format: (v) => (v == null ? '—' : v.toFixed(2)) },
+  { key: 'VelocityRank', label: 'Rank', align: 'right' },
+  { key: 'Recommendation', label: 'Recommendation', filter: true },
 ];
 
 const OPEN_ORDERS_COLUMNS = [
-  { key: 'document_no',     label: 'Order No.', mobile: true },
-  { key: 'document_date',   label: 'Date',      format: formatDatePadded },
-  { key: 'party_name',      label: 'Customer' },
-  { key: 'net_amount',      label: 'Net Amount', align: 'right', format: formatAmountOrDash },
-  { key: 'receipt_amount',  label: 'Received',   align: 'right', format: formatAmountOrDash },
-  { key: 'balance_amount',  label: 'Balance',    align: 'right', format: formatAmountOrDash, mobile: true },
+  { key: 'document_no', label: 'Order No.', mobile: true },
+  { key: 'document_date', label: 'Date', format: formatDatePadded },
+  { key: 'party_name', label: 'Customer' },
+  { key: 'net_amount', label: 'Net Amount', align: 'right', format: formatAmountOrDash },
+  { key: 'receipt_amount', label: 'Received', align: 'right', format: formatAmountOrDash },
+  { key: 'balance_amount', label: 'Balance', align: 'right', format: formatAmountOrDash, mobile: true },
 ];
 
 const STORE_COLUMNS = [
@@ -397,50 +397,50 @@ const STORE_COLUMNS = [
 ];
 
 const STOCK_COLUMNS = [
-  { key: 'item_code',          label: 'Item Code' },
-  { key: 'item_name',          label: 'Item Name' },
-  { key: 'sku',                label: 'SKU', mobile: true },
-  { key: 'pieces',             label: 'Pieces',       align: 'right', total: true, mobile: true },
-  { key: 'location_name',      label: 'Location', filter: true },
-  { key: 'item_group_name',    label: 'Item Group', filter: true },
-  { key: 'type_name',          label: 'Type', filter: true },
-  { key: 'sub_type_name',      label: 'Sub Type', filter: true },
-  { key: 'karat_name',         label: 'Karat', filter: true },
-  { key: 'metal_color_name',   label: 'Metal Color', filter: true },
-  { key: 'item_size_name',     label: 'Size' },
-  { key: 'huid',               label: 'HUID' },
-  { key: 'certificate_no',     label: 'Certificate No.' },
-  { key: 'hsn',                label: 'HSN' },
-  { key: 'supplier_style',     label: 'Supplier Style' },
-  { key: 'supplier_batch',     label: 'Supplier Batch' },
-  { key: 'weight',             label: 'Gross Wt (g)', align: 'right', total: true, mobile: true },
-  { key: 'net_weight',         label: 'Net Wt (g)',   align: 'right', total: true },
-  { key: 'diamond_pieces',     label: 'Dia Pcs',      align: 'right', total: true },
-  { key: 'diamond_weight',     label: 'Dia Wt (ct)',  align: 'right', total: true },
-  { key: 'color_stone_pieces', label: 'CS Pcs',       align: 'right', total: true },
-  { key: 'color_stone_weight', label: 'CS Wt',        align: 'right', total: true },
-  { key: 'stone_pieces',       label: 'Stone Pcs',    align: 'right', total: true },
-  { key: 'stone_weight',       label: 'Stone Wt',     align: 'right', total: true },
-  { key: 'other_pieces',       label: 'Other Pcs',    align: 'right', total: true },
-  { key: 'other_weight',       label: 'Other Wt',     align: 'right', total: true },
-  { key: 'center_stone_shape_name',   label: 'Center Stone Shape' },
-  { key: 'center_stone_weight_name',  label: 'Center Stone Wt' },
-  { key: 'center_stone_color_name',   label: 'Center Stone Color' },
+  { key: 'item_code', label: 'Item Code' },
+  { key: 'item_name', label: 'Item Name' },
+  { key: 'sku', label: 'SKU', mobile: true },
+  { key: 'pieces', label: 'Pieces', align: 'right', total: true, mobile: true },
+  { key: 'location_name', label: 'Location', filter: true },
+  { key: 'item_group_name', label: 'Item Group', filter: true },
+  { key: 'type_name', label: 'Type', filter: true },
+  { key: 'sub_type_name', label: 'Sub Type', filter: true },
+  { key: 'karat_name', label: 'Karat', filter: true },
+  { key: 'metal_color_name', label: 'Metal Color', filter: true },
+  { key: 'item_size_name', label: 'Size' },
+  { key: 'huid', label: 'HUID' },
+  { key: 'certificate_no', label: 'Certificate No.' },
+  { key: 'hsn', label: 'HSN' },
+  { key: 'supplier_style', label: 'Supplier Style' },
+  { key: 'supplier_batch', label: 'Supplier Batch' },
+  { key: 'weight', label: 'Gross Wt (g)', align: 'right', total: true, mobile: true },
+  { key: 'net_weight', label: 'Net Wt (g)', align: 'right', total: true },
+  { key: 'diamond_pieces', label: 'Dia Pcs', align: 'right', total: true },
+  { key: 'diamond_weight', label: 'Dia Wt (ct)', align: 'right', total: true },
+  { key: 'color_stone_pieces', label: 'CS Pcs', align: 'right', total: true },
+  { key: 'color_stone_weight', label: 'CS Wt', align: 'right', total: true },
+  { key: 'stone_pieces', label: 'Stone Pcs', align: 'right', total: true },
+  { key: 'stone_weight', label: 'Stone Wt', align: 'right', total: true },
+  { key: 'other_pieces', label: 'Other Pcs', align: 'right', total: true },
+  { key: 'other_weight', label: 'Other Wt', align: 'right', total: true },
+  { key: 'center_stone_shape_name', label: 'Center Stone Shape' },
+  { key: 'center_stone_weight_name', label: 'Center Stone Wt' },
+  { key: 'center_stone_color_name', label: 'Center Stone Color' },
   { key: 'center_stone_quality_name', label: 'Center Stone Quality' },
-  { key: 'is_allocated',       label: 'Allocated',    format: (v) => (v ? 'Yes' : 'No'), filter: true },
+  { key: 'is_allocated', label: 'Allocated', format: (v) => (v ? 'Yes' : 'No'), filter: true },
 ];
 
 // One row per walk-in visit; dates and times are India time.
 const WALKIN_COLUMNS = [
-  { key: 'visited_on',       label: 'Date',     format: formatDatePadded, mobile: true },
-  { key: 'visited_time',     label: 'Time' },
-  { key: 'customer_name',    label: 'Customer', mobile: true },
-  { key: 'mobile',           label: 'Mobile',   format: (v) => (v ? <PhoneLink phone={v} /> : '—'), hidden: true },
-  { key: 'email',            label: 'Email' },
-  { key: 'source',           label: 'Source',   filter: true },
+  { key: 'visited_on', label: 'Date', format: formatDatePadded, mobile: true },
+  { key: 'visited_time', label: 'Time' },
+  { key: 'customer_name', label: 'Customer', mobile: true },
+  { key: 'mobile', label: 'Mobile', format: (v) => (v ? <PhoneLink phone={v} /> : '—'), hidden: true },
+  { key: 'email', label: 'Email' },
+  { key: 'source', label: 'Source', filter: true },
   { key: 'jewelry_consultant', label: 'Jewelry Consultant', format: (v) => v ?? '—', filter: true },
   { key: 'visits_in_period', label: 'Visits in period', align: 'right', filter: true },
-  { key: 'notes',            label: 'Notes' },
+  { key: 'notes', label: 'Notes' },
 ];
 
 const formatPct = (v) => `${(v ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 1 })}%`;
@@ -456,19 +456,19 @@ const formatMonth = (yyyyMm) => (yyyyMm
 
 // One row per repeat purchase; the customer's first purchase rides along on each row.
 const REPEAT_COLUMNS = [
-  { key: 'purchased_on',            label: 'Date', format: formatDatePadded, mobile: true },
-  { key: 'month',                   label: 'Month', format: formatMonth },
-  { key: 'year',                    label: 'Year' },
-  { key: 'customer_name',           label: 'Customer', mobile: true },
-  { key: 'mobile',                  label: 'Mobile', format: (v) => (v ? <PhoneLink phone={v} /> : '—'), hidden: true },
-  { key: 'repeat_count',            label: 'Repeat Count', align: 'right' },
-  { key: 'products',                label: 'Products Purchased' },
-  { key: 'value',                   label: 'Sale Value', align: 'right', format: formatAmountOrDash, total: true, mobile: true },
-  { key: 'exchange_credit',         label: 'Exchange Credit Used', align: 'right', format: formatAmountOrDash, total: true },
-  { key: 'documents',               label: 'Documents' },
-  { key: 'first_purchase_on',       label: 'First Purchase Date', format: formatDatePadded },
-  { key: 'first_purchase_year',     label: 'First Purchase Year', filter: true, filterAlways: true },
-  { key: 'first_purchase_store',    label: 'First Purchase Store' },
+  { key: 'purchased_on', label: 'Date', format: formatDatePadded, mobile: true },
+  { key: 'month', label: 'Month', format: formatMonth },
+  { key: 'year', label: 'Year' },
+  { key: 'customer_name', label: 'Customer', mobile: true },
+  { key: 'mobile', label: 'Mobile', format: (v) => (v ? <PhoneLink phone={v} /> : '—'), hidden: true },
+  { key: 'repeat_count', label: 'Repeat Count', align: 'right' },
+  { key: 'products', label: 'Products Purchased' },
+  { key: 'value', label: 'Sale Value', align: 'right', format: formatAmountOrDash, total: true, mobile: true },
+  { key: 'exchange_credit', label: 'Exchange Credit Used', align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'documents', label: 'Documents' },
+  { key: 'first_purchase_on', label: 'First Purchase Date', format: formatDatePadded },
+  { key: 'first_purchase_year', label: 'First Purchase Year', filter: true, filterAlways: true },
+  { key: 'first_purchase_store', label: 'First Purchase Store' },
   { key: 'first_purchase_products', label: 'First Purchase Products' },
 ];
 
@@ -547,7 +547,7 @@ const normalizeName = (name) => String(name ?? '').trim().toLowerCase();
 // or only the store's name). Rows outside the selected stores are dropped —
 // SKU Velocity ignores company_ids upstream and returns every store.
 function scopeRowsToStores(rows, stores, selectedIds) {
-  const byId   = new Map(stores.map((s) => [s.company_id, s]));
+  const byId = new Map(stores.map((s) => [s.company_id, s]));
   const byCode = new Map(stores.map((s) => [s.company_code, s]));
   const byName = new Map(stores.map((s) => [normalizeName(s.mailing_name), s]));
   const selected = new Set(selectedIds);
@@ -561,7 +561,7 @@ function scopeRowsToStores(rows, stores, selectedIds) {
 }
 
 export default function ReportsPage() {
-  const companyId   = useSelector(selectActiveStoreId);
+  const companyId = useSelector(selectActiveStoreId);
   const companyName = useSelector(selectActiveStoreName);
   const availableStores = useSelector(selectAvailableStores);
   const isSuperAdmin = useSelector(selectIsSuperAdmin);
@@ -573,7 +573,7 @@ export default function ReportsPage() {
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
   const [selectedConsultant, setSelectedConsultant] = useState(null);
   const [fromDate, setFromDate] = useState(() => firstOfMonthDateString());
-  const [toDate, setToDate]     = useState(() => todayDateString());
+  const [toDate, setToDate] = useState(() => todayDateString());
   const hasCustomRange = fromDate !== firstOfMonthDateString() || toDate !== todayDateString();
 
   const handleResetRange = () => {
@@ -599,23 +599,23 @@ export default function ReportsPage() {
   const range = { companyIds: selectedCompanyIds, fromDate, toDate };
 
   // Only the open tab's report is fetched — firing all of them at once adds needless load on OrnaVerse.
-  const summaryReport     = usePosDashboardReport({ ...range, enabled: activeTab === 'summary' });
-  const summaryBills      = useSummaryBillCounts({ ...range, enabled: activeTab === 'summary' });
-  const summaryStores     = useSummaryByStore({ ...range, enabled: activeTab === 'summary' });
-  const categoryReport    = useCategoryWiseSalesReport({ ...range, enabled: activeTab === 'category' });
+  const summaryReport = usePosDashboardReport({ ...range, enabled: activeTab === 'summary' });
+  const summaryBills = useSummaryBillCounts({ ...range, enabled: activeTab === 'summary' });
+  const summaryStores = useSummaryByStore({ ...range, enabled: activeTab === 'summary' });
+  const categoryReport = useCategoryWiseSalesReport({ ...range, enabled: activeTab === 'category' });
   const salesPersonReport = useSalesPersonWiseSalesReport({ ...range, enabled: activeTab === 'salesperson' });
-  const velocityReport    = useSkuVelocityReport({ ...range, enabled: activeTab === 'velocity' });
-  const openOrdersReport  = useOpenPosOrdersReport({ ...range, enabled: activeTab === 'openOrders' });
-  const stockReport       = useStockReport({ companyIds: selectedCompanyIds, toDate, enabled: activeTab === 'stock' });
-  const walkinReport      = useWalkinVisitsReport({ ...range, enabled: activeTab === 'walkins' });
-  const repeatReport      = useRepeatCustomersReport({ ...range, enabled: activeTab === 'repeat' });
+  const velocityReport = useSkuVelocityReport({ ...range, enabled: activeTab === 'velocity' });
+  const openOrdersReport = useOpenPosOrdersReport({ ...range, enabled: activeTab === 'openOrders' });
+  const stockReport = useStockReport({ companyIds: selectedCompanyIds, toDate, enabled: activeTab === 'stock' });
+  const walkinReport = useWalkinVisitsReport({ ...range, enabled: activeTab === 'walkins' });
+  const repeatReport = useRepeatCustomersReport({ ...range, enabled: activeTab === 'repeat' });
 
   const companyKey = selectedCompanyIds.join(',');
   const tableKey = `${activeTab}-${companyKey}-${fromDate}-${toDate}`;
 
   const [selectedAdhocReportId, setSelectedAdhocReportId] = useState(null);
   const adhocReportsList = useAdhocReportsList();
-  const adhocReportRun   = useAdhocReportRun(selectedAdhocReportId);
+  const adhocReportRun = useAdhocReportRun(selectedAdhocReportId);
   const selectedAdhocReport = adhocReportsList.reports.find((r) => r.AdhocReportId === selectedAdhocReportId) ?? null;
   // Hide the tab rather than let a restricted user click into a dead end —
   // confirmed live 2026-10-16: OrnaVerse's own AdhocReport/List 400s with
@@ -633,12 +633,12 @@ export default function ReportsPage() {
       return { ...row, first_purchase_store: store ? `${store.company_code} — ${store.mailing_name}` : 'Another Lucira store' };
     };
     return {
-      category:    { columns: withStoreColumns(CATEGORY_COLUMNS),    rows: scope(categoryReport.rows),    filenamePrefix: 'category-wise-sales' },
+      category: { columns: withStoreColumns(CATEGORY_COLUMNS), rows: scope(categoryReport.rows), filenamePrefix: 'category-wise-sales' },
       salesperson: { columns: withStoreColumns(SALESPERSON_COLUMNS), rows: scope(salesPersonReport.rows), filenamePrefix: 'jewelry-consultant-wise-sales' },
-      velocity:    { columns: withStoreColumns(VELOCITY_COLUMNS),    rows: scope(velocityReport.rows),    filenamePrefix: 'sku-velocity' },
-      openOrders:  { columns: withStoreColumns(OPEN_ORDERS_COLUMNS), rows: scope(openOrdersReport.rows),  filenamePrefix: 'open-pos-orders' },
-      stock:       { columns: [...STORE_COLUMNS, ...STOCK_COLUMNS],  rows: scope(stockReport.rows),       filenamePrefix: 'jewellery-stock' },
-      walkins:     { columns: withStoreColumns(WALKIN_COLUMNS),      rows: scope(walkinReport.rows),      filenamePrefix: 'walk-in-visits' },
+      velocity: { columns: withStoreColumns(VELOCITY_COLUMNS), rows: scope(velocityReport.rows), filenamePrefix: 'sku-velocity' },
+      openOrders: { columns: withStoreColumns(OPEN_ORDERS_COLUMNS), rows: scope(openOrdersReport.rows), filenamePrefix: 'open-pos-orders' },
+      stock: { columns: [...STORE_COLUMNS, ...STOCK_COLUMNS], rows: scope(stockReport.rows), filenamePrefix: 'jewellery-stock' },
+      walkins: { columns: withStoreColumns(WALKIN_COLUMNS), rows: scope(walkinReport.rows), filenamePrefix: 'walk-in-visits' },
       repeat: {
         columns: withStoreColumns(REPEAT_COLUMNS),
         rows: scope((repeatReport.data?.purchases ?? []).map(withFirstStore)),
@@ -662,9 +662,9 @@ export default function ReportsPage() {
     ? !!summaryReport.data
     : activeTab === 'repeat'
       ? !!repeatReport.data
-    : activeTab === 'adhoc'
-      ? adhocReportRun.rows.length > 0
-      : (TAB_REPORTS[activeTab]?.rows.length ?? 0) > 0;
+      : activeTab === 'adhoc'
+        ? adhocReportRun.rows.length > 0
+        : (TAB_REPORTS[activeTab]?.rows.length ?? 0) > 0;
 
   const handleExport = () => {
     if (activeTab === 'summary') {
@@ -1057,11 +1057,10 @@ export default function ReportsPage() {
                   type="button"
                   onClick={() => setActiveTab(tab.key)}
                   aria-pressed={activeTab === tab.key}
-                  className={`min-h-11 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                    activeTab === tab.key
+                  className={`min-h-11 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${activeTab === tab.key
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-muted/40 text-muted-foreground hover:bg-muted/70'
-                  }`}
+                    }`}
                 >
                   {tab.label}
                 </button>
