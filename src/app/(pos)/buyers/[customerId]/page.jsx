@@ -16,14 +16,14 @@ import { deriveDocumentStatus } from '@/hooks/customer/useCustomerOrders';
 import APP_CONFIG from '@/constants/appConfig';
 import { formatAmountOrNull } from '@/lib/priceUtils';
 import { formatDatePadded } from '@/lib/dateUtils';
-import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
+import PhoneLink from '@/components/shared/PhoneLink';
 
 const TABS = [
-  { key: 'invoice',  label: 'Invoice',  pluralLabel: 'invoices',   icon: FileText },
-  { key: 'order',    label: 'Order',    pluralLabel: 'orders',     icon: ClipboardList },
-  { key: 'return',   label: 'Return',   pluralLabel: 'returns',    icon: RotateCcw },
-  { key: 'exchange', label: 'Exchange', pluralLabel: 'exchanges',  icon: ArrowLeftRight },
-  { key: 'buyback',  label: 'Buy Back', pluralLabel: 'buy backs',  icon: ShoppingBag },
+  { key: 'invoice', label: 'Invoice', pluralLabel: 'invoices', icon: FileText },
+  { key: 'order', label: 'Order', pluralLabel: 'orders', icon: ClipboardList },
+  { key: 'return', label: 'Return', pluralLabel: 'returns', icon: RotateCcw },
+  { key: 'exchange', label: 'Exchange', pluralLabel: 'exchanges', icon: ArrowLeftRight },
+  { key: 'buyback', label: 'Buy Back', pluralLabel: 'buy backs', icon: ShoppingBag },
 ];
 
 const DOCUMENT_TYPE_BADGE_VARIANT = { invoice: 'default', order: 'secondary' };
@@ -180,7 +180,9 @@ export default function BuyerDetailPage() {
         <div className="flex-1 min-w-0">
           <h2 className="text-base font-bold text-foreground break-words">{displayName}</h2>
           {displayMobile && (
-            <p className="text-xs text-muted-foreground/70 mt-0.5">{formatMobileWithCountryCode(displayMobile)}</p>
+            <p className="text-xs text-muted-foreground/70 mt-0.5">
+              <PhoneLink phone={displayMobile} />
+            </p>
           )}
         </div>
         <Button

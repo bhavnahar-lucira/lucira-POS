@@ -6,6 +6,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { Button } from '@/components/ui/button';
 import ConfirmDialog from '@/components/shared/ConfirmDialog';
 import InlineLoader from '@/components/shared/InlineLoader';
+import PhoneLink from '@/components/shared/PhoneLink';
 import {
   useRepairDocument, useTransferRepairOrder, useRecallRepairOrder,
   useAuthorizeRepairReceipt, useAuthorizeRepairIn,
@@ -102,7 +103,7 @@ export default function RepairDocumentSheet({ kind, id, billedInvoiceNo, onClose
 
               <div className="rounded-xl border border-border px-4 py-2">
                 <Fact label={kind === 'orders' || kind === 'invoices' ? 'Customer' : 'From / to'} value={doc.party_name} />
-                <Fact label="Mobile" value={doc.mobile} />
+                <Fact label="Mobile" value={doc.mobile ? <PhoneLink phone={doc.mobile} /> : null} />
                 <Fact label="Store" value={doc.company_code} />
                 {kind === 'orders' && <Fact label="Item" value={repairTypeLabel(doc.repair_type)} />}
                 {kind === 'orders' && <Fact label="Repaired at" value={locationLabel(doc.repair_location_type)} />}

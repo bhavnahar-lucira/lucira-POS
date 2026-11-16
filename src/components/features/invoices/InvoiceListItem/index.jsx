@@ -3,7 +3,7 @@
 import { User, Calendar, Store, Phone, Mail } from 'lucide-react';
 import ListItemCard from '@/components/shared/ListItemCard';
 import { formatDateSlashed } from '@/lib/dateUtils';
-import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
+import PhoneLink from '@/components/shared/PhoneLink';
 
 /**
  * @param {{
@@ -24,9 +24,9 @@ export default function InvoiceListItem({ invoice, onSelect }) {
     raw,
   } = invoice;
 
-  const invoiceNo   = raw?.document_no;
+  const invoiceNo = raw?.document_no;
   const invoiceDate = raw?.document_date;
-  const storeName   = raw?.location_name ?? raw?.company_name;
+  const storeName = raw?.location_name ?? raw?.company_name;
 
   return (
     <ListItemCard
@@ -61,7 +61,7 @@ export default function InvoiceListItem({ invoice, onSelect }) {
       {customerMobile && (
         <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
           <Phone size={13} className="shrink-0 text-muted-foreground/70" aria-hidden="true" />
-          <span className="truncate">{formatMobileWithCountryCode(customerMobile)}</span>
+          <PhoneLink phone={customerMobile} className="truncate" />
         </div>
       )}
 

@@ -26,6 +26,9 @@ export function useMasterItemsByCode(skus) {
     })),
   });
 
+  const updateKey = results.map((r) => r.dataUpdatedAt).join('|');
+  const skuKey = uniqueSkus.join('|');
+
   return useMemo(() => {
     const map = new Map();
     results.forEach((r, i) => {
@@ -35,7 +38,7 @@ export function useMasterItemsByCode(skus) {
     });
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results.map((r) => r.dataUpdatedAt).join('|'), uniqueSkus.join('|')]);
+  }, [updateKey, skuKey]);
 }
 
 // ProductCard reads karat_code (bare number, e.g. "14") — the master Items/List

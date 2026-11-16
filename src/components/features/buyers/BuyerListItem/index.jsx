@@ -5,7 +5,7 @@ import ListItemCard from '@/components/shared/ListItemCard';
 import { Badge } from '@/components/ui/badge';
 import { formatAmountOrNull } from '@/lib/priceUtils';
 import { formatDatePadded } from '@/lib/dateUtils';
-import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
+import PhoneLink from '@/components/shared/PhoneLink';
 
 /**
  * @param {{
@@ -23,7 +23,7 @@ export default function BuyerListItem({ buyer, onSelect }) {
   const {
     customerName, customerMobile, stores, invoiceCount, orderCount,
     returnCount, exchangeCount, buybackCount, cancelledCount,
-    totalSpend, lastPurchaseDate,
+    totalSpend, lastPurchaseDate, purchaseCount, daysSinceLastPurchase,
   } = buyer;
 
   return (
@@ -38,7 +38,7 @@ export default function BuyerListItem({ buyer, onSelect }) {
       {customerMobile && (
         <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
           <Phone size={13} className="shrink-0 text-muted-foreground/70" aria-hidden="true" />
-          <span className="truncate">{formatMobileWithCountryCode(customerMobile)}</span>
+          <PhoneLink phone={customerMobile} className="truncate" />
         </div>
       )}
 
@@ -101,13 +101,19 @@ export default function BuyerListItem({ buyer, onSelect }) {
       {formatAmountOrNull(totalSpend) && (
         <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
           <IndianRupee size={13} className="shrink-0 text-muted-foreground/70" aria-hidden="true" />
-          <span>{formatAmountOrNull(totalSpend)} spend</span>
+          <span>
+            {formatAmountOrNull(totalSpend)} spend
+            {purchaseCount > 0 ? ` · ${purchaseCount} purchase${purchaseCount !== 1 ? 's' : ''}` : ''}
+          </span>
         </div>
       )}
 
       <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
         <Calendar size={13} className="shrink-0 text-muted-foreground/70" aria-hidden="true" />
-        <span>Last purchase: {formatDatePadded(lastPurchaseDate)}</span>
+        <span>
+          Last purchase: {formatDatePadded(lastPurchaseDate)}
+          {daysSinceLastPurchase != null ? ` · ${daysSinceLastPurchase === 0 ? 'today' : `${daysSinceLastPurchase} day${daysSinceLastPurchase !== 1 ? 's' : ''} ago`}` : ''}
+        </span>
       </div>
     </ListItemCard>
   );

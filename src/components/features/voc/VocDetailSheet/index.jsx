@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import BottomSheet from '@/components/shared/BottomSheet';
 import ConfirmDialog from '@/components/shared/ConfirmDialog';
 import { Button } from '@/components/ui/button';
+import PhoneLink from '@/components/shared/PhoneLink';
 import { useDeleteVoc } from '@/hooks/voc/useVoc';
 import { QUESTIONS, answerLabel } from '@/lib/voc/questions';
 
@@ -66,7 +67,7 @@ export default function VocDetailSheet({ response, onClose, canManage }) {
           <div className="flex flex-col gap-5">
             <dl className="grid grid-cols-2 gap-3 rounded-xl bg-muted/50 p-3">
               <Field label="Customer" value={response.customer.name} />
-              <Field label="Mobile" value={response.customer.mobile} />
+              <Field label="Mobile" value={response.customer.mobile ? <PhoneLink phone={response.customer.mobile} /> : '—'} />
               <Field label="Email" value={response.customer.email} />
               <Field label="Customer ID" value={response.customer.party_id} />
               <Field label="Store" value={response.store.name} />
@@ -90,7 +91,7 @@ export default function VocDetailSheet({ response, onClose, canManage }) {
                   {response.referrals.map((r) => (
                     <li key={`${r.name}-${r.mobile}`} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
                       <span className="min-w-0 truncate text-foreground">{r.name}</span>
-                      <a href={`tel:${r.mobile}`} className="shrink-0 tabular-nums text-primary underline-offset-2 hover:underline">{r.mobile}</a>
+                      <PhoneLink phone={r.mobile} className="shrink-0 tabular-nums text-primary" />
                     </li>
                   ))}
                 </ul>

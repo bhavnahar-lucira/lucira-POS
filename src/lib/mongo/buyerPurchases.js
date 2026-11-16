@@ -204,6 +204,23 @@ export async function salesPersonDocumentTotals({ companyIds, fromDate, toDate }
 }
 
 /**
+ * Detailed sales documents per store + sales person in a date range (IST days, inclusive).
+ */
+export async function salesPersonSalesDetails({ companyIds, fromDate, toDate }) {
+  const db = await getDb();
+  return db.collection(COLLECTION).find({
+    ...environmentMatch(),
+    companyId: { $in: companyIds },
+    documentType: { $in: ['invoice', 'order'] },
+    documentStatus: { $nin: [0, 2] },
+    documentDate: {
+      $gte: new Date(`${fromDate}T00:00:00+05:30`),
+      $lte: new Date(`${toDate}T23:59:59.999+05:30`),
+    },
+  }).sort({ documentDate: -1 }).toArray();
+}
+
+/**
  * Every purchase for one customer, newest first — powers the
  * /buyers/[customerId] detail page.
  */

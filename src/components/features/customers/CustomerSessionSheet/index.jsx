@@ -13,9 +13,11 @@ import { Button } from '@/components/ui/button';
 import { useCustomerLookup } from '@/hooks/customer/useCustomerLookup';
 import { useCustomerSearch } from '@/hooks/customer/useCustomerSearch';
 import { useCustomerSession } from '@/hooks/customer/useCustomerSession';
-import { useWalkInLookup } from '@/hooks/customer/useWalkInLookup';
+import WalkInPrompt, { isWalkinHandledToday } from '../WalkInPrompt';
 import { useCart } from '@/hooks/cart/useCart';
 import { useEndCustomerVisit } from '@/components/features/voc/VocEndVisitProvider';
+import { useSelector } from 'react-redux';
+import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import TOAST from '@/constants/toastMessages';
 import APP_CONFIG from '@/constants/appConfig';
 
@@ -42,14 +44,8 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
   const { customer: mobileMatch, isLoading, isError, notFound } = useCustomerLookup(trimmed, {
     enabled: isMobileSearch,
   });
-  const walkIn = useWalkInLookup();
-  const walkInKnown = walkIn.result?.found ? walkIn.result.customer : null;
-  // Server dedupes to one walk-in per customer per 4 hours — a found
-  // customer very often means no NEW visit got recorded this time.
-  // CONFIRMED LIVE 2026-10-08: must reflect that, not always say "recorded".
-  const walkInStatusText = walkIn.result?.walkInRecorded
-    ? 'Visit recorded'
-    : (walkIn.result?.message ?? 'Already visited recently');
+  const companyId = useSelector(selectActiveStoreId);
+  const [promptCustomer, setPromptCustomer] = useState(null);
   const { results: nameResults, isLoading: isNameSearching } = useCustomerSearch(trimmed, {
     enabled: isNameSearch,
   });
@@ -64,17 +60,11 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
   const handleSearch = (query) => {
     setNameResultSelection(null);
     setSearchQuery(query);
-    walkIn.reset();
-    const trimmedQuery = query.trim();
-    if (MOBILE_REGEX.test(trimmedQuery)) {
-      walkIn.lookup(trimmedQuery);
-    }
   };
 
   const handleClose = () => {
     setSearchQuery(null);
     setNameResultSelection(null);
-    walkIn.reset();
     onClose();
   };
 
@@ -84,18 +74,18 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
     return session.customerId !== incomingCustomerId;
   };
 
-  const performAttach = (customerToAttach, options) => {
+  const performAttach = (customerToAttach, options, isNew = false) => {
     const attachNow = () => {
       if (wouldSwitchCustomer(customerToAttach.customerId)) {
         session.detach();
       }
       session.attach(customerToAttach, options);
-      // The single point a customer actually becomes "the one in the
-      // session" — recording here (not just on search keystrokes) covers
-      // every attach path, including a freshly-created customer, which
-      // otherwise never recorded a visit at all.
-      if (customerToAttach.customerMobile) {
-        walkIn.lookup(customerToAttach.customerMobile);
+      // A walk-in is recorded only when staff confirm it in the prompt (once per customer per day).
+      const mobile = customerToAttach.customerMobile;
+      if (mobile && companyId) {
+        isWalkinHandledToday(companyId, mobile)
+          .then((handled) => { if (!handled) setPromptCustomer({ ...customerToAttach, isNew }); })
+          .catch(() => setPromptCustomer({ ...customerToAttach, isNew }));
       }
     };
     handleClose();
@@ -110,14 +100,10 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
 
   const handleSelectNameResult = (selected) => {
     setNameResultSelection(selected);
-    walkIn.reset();
-    if (selected?.customerMobile) {
-      walkIn.lookup(selected.customerMobile);
-    }
   };
 
   const handleNewCustomerCreated = (newCustomer) => {
-    performAttach(newCustomer, { silent: true });
+    performAttach(newCustomer, { silent: true }, true);
   };
 
   const handleDetach = () => {
@@ -126,6 +112,7 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
   };
 
   return (
+    <>
       <BottomSheet
         isOpen={isOpen}
         onClose={handleClose}
@@ -166,39 +153,13 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
 
           {isMobileSearch && customer && (
             <div className="flex flex-col gap-3">
-              {walkInKnown && (
-                <p className="text-xs text-muted-foreground">
-                  {walkInStatusText}{walkInKnown.name ? ` — welcome back, ${walkInKnown.name}` : ' — welcome back'}.
-                </p>
-              )}
               <CustomerDisplayCard customer={customer} />
               <Button type="button" onClick={handleAttachFound} className="h-11">
                 Assign to Session
               </Button>
             </div>
           )}
-          {isMobileSearch && notFound && walkIn.isLoading && (
-            <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-              <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-              Checking visit history…
-            </div>
-          )}
-          
-          {isMobileSearch && notFound && !walkIn.isLoading && walkInKnown && (
-            <div className="flex flex-col gap-3">
-              <p className="text-sm text-muted-foreground">
-                {walkInKnown.name ? `Welcome back, ${walkInKnown.name}.` : 'Welcome back.'} They&apos;ve visited before but aren&apos;t a registered customer yet.
-              </p>
-              <p className="text-sm font-semibold text-foreground/80">Complete Customer Signup</p>
-              <NewCustomerForm
-                defaultMobile={trimmed}
-                defaultName={walkInKnown.name ?? ''}
-                onCreated={handleNewCustomerCreated}
-              />
-            </div>
-          )}
-
-          {isMobileSearch && notFound && !walkIn.isLoading && !walkInKnown && (
+          {isMobileSearch && notFound && (
             <div className="flex flex-col gap-3">
               <p className="text-sm text-muted-foreground">{TOAST.CUSTOMER.NOT_FOUND}</p>
               <p className="text-sm font-semibold text-foreground/80">Create New Customer</p>
@@ -220,23 +181,12 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
             <div className="flex flex-col gap-3">
               <button
                 type="button"
-                onClick={() => { setNameResultSelection(null); walkIn.reset(); }}
+                onClick={() => { setNameResultSelection(null); }}
                 className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground/80 w-fit"
               >
                 <ChevronLeft size={15} aria-hidden="true" />
                 Back to results
               </button>
-              {walkIn.isLoading && (
-                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <Loader2 size={12} className="animate-spin" aria-hidden="true" />
-                  Recording visit…
-                </p>
-              )}
-              {walkInKnown && (
-                <p className="text-xs text-muted-foreground">
-                  {walkInStatusText}{walkInKnown.name ? ` — welcome back, ${walkInKnown.name}` : ' — welcome back'}.
-                </p>
-              )}
               <CustomerDisplayCard customer={customer} />
               <Button type="button" onClick={handleAttachFound} className="h-11">
                 Assign to Session
@@ -266,5 +216,7 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
           )}
         </div>
       </BottomSheet>
+      <WalkInPrompt customer={promptCustomer} onClose={() => setPromptCustomer(null)} />
+    </>
   );
 }

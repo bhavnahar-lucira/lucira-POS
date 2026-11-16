@@ -2,16 +2,14 @@
 
 import { useState } from 'react';
 import { useSelector } from 'react-redux';
-import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { AlertTriangle, CreditCard } from 'lucide-react';
 import BottomSheet from '@/components/shared/BottomSheet';
 import { sumRealGst } from '@/lib/gst';
 import InvoiceReportButton from '@/components/features/checkout/InvoiceReportButton';
 import InsuranceSection from '@/components/features/invoices/InsuranceSection';
-import PaymentModeSelect from '@/components/shared/PaymentModeSelect';
+import CheckoutPaymentSection from '@/components/features/checkout/CheckoutPaymentSection';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { useCancelInvoice } from '@/hooks/invoices/useCancelInvoice';
 import { useAddInvoiceReceipt } from '@/hooks/invoices/useAddInvoiceReceipt';
 import { usePaymentModes } from '@/hooks/checkout/usePaymentModes';
@@ -23,7 +21,7 @@ import APP_CONFIG from '@/constants/appConfig';
 import { formatAmountOrNull as formatCurrency } from '@/lib/priceUtils';
 import { formatDateNumeric } from '@/lib/dateUtils';
 import { resolveImageSrc } from '@/lib/resolveImageSrc';
-import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
+import PhoneLink from '@/components/shared/PhoneLink';
 
 function Row({ label, value, bold, border }) {
   if (value === null || value === undefined || value === '') return null;
@@ -39,17 +37,17 @@ function Row({ label, value, bold, border }) {
 
 function InvoiceContent({ raw }) {
   const lineItems = raw?.line_items ?? [];
-  const payments  = raw?.receipt_details ?? [];
-  const gst       = sumRealGst(lineItems);
+  const payments = raw?.receipt_details ?? [];
+  const gst = sumRealGst(lineItems);
 
   return (
     <div className="flex flex-col gap-2 text-sm">
       <Row label="Invoice No." value={raw.document_no} />
       <Row label="Date" value={formatDateNumeric(raw.document_date)} />
       <Row label="Customer" value={raw.party_name} />
-      <Row label="Mobile"   value={formatMobileWithCountryCode(raw.mobile)} />
-      <Row label="Email"   value={raw.email} />
-      <Row label="Store"    value={raw.location_name ?? raw.company_name} />
+      <Row label="Mobile" value={raw.mobile ? <PhoneLink phone={raw.mobile} /> : null} />
+      <Row label="Email" value={raw.email} />
+      <Row label="Store" value={raw.location_name ?? raw.company_name} />
 
       {lineItems.length > 0 && (
         <div className="border-t border-border pt-2 flex flex-col gap-2">
@@ -103,7 +101,7 @@ function InvoiceContent({ raw }) {
       <Row label="Discount" value={raw.discount ? `– ${formatCurrency(raw.discount)}` : null} />
       <Row label="CGST (1.5%)" value={gst && formatCurrency(gst.cgst)} />
       <Row label="SGST (1.5%)" value={gst && formatCurrency(gst.sgst)} />
-      <Row label="Total"    value={formatCurrency(raw.net_amount)} bold border />
+      <Row label="Total" value={formatCurrency(raw.net_amount)} bold border />
       <Row label="Received" value={formatCurrency(raw.receipt_amount)} />
       <Row
         label="Balance Due"
@@ -141,74 +139,90 @@ function InvoiceContent({ raw }) {
 
 function CollectPaymentPanel({ raw, onDone, onDismiss }) {
   const storeId = useSelector(selectActiveStoreId);
-  const { paymentModes, isLoading: modesLoading } = usePaymentModes();
+  const { paymentModes } = usePaymentModes();
   const headerConfig = useOrderHeaderConfig(APP_CONFIG.DOCUMENT_TYPES.POS_INVOICE);
   const addReceipt = useAddInvoiceReceipt();
+  const [payments, setPayments] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
 
-  const { control, register, handleSubmit, watch, formState: { errors } } = useForm({
-    defaultValues: {
-      mode_id: '', amount: String(raw.balance_amount ?? 0),
-      bank_pos_id: '', ref_no: '',
-    },
-  });
-  const modeId = watch('mode_id');
+  const balanceDue = Number(raw.balance_amount) || 0;
 
-  const onSubmit = async (data) => {
-    const amount = Number(data.amount);
-    if (!amount || amount <= 0) return;
-    const mode = paymentModes.find((m) => m.modeId === Number(data.mode_id));
-    
-    if (mode && paymentRequiresBank(mode)) {
-      if (!data.bank_pos_id) return toast.error('Select the bank account this payment settles to.');
-      if (!data.ref_no?.trim()) return toast.error('Enter a reference number for this payment.');
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!payments.length) return toast.error('Add payment details before recording payment.');
+
+    const totalPaid = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    if (totalPaid <= 0) return toast.error('Enter a valid payment amount.');
+    if (totalPaid > balanceDue + 0.01) {
+      return toast.error(`Payment total (${formatCurrency(totalPaid)}) cannot exceed balance due (${formatCurrency(balanceDue)}).`);
     }
-    await addReceipt.mutateAsync({
-      transactionId:   raw.transaction_id,
-      partyId:         raw.party_id,
-      companyId:       storeId,
-      financialYearId: headerConfig.financialYearId,
-      mode,
-      amount,
-      bankPos: data.bank_pos_id || undefined,
-      refNo:   data.ref_no?.trim() || undefined,
-    });
-    onDone();
+
+    for (const p of payments) {
+      const mode = paymentModes.find((m) => m.modeId === p.modeId);
+      const reqBank = mode && paymentRequiresBank(mode);
+      if (reqBank && !p.bankPosId) {
+        return toast.error(`Select the bank account for ${p.modeName || 'this payment'}.`);
+      }
+      if (reqBank && !p.refNo?.trim()) {
+        return toast.error(`Enter the payment reference number for ${p.modeName || 'this payment'}.`);
+      }
+    }
+
+    setSubmitting(true);
+    try {
+      for (const p of payments) {
+        const mode = paymentModes.find((m) => m.modeId === p.modeId) || {
+          modeId: p.modeId,
+          modeCode: p.modeCode,
+          modeName: p.modeName,
+          ledgerId: p.ledgerId,
+          raw: p.raw,
+        };
+        await addReceipt.mutateAsync({
+          transactionId: raw.transaction_id,
+          partyId: raw.party_id,
+          companyId: storeId,
+          financialYearId: headerConfig.financialYearId,
+          mode,
+          amount: Number(p.amount),
+          bankPos: p.bankPosId || undefined,
+          refNo: p.refNo?.trim() || undefined,
+        });
+      }
+      onDone();
+    } catch {
+      // toast is already handled in mutation onError or service
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
-      <p className="text-sm font-semibold text-foreground">Collect Payment</p>
-
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-muted-foreground">Amount (₹) <span className="text-destructive">*</span></label>
-        <Input
-          type="number" step="0.01" min="0" max={raw.balance_amount ?? undefined}
-          {...register('amount', { required: true, min: 0.01 })}
-          className="h-10"
-        />
+    <form onSubmit={handleSubmit} className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-foreground">Collect Payment</p>
+        <span className="text-xs text-muted-foreground">Balance: {formatCurrency(balanceDue)}</span>
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-muted-foreground">Payment Mode <span className="text-destructive">*</span></label>
-        <PaymentModeSelect
-          control={control}
-          name="mode_id"
-          paymentModes={paymentModes}
-          modesLoading={modesLoading}
-          bankFieldName="bank_pos_id"
-          refFieldName="ref_no"
-        />
-      </div>
+      <CheckoutPaymentSection
+        bare
+        hideHelpers
+        allowPartial={true}
+        amountDue={balanceDue}
+        onChange={setPayments}
+        partyId={raw.party_id}
+        partyMobile={raw.mobile}
+        storeId={storeId}
+      />
 
-      <div className="flex gap-2 mt-1">
-        <Button type="submit" size="sm" className="flex-1" disabled={addReceipt.isPending || !modeId}>
-          {addReceipt.isPending ? 'Recording…' : 'Record Payment'}
+      <div className="flex gap-2 mt-2">
+        <Button type="submit" size="sm" className="flex-1" disabled={submitting || !payments.length}>
+          {submitting ? 'Recording…' : 'Record Payment'}
         </Button>
-        <Button type="button" variant="outline" size="sm" className="flex-1" onClick={onDismiss} disabled={addReceipt.isPending}>
+        <Button type="button" variant="outline" size="sm" className="flex-1" onClick={onDismiss} disabled={submitting}>
           Cancel
         </Button>
       </div>
-      {errors.amount && <p className="text-xs text-destructive">Enter a valid amount.</p>}
     </form>
   );
 }
@@ -284,63 +298,63 @@ export default function InvoiceDetailSheet({ invoice, isOpen, onClose }) {
   return (
     <BottomSheet isOpen={isOpen} onClose={handleClose} title="Invoice">
       {raw ? (
-          <div className="flex flex-col gap-4">
-            <div className="rounded-xl border border-border bg-card p-4">
-              <InvoiceContent raw={raw} />
-            </div>
+        <div className="flex flex-col gap-4">
+          <div className="rounded-xl border border-border bg-card p-4">
+            <InvoiceContent raw={raw} />
+          </div>
 
-            <InvoiceReportButton transactionId={raw.transaction_id} />
+          <InvoiceReportButton transactionId={raw.transaction_id} />
 
-            {/* Olocker insurance — offered once the invoice exists, since a
+          {/* Olocker insurance — offered once the invoice exists, since a
                 policy is issued against a real invoice number and its line
                 serial. Hidden entirely while the cancel/payment panels are
                 open so the sheet never shows two competing actions. */}
-            {!showCancelConfirm && !showCollectPayment && (
-              <InsuranceSection raw={raw} />
-            )}
+          {!showCancelConfirm && !showCollectPayment && (
+            <InsuranceSection raw={raw} />
+          )}
 
-            {hasBalance && !showCollectPayment && !showCancelConfirm && (
-              <Button
-                variant="outline"
-                className="w-full gap-2"
-                onClick={() => setShowCollectPayment(true)}
-              >
-                <CreditCard size={16} />
-                Collect Payment
-              </Button>
-            )}
+          {hasBalance && !showCollectPayment && !showCancelConfirm && (
+            <Button
+              variant="outline"
+              className="w-full gap-2"
+              onClick={() => setShowCollectPayment(true)}
+            >
+              <CreditCard size={16} />
+              Collect Payment
+            </Button>
+          )}
 
-            {showCollectPayment && (
-              <CollectPaymentPanel
-                raw={raw}
-                onDone={() => setShowCollectPayment(false)}
-                onDismiss={() => setShowCollectPayment(false)}
-              />
-            )}
+          {showCollectPayment && (
+            <CollectPaymentPanel
+              raw={raw}
+              onDone={() => setShowCollectPayment(false)}
+              onDismiss={() => setShowCollectPayment(false)}
+            />
+          )}
 
-            {isCancellable && !showCancelConfirm && !showCollectPayment && (
-              <Button
-                variant="outline"
-                className="w-full border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive"
-                onClick={() => setShowCancelConfirm(true)}
-              >
-                Cancel Invoice
-              </Button>
-            )}
+          {isCancellable && !showCancelConfirm && !showCollectPayment && (
+            <Button
+              variant="outline"
+              className="w-full border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive"
+              onClick={() => setShowCancelConfirm(true)}
+            >
+              Cancel Invoice
+            </Button>
+          )}
 
-            {isCancellable && showCancelConfirm && (
-              <CancelConfirmBanner
-                onConfirm={handleConfirmCancel}
-                onDismiss={() => setShowCancelConfirm(false)}
-                isPending={cancelInvoiceMutation.isPending}
-              />
-            )}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground text-center py-4">
-            Invoice details unavailable.
-          </p>
-        )}
+          {isCancellable && showCancelConfirm && (
+            <CancelConfirmBanner
+              onConfirm={handleConfirmCancel}
+              onDismiss={() => setShowCancelConfirm(false)}
+              isPending={cancelInvoiceMutation.isPending}
+            />
+          )}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground text-center py-4">
+          Invoice details unavailable.
+        </p>
+      )}
     </BottomSheet>
   );
 }

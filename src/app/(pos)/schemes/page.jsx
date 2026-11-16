@@ -30,7 +30,7 @@ import EnrollmentDetailSheet from '@/components/features/schemes/EnrollmentDetai
 import PageLoader  from '@/components/shared/PageLoader';
 import BottomSheet from '@/components/shared/BottomSheet';
 import ConfirmDialog from '@/components/shared/ConfirmDialog';
-import PaymentModeSelect from '@/components/shared/PaymentModeSelect';
+import CheckoutPaymentSection from '@/components/features/checkout/CheckoutPaymentSection';
 import PillTabs    from '@/components/shared/PillTabs';
 import { Button }  from '@/components/ui/button';
 import { Input }   from '@/components/ui/input';
@@ -40,7 +40,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { formatCurrency, formatDate, MONTH_NAMES } from '@/lib/schemeFormat';
-import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
+import PhoneLink from '@/components/shared/PhoneLink';
 
 const STATUS_STYLES = {
   active:    'bg-status-in-stock/10 text-status-in-stock',
@@ -57,17 +57,13 @@ const NO_JC  = 'none';
 
 const receiptSchema = z.object({
   amount:        z.coerce.number().min(1, 'Enter amount'),
-  mode_id:       z.coerce.number().min(1, 'Select payment mode'),
-  mode_name:     z.string().optional(),
   document_date: z.string().min(1, 'Required'),
   month_ids:     z.array(z.number()).min(1, 'Select at least one month'),
-  bank_pos_id:   z.coerce.number().optional().or(z.literal('')),
-  ref_no:        z.string().optional(),
 });
 
 function ReceiptSheet({ enrollment, isOpen, onClose }) {
   const storeId = useSelector(selectActiveStoreId);
-  const { paymentModes, isLoading: modesLoading } = usePaymentModes();
+  const { paymentModes } = usePaymentModes();
   const createReceipt = useSchemeReceipt();
   const headerConfig = useOrderHeaderConfig(APP_CONFIG.DOCUMENT_TYPES.SCHEME_RECEIPT);
   const { data: months = [] } = useSchemeMonthlyDetails(enrollment?.enrollmentId);
@@ -75,44 +71,53 @@ function ReceiptSheet({ enrollment, isOpen, onClose }) {
 
   const today = todayDateString();
 
+  const [payments, setPayments] = useState([]);
+  const [pendingReceiptData, setPendingReceiptData] = useState(null);
+  const [isPaymentConfirmOpen, setIsPaymentConfirmOpen] = useState(false);
+
   const {
-    register, handleSubmit, control, setValue, reset, watch,
+    register, handleSubmit, setValue, reset, watch,
     formState: { errors },
   } = useForm({
     resolver: zodResolver(receiptSchema),
     defaultValues: {
       amount:        enrollment?.schemeAmount ?? '',
-      mode_id:       '',
-      mode_name:     '',
       document_date: today,
       month_ids:     [],
-      bank_pos_id:   '',
-      ref_no:        '',
     },
   });
 
-  const selectedMonths = watch('month_ids');
+  const selectedMonths = watch('month_ids') || [];
+  const enteredAmount = watch('amount');
+  const targetAmount = Number(enteredAmount) || 0;
+
   useEffect(() => {
     if (isOpen && enrollment) {
       reset({
         amount:        enrollment.schemeAmount ?? '',
-        mode_id:       '',
-        mode_name:     '',
         document_date: todayDateString(),
         month_ids:     [],
-        bank_pos_id:   '',
-        ref_no:        '',
       });
+      setPayments([]);
     }
   }, [isOpen, enrollment, reset]);
-  const [pendingReceiptData, setPendingReceiptData] = useState(null);
-  const [isPaymentConfirmOpen, setIsPaymentConfirmOpen] = useState(false);
 
   const prepareSubmit = (data) => {
-    const selectedMode = paymentModes.find((m) => m.modeId === Number(data.mode_id));
-    if (selectedMode && paymentRequiresBank(selectedMode)) {
-      if (!data.bank_pos_id) return toast.error('Select the bank account this payment settles to.');
-      if (!data.ref_no?.trim()) return toast.error('Enter a reference number for this payment.');
+    const amount = Number(data.amount);
+    if (!payments.length) return toast.error('Select how the customer is paying.');
+    const totalPaid = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    if (Math.abs(totalPaid - amount) > 0.01) {
+      return toast.error(`Payment total (${formatCurrency(totalPaid)}) must match installment amount (${formatCurrency(amount)}).`);
+    }
+    for (const p of payments) {
+      const m = paymentModes.find((x) => x.modeId === p.modeId);
+      const reqBank = m && paymentRequiresBank(m);
+      if (reqBank && !p.bankPosId) {
+        return toast.error(`Select the bank account for ${p.modeName || 'this payment'}.`);
+      }
+      if (reqBank && !p.refNo?.trim()) {
+        return toast.error(`Enter the payment reference number for ${p.modeName || 'this payment'}.`);
+      }
     }
     if (!headerConfig.isReady) {
       if (headerConfig.isError) headerConfig.refetch();
@@ -125,7 +130,7 @@ function ReceiptSheet({ enrollment, isOpen, onClose }) {
       );
       return;
     }
-    setPendingReceiptData(data);
+    setPendingReceiptData({ ...data, payments });
     setIsPaymentConfirmOpen(true);
   };
 
@@ -141,7 +146,7 @@ function ReceiptSheet({ enrollment, isOpen, onClose }) {
 
   const submitReceipt = async (data) => {
     const amount = Number(data.amount);
-    const selectedMode = paymentModes.find((m) => m.modeId === Number(data.mode_id));
+    const receiptPayments = data.payments || payments;
     
     await createReceipt.mutateAsync(buildSchemeReceiptPayload({
       enrollmentId:     enrollment.enrollmentId,
@@ -160,17 +165,21 @@ function ReceiptSheet({ enrollment, isOpen, onClose }) {
       allowBackdatedEntry:      true,
       numberOfBackdatedDays:    headerConfig.numberOfBackdatedDays,
       isDocumentNumberEditable: headerConfig.isDocumentNumberEditable,
-      details: [{
-        modeId:     Number(data.mode_id),
-        amount,
-        ledgerId:   selectedMode?.ledgerId,
-        ledgerName: selectedMode?.ledgerName,
-        modeName:   selectedMode?.modeName,
-        bankPos: data.bank_pos_id || undefined,
-        refNo:   data.ref_no?.trim() || undefined,
-      }],
+      details: receiptPayments.map((p) => {
+        const m = paymentModes.find((x) => x.modeId === p.modeId);
+        return {
+          modeId:     p.modeId,
+          amount:     Number(p.amount) || 0,
+          ledgerId:   p.ledgerId ?? m?.ledgerId,
+          ledgerName: m?.ledgerName ?? '',
+          modeName:   p.modeName ?? m?.modeName ?? '',
+          bankPos:    p.bankPosId || undefined,
+          refNo:      p.refNo?.trim() || undefined,
+        };
+      }),
     }));
     reset();
+    setPayments([]);
     onClose();
   };
 
@@ -222,15 +231,15 @@ function ReceiptSheet({ enrollment, isOpen, onClose }) {
                       key={m.id}
                       type="button"
                       aria-pressed={isSelected}
-                      onClick={() =>
-                        setValue(
-                          'month_ids',
-                          isSelected
-                            ? selectedMonths.filter((x) => x !== m.monthId)
-                            : [...selectedMonths, m.monthId],
-                          { shouldValidate: true },
-                        )
-                      }
+                      onClick={() => {
+                        const next = isSelected
+                          ? selectedMonths.filter((x) => x !== m.monthId)
+                          : [...selectedMonths, m.monthId];
+                        setValue('month_ids', next, { shouldValidate: true });
+                        if (enrollment?.schemeAmount) {
+                          setValue('amount', next.length * Number(enrollment.schemeAmount), { shouldValidate: true });
+                        }
+                      }}
                       className={`min-h-11 rounded-xl border px-3 py-2 text-sm transition-colors ${
                         isSelected
                           ? 'border-primary bg-primary/10 text-primary font-medium'
@@ -249,19 +258,18 @@ function ReceiptSheet({ enrollment, isOpen, onClose }) {
             {errors.month_ids && <p className="text-xs text-destructive">{errors.month_ids.message}</p>}
           </div>
 
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-2">
             <Label>Payment Mode <span className="text-destructive">*</span></Label>
-            <PaymentModeSelect
-              control={control}
-              name="mode_id"
-              paymentModes={paymentModes}
-              modesLoading={modesLoading}
-              placeholder="Select mode"
-              onSelect={(mode) => setValue('mode_name', mode.modeName)}
-              bankFieldName="bank_pos_id"
-              refFieldName="ref_no"
+            <CheckoutPaymentSection
+              bare
+              hideHelpers
+              allowPartial={false}
+              amountDue={targetAmount}
+              onChange={setPayments}
+              partyId={enrollment.partyId}
+              partyMobile={enrollment.mobile}
+              storeId={storeId}
             />
-            {errors.mode_id && <p className="text-xs text-destructive">{errors.mode_id.message}</p>}
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -412,7 +420,7 @@ function EnrollmentsTab({ jcFilter }) {
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="text-sm font-semibold text-foreground">{enrollment.schemeName}</p>
-                <p className="text-xs text-muted-foreground">{enrollment.partyName} · {formatMobileWithCountryCode(enrollment.mobile)}</p>
+                <p className="text-xs text-muted-foreground">{enrollment.partyName} · <PhoneLink phone={enrollment.mobile} /></p>
               </div>
               <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${
                 STATUS_STYLES[enrollment.status] ?? STATUS_STYLES.default

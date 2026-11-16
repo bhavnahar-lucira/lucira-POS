@@ -18,12 +18,11 @@ import { selectActiveStoreId, selectActiveStoreCode } from '@/store/slices/store
 import CustomerAttachedBanner from '@/components/shared/CustomerAttachedBanner';
 import ListRowsSkeleton from '@/components/shared/ListRowsSkeleton';
 import SalesPersonSelect from '@/components/features/checkout/SalesPersonSelect';
-import BankPosSelect from '@/components/features/checkout/BankPosSelect';
+import CheckoutPaymentSection from '@/components/features/checkout/CheckoutPaymentSection';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatINR, formatDate, weight } from './repairFormat';
 
 function errorMessage(err) {
@@ -37,7 +36,7 @@ function NewRepairInvoiceFormBody({ onDone }) {
   const companyCode = useSelector(selectActiveStoreCode);
   const { customerId, customerName, customerMobile } = useCustomerSession();
   const headerConfig = useOrderHeaderConfig(REPAIR_DOC.INVOICE);
-  const { paymentModes, isLoading: modesLoading } = usePaymentModes();
+  const { paymentModes } = usePaymentModes();
   const readyItems = useRepairedItemsReadyForBilling(customerId);
 
   const [selected, setSelected] = useState({});
@@ -45,18 +44,13 @@ function NewRepairInvoiceFormBody({ onDone }) {
   const [charges, setCharges] = useState({});
   const [pricing, setPricing] = useState(false);
   const [salesPersonId, setSalesPersonId] = useState(null);
-  const [modeId, setModeId] = useState(null);
-  const [bankPosId, setBankPosId] = useState(null);
-  const [refNo, setRefNo] = useState('');
+  const [payments, setPayments] = useState([]);
   const [narration, setNarration] = useState('');
   const [saved, setSaved] = useState(null);
-
 
   const picked = (readyItems.data ?? []).filter((row) => selected[rowKey(row)]);
   const chargedLines = lines.map((line, i) => applyRepairCharge(line, charges[i]));
   const totals = aggregateLineTotals(chargedLines);
-  const mode = paymentModes.find((m) => m.modeId === modeId);
-  const needsBank = !!mode && paymentRequiresBank(mode);
 
   const priceSelection = async () => {
     if (!picked.length) return toast.error('Select the repaired items the customer is collecting.');
@@ -84,10 +78,7 @@ function NewRepairInvoiceFormBody({ onDone }) {
     }
     const receiptDetails = totals.net_amount > 0.01
       ? buildReceiptDetails({
-          paymentModes: [{
-            modeId: mode.modeId, modeCode: mode.modeCode, modeName: mode.modeName, ledgerId: mode.ledgerId,
-            raw: mode.raw, amount: totals.net_amount, refNo: refNo.trim(), bankPosId: needsBank ? bankPosId : null,
-          }],
+          paymentModes: payments,
           customerId, activeStoreId: companyId, exchangeRate: 1, headerConfig,
         })
       : [];
@@ -106,9 +97,21 @@ function NewRepairInvoiceFormBody({ onDone }) {
     if (!lines.length) return toast.error('Add the repaired items first.');
     if (!salesPersonId) return toast.error('Select the jewelry consultant.');
     if (totals.net_amount > 0.01) {
-      if (!mode) return toast.error('Select how the customer is paying.');
-      if (needsBank && !bankPosId) return toast.error('Select the bank account this payment settles to.');
-      if (needsBank && !refNo.trim()) return toast.error('Enter the payment reference number.');
+      if (!payments.length) return toast.error('Select how the customer is paying.');
+      const totalPaid = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      if (Math.abs(totalPaid - totals.net_amount) > 0.01) {
+        return toast.error(`Payment amount (${formatINR(totalPaid)}) must match total charge (${formatINR(totals.net_amount)}).`);
+      }
+      for (const p of payments) {
+        const m = paymentModes.find((x) => x.modeId === p.modeId);
+        const reqBank = m && paymentRequiresBank(m);
+        if (reqBank && !p.bankPosId) {
+          return toast.error(`Select the bank account for ${p.modeName || 'this payment'}.`);
+        }
+        if (reqBank && !p.refNo?.trim()) {
+          return toast.error(`Enter the payment reference number for ${p.modeName || 'this payment'}.`);
+        }
+      }
     }
     try {
       const result = await save.mutateAsync();
@@ -219,16 +222,16 @@ function NewRepairInvoiceFormBody({ onDone }) {
           {totals.net_amount > 0.01 && (
             <div className="flex flex-col gap-2">
               <Label>Payment ({formatINR(totals.net_amount)})</Label>
-              <Select value={modeId ? String(modeId) : ''} onValueChange={(v) => setModeId(Number(v))} disabled={modesLoading}>
-                <SelectTrigger className="h-11 w-full"><SelectValue placeholder={modesLoading ? 'Loading…' : 'Select payment mode'} /></SelectTrigger>
-                <SelectContent>
-                  {paymentModes.map((m) => <SelectItem key={m.modeId} value={String(m.modeId)}>{m.modeName}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              {needsBank && <BankPosSelect value={bankPosId} onChange={setBankPosId} />}
-              {needsBank && (
-                <Input value={refNo} onChange={(e) => setRefNo(e.target.value)} placeholder="Reference number" aria-label="Reference number" className="h-11" />
-              )}
+              <CheckoutPaymentSection
+                bare
+                hideHelpers
+                allowPartial={false}
+                amountDue={totals.net_amount}
+                onChange={setPayments}
+                partyId={customerId}
+                partyMobile={customerMobile}
+                storeId={companyId}
+              />
             </div>
           )}
 

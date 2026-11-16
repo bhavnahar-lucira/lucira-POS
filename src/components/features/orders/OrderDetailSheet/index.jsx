@@ -15,7 +15,7 @@ import APP_CONFIG from '@/constants/appConfig';
 import { formatAmountOrNull as formatCurrency } from '@/lib/priceUtils';
 import { formatDateNumeric } from '@/lib/dateUtils';
 import { resolveImageSrc } from '@/lib/resolveImageSrc';
-import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
+import PhoneLink from '@/components/shared/PhoneLink';
 
 function Row({ label, value, bold, border }) {
   if (value === null || value === undefined || value === '') return null;
@@ -30,29 +30,29 @@ function Row({ label, value, bold, border }) {
 }
 
 const STATUS_LABELS = {
-  paid:      'Paid',
-  partial:   'Partially Paid',
-  due:       'Payment Due',
+  paid: 'Paid',
+  partial: 'Partially Paid',
+  due: 'Payment Due',
   cancelled: 'Cancelled',
-  draft:     'Draft',
+  draft: 'Draft',
 };
 
 function OrderContent({ raw, status }) {
   if (!raw) return null;
 
-  const lineItems = raw.line_items     ?? [];
-  const payments  = raw.receipt_details ?? [];
-  const gst       = sumRealGst(lineItems);
+  const lineItems = raw.line_items ?? [];
+  const payments = raw.receipt_details ?? [];
+  const gst = sumRealGst(lineItems);
 
   return (
     <div className="flex flex-col gap-2 text-sm">
       <Row label="Order No." value={raw.document_no} />
       <Row label="Date" value={formatDateNumeric(raw.document_date)} />
       <Row label="Customer" value={raw.party_name} />
-      <Row label="Mobile"   value={formatMobileWithCountryCode(raw.mobile)} />
-      <Row label="Email"    value={raw.email} />
-      <Row label="Store"    value={raw.company_name} />
-      <Row label="Status"   value={STATUS_LABELS[status] ?? null} />
+      <Row label="Mobile" value={raw.mobile ? <PhoneLink phone={raw.mobile} /> : null} />
+      <Row label="Email" value={raw.email} />
+      <Row label="Store" value={raw.company_name} />
+      <Row label="Status" value={STATUS_LABELS[status] ?? null} />
 
       {lineItems.length > 0 && (
         <div className="border-t border-border pt-2 flex flex-col gap-2">
@@ -102,12 +102,12 @@ function OrderContent({ raw, status }) {
 
       {/* sub_total is the pre-tax amount, net_amount the final total —
           gross_amount does not exist on OrderRow. */}
-      <Row label="Subtotal"   value={formatCurrency(raw.sub_total)} border />
-      <Row label="Discount"   value={raw.discount ? `– ${formatCurrency(raw.discount)}` : null} />
+      <Row label="Subtotal" value={formatCurrency(raw.sub_total)} border />
+      <Row label="Discount" value={raw.discount ? `– ${formatCurrency(raw.discount)}` : null} />
       <Row label="CGST (1.5%)" value={gst && formatCurrency(gst.cgst)} />
       <Row label="SGST (1.5%)" value={gst && formatCurrency(gst.sgst)} />
-      <Row label="Total"      value={formatCurrency(raw.net_amount)} bold border />
-      <Row label="Received"   value={formatCurrency(raw.receipt_amount)} />
+      <Row label="Total" value={formatCurrency(raw.net_amount)} bold border />
+      <Row label="Received" value={formatCurrency(raw.receipt_amount)} />
       <Row
         label="Balance Due"
         value={(raw.balance_amount ?? 0) > 0 ? formatCurrency(raw.balance_amount) : null}
@@ -172,7 +172,7 @@ export default function OrderDetailSheet({ order, isOpen, onClose }) {
   // payment is made for". Re-fetches the ONE full document by its
   // transaction_id as soon as the sheet opens for it; react-query caches by
   // id so re-opening the same order/invoice is instant on repeat views.
-  const { order: orderDetail }     = useOrderDetail(!isInvoice ? order?.orderId : null);
+  const { order: orderDetail } = useOrderDetail(!isInvoice ? order?.orderId : null);
   const { invoice: invoiceDetail } = useInvoiceDetail(isInvoice ? order?.orderId : null);
 
   // Falls back to the summary row while the detail fetch is in flight (or if

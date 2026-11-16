@@ -8,6 +8,7 @@ import { listStoreSales } from '@/lib/mongo/buyerPurchases';
 import { syncStorePurchases } from '@/lib/ornaverse/buyerSync';
 import { normalizeCrmVisit } from '@/lib/normalizers/customer';
 import { deriveNonBuyers } from './deriveNonBuyers';
+import { RECENCY_OPTIONS, VISIT_FREQUENCY_OPTIONS, matchesBand, daysSince } from '@/lib/buyers/buyerFilters';
 import API from '@/constants/apiEndpoints';
 
 const VISIT_PAGE_SIZE = 200;
@@ -117,21 +118,23 @@ export async function getNonBuyersAllStores({ session, ...options }) {
   return perStore.flat();
 }
 
-/** Search + sort over the full result, then one page of it. */
-export function pageNonBuyers(rows, { search = '', sort = 'visits', skip = 0, limit = 48 }) {
+/** Search, Days / Frequency filters and sort over the full result, then one page of it. */
+export function pageNonBuyers(rows, { search = '', sort = 'visits', recency = 'all', frequency = 'all', skip = 0, limit = 48 }) {
   const term = search.trim().toLowerCase();
   const digits = term.replace(/\D/g, '');
-  const matching = term
-    ? rows.filter((n) => n.name?.toLowerCase().includes(term)
+  const matching = rows
+    .map((n) => ({ ...n, daysSinceLastVisit: daysSince(n.lastVisitAt) }))
+    .filter((n) => (!term
+      || n.name?.toLowerCase().includes(term)
       || (digits.length >= 3 && String(n.mobile ?? '').replace(/\D/g, '').includes(digits)))
-    : rows;
+      && matchesBand(n.daysSinceLastVisit, RECENCY_OPTIONS, recency)
+      && matchesBand(n.visitCount, VISIT_FREQUENCY_OPTIONS, frequency));
   const byRecent = (a, b) => new Date(b.lastVisitAt) - new Date(a.lastVisitAt);
   const sorted = [...matching].sort(sort === 'recent' ? byRecent : (a, b) => b.visitCount - a.visitCount || byRecent(a, b));
   const page = sorted.slice(skip, skip + limit);
   return {
     rows: page,
     total: sorted.length,
-    pastBuyerCount: sorted.filter((n) => n.isPastBuyer).length,
     nextSkip: skip + page.length < sorted.length ? skip + page.length : null,
   };
 }

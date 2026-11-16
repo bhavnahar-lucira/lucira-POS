@@ -25,6 +25,7 @@ import { useUpdateCustomer } from '@/hooks/customer/useUpdateCustomer';
 import { useCountries, useStates, useCities } from '@/hooks/settings/useLocation';
 import { selectIsSuperAdmin } from '@/store/slices/authSlice';
 import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
+import PhoneLink from '@/components/shared/PhoneLink';
 
 const TAB_LABELS = { profile: 'Profile', edit: 'Edit' };
 function ProfileTab({ customer, onAttach, isAttached, onClose }) {
@@ -41,13 +42,13 @@ function ProfileTab({ customer, onAttach, isAttached, onClose }) {
         {customerMobile && (
           <div className="flex items-center gap-2 text-muted-foreground">
             <Phone size={15} className="shrink-0 text-muted-foreground/70" />
-            {formatMobileWithCountryCode(customerMobile)}
+            <PhoneLink phone={customerMobile} />
           </div>
         )}
         {customerPhone && (
           <div className="flex items-center gap-2 text-muted-foreground">
             <Phone size={15} className="shrink-0 text-muted-foreground/70" />
-            {formatMobileWithCountryCode(customerPhone)} <span className="text-xs">(phone)</span>
+            <PhoneLink phone={customerPhone} /> <span className="text-xs">(phone)</span>
           </div>
         )}
         {customerEmail && (

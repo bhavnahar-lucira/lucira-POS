@@ -80,12 +80,13 @@ async function runWithConcurrency(items, worker, concurrency) {
 
 function shapeRecord(kind, entity, salesPersonNames) {
   const items = (entity.line_items ?? []).map((row) => ({
-    item_id:     row.item_id != null ? String(row.item_id) : undefined,
-    item_name:   row.item_name ?? undefined,
-    item_size:   row.item_size_name ?? undefined,
-    item_weight: row.net_weight ?? row.weight ?? undefined,
-    price:       row.sub_total ?? row.item_rate ?? undefined,
-    quantity:    row.pieces ?? 1,
+    item_id:       row.item_id != null ? String(row.item_id) : undefined,
+    item_name:     row.item_name ?? undefined,
+    item_category: row.type_name ?? row.item_group_name ?? undefined,
+    item_size:     row.item_size_name ?? undefined,
+    item_weight:   row.net_weight ?? row.weight ?? undefined,
+    price:         row.sub_total ?? row.item_rate ?? undefined,
+    quantity:      row.pieces ?? 1,
   }));
 
   const promoByCode = new Map();

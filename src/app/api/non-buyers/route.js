@@ -45,7 +45,8 @@ export async function GET(request) {
       ? await getNonBuyersAllStores({ session, ...options })
       : await getNonBuyers({ session, companyId, ...options });
     return Response.json(pageNonBuyers(rows, {
-      search: params.get('search') ?? '', sort: params.get('sort') ?? 'visits', skip, limit,
+      search: params.get('search') ?? '', sort: params.get('sort') ?? 'visits',
+      recency: params.get('recency') ?? 'all', frequency: params.get('frequency') ?? 'all', skip, limit,
     }));
   } catch (err) {
     console.error('[api/non-buyers] GET', err);

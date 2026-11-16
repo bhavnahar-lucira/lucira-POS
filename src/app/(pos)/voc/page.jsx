@@ -6,6 +6,7 @@ import { useSelector } from 'react-redux';
 import { Download, Loader2, MessageSquareHeart, Plus, RefreshCw } from 'lucide-react';
 
 import DataTable from '@/components/shared/DataTable';
+import PhoneLink from '@/components/shared/PhoneLink';
 import EmptyState from '@/components/shared/EmptyState';
 import VocSummary from '@/components/features/voc/VocSummary';
 import VocDetailSheet from '@/components/features/voc/VocDetailSheet';
@@ -39,7 +40,7 @@ const dayLabel = (day) => new Intl.DateTimeFormat('en-IN', { day: '2-digit', mon
 const REFERRAL_COLUMNS = (isSuperAdmin) => [
   { key: 'when', label: 'Date', mobile: true },
   { key: 'name', label: 'Referral', mobile: true },
-  { key: 'mobile', label: 'Mobile', mobile: true },
+  { key: 'mobile', label: 'Mobile', mobile: true, format: (v) => (v ? <PhoneLink phone={v} /> : '—') },
   { key: 'referred_by', label: 'Referred by' },
   ...(isSuperAdmin ? [{ key: 'store', label: 'Store', filter: true }] : []),
   { key: 'jc', label: 'Jewelry Consultant', filter: true },
@@ -48,7 +49,7 @@ const REFERRAL_COLUMNS = (isSuperAdmin) => [
 const SKIP_COLUMNS = (isSuperAdmin) => [
   { key: 'when', label: 'Date', mobile: true },
   { key: 'customer', label: 'Customer', mobile: true },
-  { key: 'mobile', label: 'Mobile' },
+  { key: 'mobile', label: 'Mobile', format: (v) => (v ? <PhoneLink phone={v} /> : '—') },
   ...(isSuperAdmin ? [{ key: 'store', label: 'Store', filter: true }] : []),
   { key: 'stage', label: 'How', filter: true },
   { key: 'times', label: 'Times that day', align: 'right' },
@@ -107,7 +108,7 @@ export default function VocPage() {
     { key: 'when', label: 'Date', mobile: true },
     { key: 'customer', label: 'Customer', mobile: true },
     ...(isSuperAdmin ? [{ key: 'store', label: 'Store', filter: true }] : []),
-    { key: 'mobile', label: 'Mobile', hidden: true },
+    { key: 'mobile', label: 'Mobile', hidden: true, format: (v) => (v ? <PhoneLink phone={v} /> : '—') },
     { key: 'jc', label: 'Jewelry Consultant' },
     { key: 'purchased', label: 'Purchased' },
     { key: 'nps', label: 'Likely to recommend (0–10)', align: 'right' },

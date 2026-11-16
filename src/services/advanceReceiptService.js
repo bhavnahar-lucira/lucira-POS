@@ -47,15 +47,34 @@ export async function getAdvanceReceiptDetail(transactionId) {
  *   partyId: number, activeStoreId: number, financialYearId: number,
  *   ledgerId: number, numberOfBackdatedDays?: number, documentDate?: string,
  *   narration?: string,
- *   payout: { modeId: number, ledgerId: number, amount: number, bankPos?: number,
- *             refNo?: string, chequeNo?: string, chequeDate?: string },
+ *   payout?: { modeId: number, ledgerId: number, amount: number, bankPos?: number,
+ *              refNo?: string, chequeNo?: string, chequeDate?: string },
+ *   payments?: Array<{ modeId: number, ledgerId?: number, amount: number, bankPos?: number, bankPosId?: number,
+ *                      refNo?: string, chequeNo?: string, chequeDate?: string }>,
  * }} params
  * @returns {Promise<object>} SaveResponse { EntityId }
  */
 export async function createAdvanceReceipt({
   partyId, activeStoreId, financialYearId, ledgerId, numberOfBackdatedDays,
-  documentDate, narration, payout,
+  documentDate, narration, payout, payments,
 }) {
+  const paymentList = payments?.length
+    ? payments
+    : (payout ? [payout] : []);
+
+  const totalAmount = paymentList.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+  const details = paymentList.map((p) => ({
+    mode_id:       p.modeId,
+    ledger_id:     p.ledgerId ?? ledgerId,
+    amount:        Number(p.amount) || 0,
+    exchange_rate: 1,
+    bank_pos:      p.bankPos ?? p.bankPosId ?? '',
+    ref_no:        p.refNo ?? '',
+    cheque_no:     p.chequeNo ?? '',
+    cheque_date:   p.chequeDate ?? '',
+  }));
+
   const entity = {
     document_id:   APP_CONFIG.DOCUMENT_TYPES.POS_RECEIPT,
     party_id:       partyId,
@@ -74,19 +93,10 @@ export async function createAdvanceReceipt({
     ledger_id:          ledgerId,
     document_ledger_id: ledgerId,
     is_advance:   true,
-    total_amount: payout.amount,
+    total_amount: totalAmount,
     knock_off_total: 0,
     narration: narration || '',
-    details: [{
-      mode_id:       payout.modeId,
-      ledger_id:     payout.ledgerId,
-      amount:        payout.amount,
-      exchange_rate: 1,
-      bank_pos:      payout.bankPos ?? '',
-      ref_no:        payout.refNo ?? '',
-      cheque_no:     payout.chequeNo ?? '',
-      cheque_date:   payout.chequeDate ?? '',
-    }],
+    details,
     party_balance: [],
     // document_no deliberately omitted — the server assigns it.
   };

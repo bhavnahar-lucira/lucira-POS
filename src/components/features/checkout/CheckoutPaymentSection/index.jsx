@@ -64,21 +64,27 @@ function HelperBalanceRow({ label, amount, modeCode, rows, isApplied, onToggle, 
  *   onChange: (payments: object[]) => void,
  *   amountDue?: number, allowPartial?: boolean,
  *   lineItems?: object[], bare?: boolean,
+ *   hideHelpers?: boolean, partyId?: number|null,
+ *   partyMobile?: string|null, storeId?: number|null,
  * }} props
  */
 export default function CheckoutPaymentSection({
   onChange, amountDue = 0, allowPartial = false, lineItems = [], bare = false,
+  hideHelpers = false, partyId, partyMobile, storeId,
 }) {
   const total = amountDue;
   const { paymentModes, isLoading: modesLoading, isError: modesError } = usePaymentModes();
   const { bankPosAccounts } = useBankPosAccounts();
-  const { customerId, customerMobile } = useCustomerSession();
-  const activeStoreId  = useSelector(selectActiveStoreId);
+  const sessionCustomer = useCustomerSession();
+  const customerId = partyId !== undefined ? partyId : sessionCustomer.customerId;
+  const customerMobile = partyMobile !== undefined ? partyMobile : sessionCustomer.customerMobile;
+  const activeStoreIdFromRedux  = useSelector(selectActiveStoreId);
+  const activeStoreId = storeId ?? activeStoreIdFromRedux;
   const appliedPromos  = useSelector(selectAppliedPromos);
 
   const helpers = useInvoiceHelpers({
-    partyId:   customerId,
-    companyId: activeStoreId,
+    partyId:   hideHelpers ? null : customerId,
+    companyId: hideHelpers ? null : activeStoreId,
   });
   const { orderAdvance, isLoading: orderAdvanceLoading } = useOrderAdvance();
   const loyaltyMode = paymentModes.find((m) => m.modeType === LOYALTY_MODE_TYPE) ?? null;
@@ -90,7 +96,7 @@ export default function CheckoutPaymentSection({
       mobile: customerMobile, companyId: activeStoreId, partyId: customerId,
       netAmount: total, remainingDue: total, lineItems,
     },
-    { enabled: !!customerMobile && !!customerId && !!activeStoreId && total > 0 }
+    { enabled: !hideHelpers && !!customerMobile && !!customerId && !!activeStoreId && total > 0 }
   );
   const loyaltyClaimable = (Number(loyaltyPromotion?.coin_value) || 0)
     + (Number(loyaltyPromotion?.credit_value) || 0);
@@ -250,7 +256,7 @@ export default function CheckoutPaymentSection({
   });
 
   // The order's advance is applied as soon as the bill is priced, as OrnaVerse's own counter does.
-  const advanceOrderId = orderAdvance?.row.transaction_id ?? null;
+  const advanceOrderId = !hideHelpers ? (orderAdvance?.row.transaction_id ?? null) : null;
   if (advanceOrderId && total > 0 && autoAppliedAdvanceFor !== advanceOrderId) {
     setAutoAppliedAdvanceFor(advanceOrderId);
     if (!payments.some((p) => p.helperCategory === 'OrderAdvance')) {
@@ -283,13 +289,16 @@ export default function CheckoutPaymentSection({
     { label: 'Other Credit',    code: 'Other',       data: helpers.other,      loading: helpers.other?.isLoading },
   ]; // each `data.rows` is the underlying POSReceiptsSelect rows for that bucket — see useInvoiceHelpers.js
 
-  const hasVisibleHelpers = customerId && helperItems.some((h) => h.data?.amount > 0);
+  const hasVisibleHelpers = !hideHelpers && customerId && helperItems.some((h) => h.data?.amount > 0);
+  const availableModes = hideHelpers
+    ? paymentModes.filter((m) => m.modeType !== LOYALTY_MODE_TYPE)
+    : paymentModes;
 
   const Wrapper = bare ? 'div' : 'section';
 
   return (
     <Wrapper className={bare ? 'flex flex-col gap-3' : 'flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm'}>
-      {customerId && (
+      {!hideHelpers && customerId && (
         <div className="flex flex-col gap-2">
           {helpers.isLoading && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
@@ -347,7 +356,7 @@ export default function CheckoutPaymentSection({
       )}
 
       <PaymentModeSelector
-        paymentModes={paymentModes}
+        paymentModes={availableModes}
         selectedModeIds={selectedModeIds}
         onToggle={handleModeToggle}
         isLoading={modesLoading}

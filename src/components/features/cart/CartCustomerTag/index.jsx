@@ -1,7 +1,7 @@
 'use client';
 
 import { User, X } from 'lucide-react';
-import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
+import PhoneLink from '@/components/shared/PhoneLink';
 import { useEndCustomerVisit } from '@/components/features/voc/VocEndVisitProvider';
 
 /**
@@ -22,7 +22,9 @@ export default function CartCustomerTag({ customerName, customerMobile, onDetach
         <div className="min-w-0">
           <p className="text-sm font-semibold text-foreground truncate">{customerName}</p>
           {customerMobile && (
-            <p className="text-xs text-muted-foreground truncate">{formatMobileWithCountryCode(customerMobile)}</p>
+            <p className="text-xs text-muted-foreground truncate">
+              <PhoneLink phone={customerMobile} />
+            </p>
           )}
         </div>
       </div>

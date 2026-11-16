@@ -32,7 +32,8 @@ import { useOpenPosOrdersReport } from '@/hooks/reports/useOpenPosOrdersReport';
 import { useStockReport } from '@/hooks/reports/useStockReport';
 import { useWalkinVisitsReport } from '@/hooks/reports/useWalkinVisitsReport';
 import { useRepeatCustomersReport } from '@/hooks/reports/useRepeatCustomersReport';
-import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
+import PhoneLink from '@/components/shared/PhoneLink';
+import JewelryConsultantDetailSheet from '@/components/features/reports/JewelryConsultantDetailSheet';
 import { useAdhocReportsList } from '@/hooks/reports/useAdhocReportsList';
 import { useAdhocReportRun } from '@/hooks/reports/useAdhocReportRun';
 
@@ -323,14 +324,52 @@ const CATEGORY_COLUMNS = [
 const SALESPERSON_COLUMNS = [
   { key: 'employee_name', label: 'Jewelry Consultant', mobile: true },
   { key: 'employee_code', label: 'Code' },
+  {
+    key: 'attended_customers',
+    label: 'Customers Attended',
+    mobile: true,
+    format: (val, row) => {
+      if (!val || val === '—') return '—';
+      const list = row?.attended_customers_list || val.split(', ');
+      if (list.length <= 2) return val;
+      return (
+        <span className="inline-flex items-center gap-1.5" title={val}>
+          <span className="truncate max-w-[200px]">{list.slice(0, 2).join(', ')}</span>
+          <span className="text-[10px] font-semibold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full shrink-0">
+            +{list.length - 2} more
+          </span>
+        </span>
+      );
+    },
+  },
+  {
+    key: 'sold_customers_names',
+    label: 'Customers Sold To',
+    format: (val) => {
+      if (!val || val === '—') return '—';
+      const list = val.split(', ');
+      if (list.length <= 2) return val;
+      return (
+        <span className="inline-flex items-center gap-1.5" title={val}>
+          <span className="truncate max-w-[200px]">{list.slice(0, 2).join(', ')}</span>
+          <span className="text-[10px] font-semibold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full shrink-0">
+            +{list.length - 2} more
+          </span>
+        </span>
+      );
+    },
+  },
+  { key: 'top_categories', label: 'Categories Sold' },
+  { key: 'walkin_count',  label: 'Walk-ins Attended', align: 'right', total: true },
+  { key: 'buyers_count',  label: 'Customers Sold',    align: 'right', total: true },
   { key: 'invoice_count', label: 'Invoices',      align: 'right', total: true },
   { key: 'invoice_value', label: 'Invoice Value', align: 'right', format: formatAmountOrDash, total: true },
   { key: 'mto_count',     label: 'MTO Orders',    align: 'right', total: true },
   { key: 'mto_value',     label: 'MTO Value',     align: 'right', format: formatAmountOrDash, total: true },
-  { key: 'pieces',        label: 'Pieces',     align: 'right', total: true },
-  { key: 'weight',        label: 'Weight (g)', align: 'right', total: true },
-  { key: 'sub_total',     label: 'Subtotal',   align: 'right', format: formatAmountOrDash, total: true },
-  { key: 'net_amount',    label: 'Net Amount', align: 'right', format: formatAmountOrDash, total: true, mobile: true },
+  { key: 'pieces',        label: 'Pieces',        align: 'right', total: true },
+  { key: 'weight',        label: 'Weight (g)',    align: 'right', total: true },
+  { key: 'sub_total',     label: 'Subtotal',      align: 'right', format: formatAmountOrDash, total: true },
+  { key: 'net_amount',    label: 'Net Amount',    align: 'right', format: formatAmountOrDash, total: true, mobile: true },
 ];
 
 const VELOCITY_COLUMNS = [
@@ -396,7 +435,7 @@ const WALKIN_COLUMNS = [
   { key: 'visited_on',       label: 'Date',     format: formatDatePadded, mobile: true },
   { key: 'visited_time',     label: 'Time' },
   { key: 'customer_name',    label: 'Customer', mobile: true },
-  { key: 'mobile',           label: 'Mobile',   format: (v) => (v ? formatMobileWithCountryCode(v) : '—'), hidden: true },
+  { key: 'mobile',           label: 'Mobile',   format: (v) => (v ? <PhoneLink phone={v} /> : '—'), hidden: true },
   { key: 'email',            label: 'Email' },
   { key: 'source',           label: 'Source',   filter: true },
   { key: 'jewelry_consultant', label: 'Jewelry Consultant', format: (v) => v ?? '—', filter: true },
@@ -421,7 +460,7 @@ const REPEAT_COLUMNS = [
   { key: 'month',                   label: 'Month', format: formatMonth },
   { key: 'year',                    label: 'Year' },
   { key: 'customer_name',           label: 'Customer', mobile: true },
-  { key: 'mobile',                  label: 'Mobile', format: (v) => (v ? formatMobileWithCountryCode(v) : '—'), hidden: true },
+  { key: 'mobile',                  label: 'Mobile', format: (v) => (v ? <PhoneLink phone={v} /> : '—'), hidden: true },
   { key: 'repeat_count',            label: 'Repeat Count', align: 'right' },
   { key: 'products',                label: 'Products Purchased' },
   { key: 'value',                   label: 'Sale Value', align: 'right', format: formatAmountOrDash, total: true, mobile: true },
@@ -532,6 +571,7 @@ export default function ReportsPage() {
   const [chosenStore, setStoreFilter] = useState(null);
   const storeFilter = isSuperAdmin ? chosenStore ?? 'all' : null;
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
+  const [selectedConsultant, setSelectedConsultant] = useState(null);
   const [fromDate, setFromDate] = useState(() => firstOfMonthDateString());
   const [toDate, setToDate]     = useState(() => todayDateString());
   const hasCustomRange = fromDate !== firstOfMonthDateString() || toDate !== todayDateString();
@@ -676,6 +716,114 @@ export default function ReportsPage() {
             { key: 'sales', label: 'Total Repeat Sale' },
           ],
           rows: summaryRows,
+        },
+      ]);
+      return;
+    }
+    if (activeTab === 'salesperson') {
+      const view = exportViewRef.current ?? TAB_REPORTS.salesperson;
+      if (!view?.rows.length) return;
+
+      const customersSoldRows = [];
+      const walkinsRows = [];
+      const categoriesRows = [];
+
+      for (const consultant of view.rows) {
+        const consultantName = consultant.employee_name || '—';
+        const consultantCode = consultant.employee_code || '—';
+        const store = consultant.company_code || consultant.mailing_name || selectedStoreName || '—';
+
+        for (const c of (consultant.customers_sold ?? [])) {
+          customersSoldRows.push({
+            employee_name: consultantName,
+            employee_code: consultantCode,
+            store,
+            customer_name: c.customer_name || 'Customer',
+            customer_mobile: c.customer_mobile || '—',
+            document_type: c.document_type === 'order' ? 'MTO Order' : 'Invoice',
+            document_no: c.document_no || '—',
+            document_date: c.document_date ? formatDatePadded(c.document_date) : '—',
+            total_amount: c.total_amount ?? 0,
+            items_count: c.items_count ?? 1,
+            categories: (c.categories ?? []).join(', ') || '—',
+          });
+        }
+
+        for (const w of (consultant.walkin_customers ?? [])) {
+          walkinsRows.push({
+            employee_name: consultantName,
+            employee_code: consultantCode,
+            store: w.company_code || store,
+            customer_name: w.customer_name || 'Walk-in Visitor',
+            mobile: w.mobile || '—',
+            visited_on: w.visited_on ? formatDatePadded(w.visited_on) : '—',
+            visited_time: w.visited_time || '—',
+            source: w.source || '—',
+            notes: w.notes || '—',
+          });
+        }
+
+        for (const cat of (consultant.categories_breakdown ?? [])) {
+          categoriesRows.push({
+            employee_name: consultantName,
+            employee_code: consultantCode,
+            store,
+            category: cat.category,
+            pieces: cat.pieces,
+            total_value: cat.total_value,
+          });
+        }
+      }
+
+      downloadXlsx(`jewelry-consultant-wise-sales_${fromDate}_to_${toDate}.xlsx`, [
+        {
+          name: 'Consultant Summary',
+          columns: view.columns,
+          rows: view.rows,
+        },
+        {
+          name: 'Customers Sold',
+          columns: [
+            { key: 'employee_name', label: 'Jewelry Consultant' },
+            { key: 'employee_code', label: 'Consultant Code' },
+            { key: 'store', label: 'Store' },
+            { key: 'customer_name', label: 'Customer Name' },
+            { key: 'customer_mobile', label: 'Customer Mobile' },
+            { key: 'document_type', label: 'Document Type' },
+            { key: 'document_no', label: 'Document No.' },
+            { key: 'document_date', label: 'Date' },
+            { key: 'total_amount', label: 'Sale Value' },
+            { key: 'items_count', label: 'Items' },
+            { key: 'categories', label: 'Categories' },
+          ],
+          rows: customersSoldRows,
+        },
+        {
+          name: 'Walk-ins Attended',
+          columns: [
+            { key: 'employee_name', label: 'Jewelry Consultant' },
+            { key: 'employee_code', label: 'Consultant Code' },
+            { key: 'store', label: 'Store' },
+            { key: 'customer_name', label: 'Customer Name' },
+            { key: 'mobile', label: 'Mobile' },
+            { key: 'visited_on', label: 'Visit Date' },
+            { key: 'visited_time', label: 'Visit Time' },
+            { key: 'source', label: 'Source' },
+            { key: 'notes', label: 'Notes' },
+          ],
+          rows: walkinsRows,
+        },
+        {
+          name: 'Category Sales',
+          columns: [
+            { key: 'employee_name', label: 'Jewelry Consultant' },
+            { key: 'employee_code', label: 'Consultant Code' },
+            { key: 'store', label: 'Store' },
+            { key: 'category', label: 'Product Category' },
+            { key: 'pieces', label: 'Pieces Sold' },
+            { key: 'total_value', label: 'Total Value' },
+          ],
+          rows: categoriesRows,
         },
       ]);
       return;
@@ -983,17 +1131,25 @@ export default function ReportsPage() {
           )}
 
           {activeTab === 'salesperson' && (
-            <DataTable
-              key={tableKey}
-              columns={TAB_REPORTS.salesperson.columns}
-              rows={TAB_REPORTS.salesperson.rows}
-              isLoading={salesPersonReport.isLoading}
-              isError={salesPersonReport.isError}
-              onRetry={salesPersonReport.refetch}
-              onViewChange={handleViewChange}
-              {...filterBar}
-              emptyMessage="No jewelry consultant sales in this range."
-            />
+            <>
+              <DataTable
+                key={tableKey}
+                columns={TAB_REPORTS.salesperson.columns}
+                rows={TAB_REPORTS.salesperson.rows}
+                isLoading={salesPersonReport.isLoading}
+                isError={salesPersonReport.isError}
+                onRetry={salesPersonReport.refetch}
+                onViewChange={handleViewChange}
+                onRowClick={(row) => setSelectedConsultant(row)}
+                {...filterBar}
+                emptyMessage="No jewelry consultant sales in this range."
+              />
+              <JewelryConsultantDetailSheet
+                consultant={selectedConsultant}
+                isOpen={!!selectedConsultant}
+                onClose={() => setSelectedConsultant(null)}
+              />
+            </>
           )}
 
           {activeTab === 'velocity' && (

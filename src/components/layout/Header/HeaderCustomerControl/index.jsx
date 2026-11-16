@@ -10,13 +10,13 @@ import { useCustomerSession } from '@/hooks/customer/useCustomerSession';
 import { useEndCustomerVisit } from '@/components/features/voc/VocEndVisitProvider';
 import { selectCheckoutInProgress } from '@/store/slices/uiSlice';
 import { cn } from '@/lib/utils';
-import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
+import PhoneLink from '@/components/shared/PhoneLink';
 
 function getInitials(name) {
   if (!name) return '?';
   const parts = name.trim().split(/\s+/);
   const first = parts[0]?.[0] ?? '';
-  const last  = parts.length > 1 ? parts[parts.length - 1][0] : '';
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
   return (first + last).toUpperCase();
 }
 
@@ -72,25 +72,25 @@ export default function HeaderCustomerControl() {
           'border border-status-in-stock/20 bg-status-in-stock/10'
         )}
       >
-        <button
-          type="button"
-          onClick={guardedSheetOpen}
-          className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-          aria-label={`Customer: ${customerName}. Tap to view details.`}
-        >
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-status-in-stock text-[10px] font-bold text-white">
-            {getInitials(customerName)}
-          </span>
-          <span className="hidden sm:flex items-center gap-1 text-sm font-medium text-status-in-stock">
-            <span className="truncate max-w-[120px]">{customerName}</span>
-            {customerMobile && (
-              <>
-                <span aria-hidden="true">·</span>
-                <span className="tabular-nums">{formatMobileWithCountryCode(customerMobile)}</span>
-              </>
-            )}
-          </span>
-        </button>
+        <div className="flex items-center gap-1 text-sm font-medium text-status-in-stock">
+          <button
+            type="button"
+            onClick={guardedSheetOpen}
+            className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+            aria-label={`Customer: ${customerName}. Tap to view details.`}
+          >
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-status-in-stock text-[10px] font-bold text-white">
+              {getInitials(customerName)}
+            </span>
+            <span className="hidden sm:inline-block truncate max-w-[120px]">{customerName}</span>
+          </button>
+          {customerMobile && (
+            <span className="hidden sm:inline-flex items-center gap-1">
+              <span aria-hidden="true">·</span>
+              <PhoneLink phone={customerMobile} className="tabular-nums" />
+            </span>
+          )}
+        </div>
         <button
           type="button"
           onClick={guardedDetach}

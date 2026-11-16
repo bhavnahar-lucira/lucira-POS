@@ -74,7 +74,7 @@ import { todayDateString, formatDatePadded, resolveDocumentDateTime } from '@/li
 import { formatAmountOrDash, roundToNearestRupee } from '@/lib/priceUtils';
 
 import PageLoader                          from '@/components/shared/PageLoader';
-import PaymentModeSelect                   from '@/components/shared/PaymentModeSelect';
+import CheckoutPaymentSection              from '@/components/features/checkout/CheckoutPaymentSection';
 import PillTabs                            from '@/components/shared/PillTabs';
 import RemoveLineItemButton                from '@/components/shared/RemoveLineItemButton';
 import CustomerAttachedBanner               from '@/components/shared/CustomerAttachedBanner';
@@ -890,26 +890,24 @@ function MetalLineItemForm({ type, onDone }) {
 
 const refundSchema = z.object({
   document_date: z.string().min(1, 'Required'),
-  mode_id:       z.coerce.number().min(1, 'Select how the money is paid out'),
   credit_keys:   z.array(z.number()).min(1, 'Select at least one credit to refund'),
-  bank_pos_id:   z.coerce.number().optional().or(z.literal('')),
-  ref_no: z.string().optional(),
 });
 
 function RefundNewForm({ onDone }) {
   const storeId      = useSelector(selectActiveStoreId);
   const customerId   = useSelector(selectCartCustomerId);
   const customerName = useSelector(selectCartCustomerName);
-  const { paymentModes, isLoading: modesLoading } = usePaymentModesForRefund();
+  const { paymentModes } = usePaymentModesForRefund();
   const headerConfig = useOrderHeaderConfig(APP_CONFIG.DOCUMENT_TYPES.REFUND);
   const { credits, isLoading: creditsLoading, isError: creditsError, refetch: refetchCredits } =
     useCustomerCredits(customerId);
 
+  const [payments, setPayments] = useState([]);
   const create = useCreateRefund({ onSuccess: () => onDone() });
 
-  const { register, handleSubmit, control, watch, setValue, reset, formState: { errors } } = useForm({
+  const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm({
     resolver: zodResolver(refundSchema),
-    defaultValues: { document_date: todayDateString(), mode_id: '', credit_keys: [], bank_pos_id: '', ref_no: '' },
+    defaultValues: { document_date: todayDateString(), credit_keys: [] },
   });
 
   const creditKeys = watch('credit_keys');
@@ -927,6 +925,21 @@ function RefundNewForm({ onDone }) {
 
   const onSubmit = async (data) => {
     if (!customerId) return toast.error('Assign a customer to the session before submitting.');
+    if (!payments.length) return toast.error('Select how the refund is being paid out.');
+    const totalPayout = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    if (Math.abs(totalPayout - total) > 0.01) {
+      return toast.error(`Refund payout (${formatINR(totalPayout)}) must match total credit (${formatINR(total)}).`);
+    }
+    for (const p of payments) {
+      const mode = paymentModes.find((m) => m.modeId === p.modeId);
+      const reqBank = mode && paymentRequiresBank(mode);
+      if (reqBank && !p.bankPosId) {
+        return toast.error(`Select the bank account for ${p.modeName || 'this payment'}.`);
+      }
+      if (reqBank && !p.refNo?.trim()) {
+        return toast.error(`Enter the payment reference number for ${p.modeName || 'this payment'}.`);
+      }
+    }
     if (!headerConfig.isReady) {
       if (headerConfig.isError) headerConfig.refetch();
       return toast.error(
@@ -938,8 +951,6 @@ function RefundNewForm({ onDone }) {
       );
     }
     try {
-      // OrnaVerse's Refund has no bank account: the payout books to the mode's own ledger.
-      const mode = paymentModes.find((m) => m.modeId === Number(data.mode_id));
       await create.mutateAsync({
         partyId: customerId,
         partyName: customerName,
@@ -947,17 +958,22 @@ function RefundNewForm({ onDone }) {
         financialYearId: headerConfig.financialYearId,
         documentDate: resolveDocumentDateTime(data.document_date).toISOString(),
         credits: selectedCredits.map((credit) => ({ credit, amount: credit.amount })),
-        payout: {
-          modeId:   Number(data.mode_id),
-          ledgerId: mode?.ledgerId,
-          amount:   total,
-          refNo:    data.ref_no?.trim() || undefined,
-          modeName: mode?.modeName,
-          modeCode: mode?.modeCode,
-          modeType: mode?.modeType,
-        },
+        payments: payments.map((p) => {
+          const mode = paymentModes.find((m) => m.modeId === p.modeId);
+          return {
+            modeId:   p.modeId,
+            ledgerId: p.ledgerId ?? mode?.ledgerId,
+            amount:   Number(p.amount),
+            refNo:    p.refNo?.trim() || undefined,
+            bankPos:  p.bankPosId || undefined,
+            modeName: p.modeName ?? mode?.modeName,
+            modeCode: p.modeCode ?? mode?.modeCode,
+            modeType: p.modeType ?? mode?.modeType,
+          };
+        }),
       });
       reset();
+      setPayments([]);
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
@@ -1033,19 +1049,24 @@ function RefundNewForm({ onDone }) {
         </div>
       )}
 
-      <FormField label="Paid Out By" required error={errors.mode_id}>
-        <PaymentModeSelect
-          control={control}
-          name="mode_id"
-          paymentModes={paymentModes}
-          modesLoading={modesLoading}
-          refFieldName="ref_no"
-        />
-      </FormField>
+      {total > 0 && (
+        <div className="flex flex-col gap-2">
+          <Label>Paid Out By <span className="text-destructive">*</span></Label>
+          <CheckoutPaymentSection
+            bare
+            hideHelpers
+            allowPartial={false}
+            amountDue={total}
+            onChange={setPayments}
+            partyId={customerId}
+            storeId={storeId}
+          />
+        </div>
+      )}
 
       <Button
         type="submit"
-        disabled={isSubmitting || !customerId || selectedCredits.length === 0}
+        disabled={isSubmitting || !customerId || selectedCredits.length === 0 || !payments.length}
         className="h-12 mt-1"
       >
         {isSubmitting ? 'Processing Refund…' : 'Submit Refund'}
@@ -1064,26 +1085,24 @@ function RefundNewForm({ onDone }) {
 const advanceReceiptSchema = z.object({
   document_date: z.string().min(1, 'Required'),
   amount:        z.coerce.number().min(1, 'Enter an amount'),
-  mode_id:       z.coerce.number().min(1, 'Select how the advance is paid'),
   narration:     z.string().optional(),
-  bank_pos_id:   z.coerce.number().optional().or(z.literal('')),
-  ref_no:        z.string().optional(),
 });
 
 function AdvanceReceiptNewForm({ onDone }) {
   const storeId      = useSelector(selectActiveStoreId);
   const customerId   = useSelector(selectCartCustomerId);
   const customerName = useSelector(selectCartCustomerName);
-  const { paymentModes, isLoading: modesLoading } = usePaymentModes();
-  const { bankPosAccounts } = useBankPosAccounts();
   const headerConfig = useOrderHeaderConfig(APP_CONFIG.DOCUMENT_TYPES.POS_RECEIPT);
+  const [payments, setPayments] = useState([]);
 
   const create = useCreateAdvanceReceipt({ onSuccess: () => onDone() });
 
-  const { register, handleSubmit, control, reset, formState: { errors } } = useForm({
+  const { register, handleSubmit, watch, reset, formState: { errors } } = useForm({
     resolver: zodResolver(advanceReceiptSchema),
-    defaultValues: { document_date: todayDateString(), amount: '', mode_id: '', narration: '', bank_pos_id: '', ref_no: '' },
+    defaultValues: { document_date: todayDateString(), amount: '', narration: '' },
   });
+
+  const watchAmount = watch('amount');
 
   const onSubmit = async (data) => {
     if (!customerId) return toast.error('Assign a customer to the session before submitting.');
@@ -1097,12 +1116,12 @@ function AdvanceReceiptNewForm({ onDone }) {
             : 'Store configuration is still loading — try again in a moment.'
       );
     }
+    const totalPayments = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    if (!payments.length) return toast.error('Select at least one payment method.');
+    if (Math.abs(totalPayments - Number(data.amount)) > 0.01) {
+      return toast.error('Payment amounts must equal the advance amount.');
+    }
     try {
-      const mode = paymentModes.find((m) => m.modeId === Number(data.mode_id));
-      if (mode && paymentRequiresBank(mode)) {
-        if (!data.bank_pos_id) return toast.error('Select the bank account this payment settles to.');
-        if (!data.ref_no?.trim()) return toast.error('Enter a reference number for this payment.');
-      }
       await create.mutateAsync({
         partyId: customerId,
         activeStoreId: storeId,
@@ -1111,13 +1130,7 @@ function AdvanceReceiptNewForm({ onDone }) {
         numberOfBackdatedDays: headerConfig.numberOfBackdatedDays,
         documentDate: resolveDocumentDateTime(data.document_date).toISOString(),
         narration: data.narration?.trim(),
-        payout: {
-          modeId:   Number(data.mode_id),
-          ledgerId: bankPosAccounts.find((a) => a.id === Number(data.bank_pos_id))?.ledgerId ?? mode?.ledgerId,
-          amount:   data.amount,
-          bankPos:  data.bank_pos_id || undefined,
-          refNo:    data.ref_no?.trim() || undefined,
-        },
+        payments,
       });
       reset();
     } catch (err) {
@@ -1134,20 +1147,24 @@ function AdvanceReceiptNewForm({ onDone }) {
         Book a customer prepayment here. It&apos;s available as credit on their next invoice or order.
       </p>
 
-      <FormField label="Advance Amount" required error={errors.amount}>
+      <FormField label="Advance Amount (₹)" required error={errors.amount}>
         <Input type="number" step="0.01" min="0" className="h-11" {...register('amount')} />
       </FormField>
 
-      <FormField label="Paid By" required error={errors.mode_id}>
-        <PaymentModeSelect
-          control={control}
-          name="mode_id"
-          paymentModes={paymentModes}
-          modesLoading={modesLoading}
-          bankFieldName="bank_pos_id"
-          refFieldName="ref_no"
-        />
-      </FormField>
+      {Number(watchAmount) > 0 && (
+        <div className="pt-1">
+          <Label className="text-sm font-medium mb-1.5 block">Payment Mode <span className="text-destructive">*</span></Label>
+          <CheckoutPaymentSection
+            bare={true}
+            hideHelpers={true}
+            allowPartial={false}
+            amountDue={Number(watchAmount) || 0}
+            onChange={setPayments}
+            partyId={customerId}
+            storeId={storeId}
+          />
+        </div>
+      )}
 
       <FormField label="Narration">
         <Input className="h-11" placeholder="Optional note" {...register('narration')} />

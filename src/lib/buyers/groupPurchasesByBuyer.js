@@ -36,8 +36,10 @@ export function groupPurchasesByBuyer(purchases) {
         buybackCount:   0,
         cancelledCount: 0,
         totalSpend:     0,
+        purchaseCount:  0,
         lastPurchaseDateMs: 0,
         lastPurchaseDate:   null,
+        latestRecordMs:     -1,
       };
       byCustomer.set(key, entry);
     }
@@ -48,31 +50,33 @@ export function groupPurchasesByBuyer(purchases) {
     else if (p.documentType === 'exchange') entry.exchangeCount += 1;
     else if (p.documentType === 'buyback') entry.buybackCount += 1;
 
-    if (deriveDocumentStatus(p.documentStatus, p.balanceAmount, p.receiptAmount) === APP_CONFIG.ORDER_STATUS.CANCELLED) {
-      entry.cancelledCount += 1;
-    }
+    const isCancelled = deriveDocumentStatus(p.documentStatus, p.balanceAmount, p.receiptAmount) === APP_CONFIG.ORDER_STATUS.CANCELLED;
+    if (isCancelled) entry.cancelledCount += 1;
 
     // Only invoice/order amounts count as real spend — a return/exchange/
     // buyback's totalAmount is what came BACK to the customer, not spend.
-    if (p.documentType === 'invoice' || p.documentType === 'order') {
+    const isPurchase = p.documentType === 'invoice' || p.documentType === 'order';
+    if (isPurchase && !isCancelled) {
       entry.totalSpend += p.totalAmount ?? 0;
+      entry.purchaseCount += 1;
     }
-    if (dateMs >= entry.lastPurchaseDateMs) {
+    // Last purchase = the latest posted invoice/order; returns, exchanges, buybacks and cancelled bills don't count.
+    if (isPurchase && !isCancelled && dateMs >= entry.lastPurchaseDateMs) {
       entry.lastPurchaseDateMs = dateMs;
       entry.lastPurchaseDate = p.documentDate;
-      // Newest purchase wins for display name/mobile — a customer's name
-      // can be corrected over time; the most recent record is the most
-      // likely to be right.
+    }
+    // Newest record wins for display name/mobile — a customer's name can be corrected over time.
+    if (dateMs >= entry.latestRecordMs) {
+      entry.latestRecordMs = dateMs;
       entry.customerName   = p.customerName ?? entry.customerName;
       entry.customerMobile = p.customerMobile ?? entry.customerMobile;
     }
   }
 
   return [...byCustomer.values()]
-    .map(({ stores, lastPurchaseDateMs, ...rest }) => ({
+    .map(({ stores, lastPurchaseDateMs, latestRecordMs, ...rest }) => ({
       ...rest,
       stores: [...stores],
-      purchaseCount: rest.invoiceCount + rest.orderCount,
       hasOutcomes: rest.returnCount + rest.exchangeCount + rest.buybackCount + rest.cancelledCount > 0,
     }))
     .sort((a, b) => (b.lastPurchaseDate ? new Date(b.lastPurchaseDate) : 0) - (a.lastPurchaseDate ? new Date(a.lastPurchaseDate) : 0));

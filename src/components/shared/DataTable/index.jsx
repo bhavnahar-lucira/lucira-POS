@@ -302,7 +302,10 @@ export default function DataTable({ columns, rows, isLoading, isError, onRetry, 
                   ))}
                 </TableRow>
                 {hasMobileDetails && row.getIsExpanded() && (
-                  <TableRow className="md:hidden bg-muted/30 hover:bg-muted/30">
+                  <TableRow
+                    onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                    className={`md:hidden bg-muted/30 hover:bg-muted/50 transition-colors ${onRowClick ? 'cursor-pointer active:bg-muted/70' : ''}`}
+                  >
                     <TableCell colSpan={mobileKeys.size + 1} className="whitespace-normal">
                       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
                         {row.getVisibleCells().filter((cell) => !mobileKeys.has(cell.column.id)).map((cell) => (
@@ -314,6 +317,12 @@ export default function DataTable({ columns, rows, isLoading, isError, onRetry, 
                           </Fragment>
                         ))}
                       </dl>
+                      {onRowClick && (
+                        <div className="mt-2.5 pt-2 border-t border-border/50 flex items-center justify-between text-[11px] text-primary font-medium">
+                          <span>Tap for full details</span>
+                          <span aria-hidden="true">→</span>
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 )}

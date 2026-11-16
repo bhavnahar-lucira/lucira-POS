@@ -9,16 +9,11 @@
 // 1. Visits inside [fromDate, toDate] are grouped into one row per PERSON.
 // 2. That person is a NON-BUYER when:
 //      visitCount >= minVisits
-//      AND no posted (not cancelled, not draft) order or invoice at this
-//          store dated on/after their FIRST visit in the window.
-//    A purchase after the window still counts — someone who visited in
-//    early October and bought on 20 October has converted, even when the
-//    filter only covers 1–15 October.
-// 3. Purchases BEFORE that first visit don't disqualify anyone — they're
-//    surfaced as `isPastBuyer` (a lapsed customer browsing again is a
-//    different, warmer follow-up than a first-timer).
-// 4. A cancelled order after the first visit is surfaced as
-//    `hasCancelledOrder` — still a non-buyer, but a very warm one.
+//      AND they have never made a posted (not cancelled, not draft) order or
+//          invoice at this store, at any date. Anyone who has ever bought is a
+//          buyer and belongs in Buyers, not here.
+// 3. A cancelled order is not a purchase: surfaced as `hasCancelledOrder` —
+//    still a non-buyer, but a very warm one.
 //
 // ── MATCHING A VISITOR TO THEIR PURCHASES ───────────────────────────────────
 // A CRM visit row carries the CRM lead (customer_id), name and mobile, but
@@ -162,17 +157,9 @@ export function deriveNonBuyers({
     const ordered = [...person.visits].sort((a, b) => new Date(b.visitedAt) - new Date(a.visitedAt));
     const lastVisitAt = ordered[0].visitedAt;
     const firstVisitAt = ordered[ordered.length - 1].visitedAt;
-    const firstVisitDay = dayOf(firstVisitAt);
 
     const docs = findDocumentsFor(person, index);
-    const after = docs.filter((d) => d.day >= firstVisitDay);
-    if (after.some((d) => !d.isCancelled)) continue; // converted — not a non-buyer
-
-    const before = docs.filter((d) => d.day < firstVisitDay && !d.isCancelled);
-    const lastPurchase = before.reduce(
-      (latest, d) => (!latest || d.day > latest.day ? d : latest),
-      null,
-    );
+    if (docs.some((d) => !d.isCancelled)) continue; // has purchased at some point — a buyer, not a non-buyer
 
     const lastVisitMs = new Date(lastVisitAt).getTime();
     rows.push({
@@ -190,9 +177,7 @@ export function deriveNonBuyers({
         : null,
       sources: [...person.sources],
       visits: ordered,
-      isPastBuyer: !!lastPurchase,
-      lastPurchaseDate: lastPurchase?.date ?? null,
-      hasCancelledOrder: after.some((d) => d.isCancelled),
+      hasCancelledOrder: docs.length > 0,
     });
   }
 

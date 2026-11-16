@@ -28,7 +28,8 @@ import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import { todayDateString } from '@/lib/dateUtils';
 import { GENDER_OPTIONS, MARITAL_STATUS_OPTIONS } from '@/constants/customerOptions';
 
-export default function WalkInRegisterForm({ defaultMobile = '', onRegistered }) {
+export default function WalkInRegisterForm({ defaultMobile = '', defaultName = '', onRegistered }) {
+  const [defaultFirst = '', ...defaultRest] = defaultName.trim().split(/\s+/);
   const {
     register, handleSubmit, control, watch, setValue,
     formState: { errors },
@@ -36,7 +37,7 @@ export default function WalkInRegisterForm({ defaultMobile = '', onRegistered })
     resolver: zodResolver(walkInRegisterSchema),
     defaultValues: {
       mobile: storedValueToPhone(defaultMobile),
-      first_name: '', last_name: '', phone: '', email: '',
+      first_name: defaultFirst, last_name: defaultRest.join(' '), phone: '', email: '',
       gender: null, marital_status: null,
       birth_date: '', anniversary: '',
       country_id: null, state_id: null, city_id: null,
@@ -104,7 +105,7 @@ export default function WalkInRegisterForm({ defaultMobile = '', onRegistered })
         mobile: mobile.startsWith('+91') ? mobile.slice(3) : mobile,
         ...(phone ? { phone: phone.startsWith('+91') ? phone.slice(3) : phone } : {}),
       });
-      onRegistered?.();
+      onRegistered?.(values);
     } catch {
       // Error toast handled by useWalkInRegister
     }

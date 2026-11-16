@@ -12,6 +12,8 @@ import ErrorState from '@/components/shared/ErrorState';
 import BuyerListItem from '@/components/features/buyers/BuyerListItem';
 import BuyersFilterPanel from '@/components/features/buyers/BuyersFilterPanel';
 import BuyersMobileFilterBar from '@/components/features/buyers/BuyersMobileFilterBar';
+import BuyerSegmentFilters from '@/components/features/buyers/BuyerSegmentFilters';
+import { applyBuyerFilters } from '@/lib/buyers/buyerFilters';
 import { useBuyerPurchases } from '@/hooks/buyers/useBuyerPurchases';
 import { useSyncStorePurchases } from '@/hooks/buyers/useSyncStorePurchases';
 import { groupPurchasesByBuyer } from '@/lib/buyers/groupPurchasesByBuyer';
@@ -37,6 +39,9 @@ export default function BuyersPage() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [salesPerson, setSalesPerson] = useState(ALL_SALES_PERSONS);
+  const [recency, setRecency] = useState('all');
+  const [frequency, setFrequency] = useState('all');
+  const [sort, setSort] = useState('recent');
   const [pagination, setPagination] = useState({ key: '', visibleCount: PAGE_SIZE });
   const prevActiveStoreIdRef = useRef(activeStoreId);
   useEffect(() => {
@@ -71,7 +76,7 @@ export default function BuyersPage() {
   }, [purchases]);
 
   const hasActiveFilters = documentTypes.length !== ALL_DOCUMENT_TYPES.length || !!fromDate || !!toDate
-    || salesPerson !== ALL_SALES_PERSONS;
+    || salesPerson !== ALL_SALES_PERSONS || recency !== 'all' || frequency !== 'all';
   const trimmedSearch = search.trim().toLowerCase();
   const filteredBuyers = useMemo(() => {
     // With a sales person chosen: only the customers they sold to, and only their sales to them
@@ -99,13 +104,14 @@ export default function BuyersPage() {
       return true;
     });
     const grouped = groupPurchasesByBuyer(matching);
-    if (!trimmedSearch) return grouped;
-    return grouped.filter((b) =>
-      b.customerName?.toLowerCase().includes(trimmedSearch)
-      || b.customerMobile?.includes(trimmedSearch)
-    );
-  }, [purchases, documentTypes, fromDate, toDate, trimmedSearch, salesPerson]);
-  const filterKey = `${documentTypes.join(',')}|${fromDate}|${toDate}|${salesPerson}|${trimmedSearch}|${purchases.length}`;
+    const searched = trimmedSearch
+      ? grouped.filter((b) =>
+        b.customerName?.toLowerCase().includes(trimmedSearch)
+        || b.customerMobile?.includes(trimmedSearch))
+      : grouped;
+    return applyBuyerFilters(searched, { recency, frequency, sort });
+  }, [purchases, documentTypes, fromDate, toDate, trimmedSearch, salesPerson, recency, frequency, sort]);
+  const filterKey = `${documentTypes.join(',')}|${fromDate}|${toDate}|${salesPerson}|${recency}|${frequency}|${sort}|${trimmedSearch}|${purchases.length}`;
   if (pagination.key !== filterKey) {
     setPagination({ key: filterKey, visibleCount: PAGE_SIZE });
   }
@@ -139,6 +145,15 @@ export default function BuyersPage() {
     setFromDate('');
     setToDate('');
     setSalesPerson(ALL_SALES_PERSONS);
+    setRecency('all');
+    setFrequency('all');
+    setSort('recent');
+  };
+
+  const segmentFilters = {
+    recency, onRecencyChange: setRecency,
+    frequency, onFrequencyChange: setFrequency,
+    sort, onSortChange: setSort,
   };
 
   const handleStoreFilterChange = (value) => {
@@ -372,6 +387,8 @@ export default function BuyersPage() {
 
             <div className="border-t border-border" />
           </div>
+
+          <BuyerSegmentFilters {...segmentFilters} />
 
           <BuyersFilterPanel
             documentTypes={documentTypes}

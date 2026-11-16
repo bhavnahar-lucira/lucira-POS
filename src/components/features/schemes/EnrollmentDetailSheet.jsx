@@ -11,12 +11,12 @@ import { useSchemeBenefits } from '@/hooks/schemes/useSchemeBenefits';
 import { useCloseSchemeEnrollment } from '@/hooks/schemes/useCloseSchemeEnrollment';
 import { useRedeemSchemeEnrollment } from '@/hooks/schemes/useRedeemSchemeEnrollment';
 import { formatCurrency, formatDate, formatMonthName } from '@/lib/schemeFormat';
-import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
+import PhoneLink from '@/components/shared/PhoneLink';
 
 const TABS = [
   { key: 'schedule', label: 'Schedule' },
   { key: 'payments', label: 'Payments' },
-  { key: 'closure',  label: 'Closure' },
+  { key: 'closure', label: 'Closure' },
 ];
 
 const CLOSURE_ACTIONS = [
@@ -39,15 +39,15 @@ const CLOSURE_ACTIONS = [
 
 const BENEFIT_FIELDS = {
   principal_paid: { label: 'Principal Paid', format: 'money' },
-  total_benefit:  { label: 'Benefit Earned', format: 'money' },
-  total_payout:   { label: 'Total Payout',   format: 'money', emphasis: true },
-  ontime_rate:    { label: 'On-time Rate',   format: 'rate' },
-  delayed_rate:   { label: 'Delayed Rate',   format: 'rate' },
-  grace_days:     { label: 'Grace Period',   format: 'days' },
+  total_benefit: { label: 'Benefit Earned', format: 'money' },
+  total_payout: { label: 'Total Payout', format: 'money', emphasis: true },
+  ontime_rate: { label: 'On-time Rate', format: 'rate' },
+  delayed_rate: { label: 'Delayed Rate', format: 'rate' },
+  grace_days: { label: 'Grace Period', format: 'days' },
   // seen on the enrollment entity itself
-  invested_amount: { label: 'Invested',      format: 'money' },
-  benifit_amount:  { label: 'Benefit',       format: 'money' }, // API's spelling
-  total_payable:   { label: 'Total Payable', format: 'money' },
+  invested_amount: { label: 'Invested', format: 'money' },
+  benifit_amount: { label: 'Benefit', format: 'money' }, // API's spelling
+  total_payable: { label: 'Total Payable', format: 'money' },
 };
 
 // Order matters: principal, then what it earned, then the total.
@@ -59,9 +59,9 @@ const BENEFIT_ORDER = [
 function formatBenefitValue(key, value) {
   switch (BENEFIT_FIELDS[key]?.format) {
     case 'money': return formatCurrency(value);
-    case 'rate':  return `${(Number(value) * 100).toFixed(2)}%`;
-    case 'days':  return `${value} days`;
-    default:      return String(value);
+    case 'rate': return `${(Number(value) * 100).toFixed(2)}%`;
+    case 'days': return `${value} days`;
+    default: return String(value);
   }
 }
 
@@ -111,7 +111,7 @@ function ScheduleTab({ enrollmentId }) {
   const { data: months = [], isLoading, isError } = useSchemeMonthlyDetails(enrollmentId);
 
   if (isLoading) return <LoadingRow />;
-  if (isError)   return <ErrorRow label="Failed to load payment schedule." />;
+  if (isError) return <ErrorRow label="Failed to load payment schedule." />;
   if (!months.length) return <EmptyRow icon={CalendarClock} label="No schedule available yet." />;
 
   return (
@@ -166,8 +166,8 @@ function PaymentsTab({ enrollmentId }) {
   const { data: months = [], isLoading: monthsLoading } = useSchemeMonthlyDetails(enrollmentId);
 
   if (receiptsLoading || monthsLoading) return <LoadingRow />;
-  if (receiptsError)   return <ErrorRow label="Failed to load payment history." />;
-  
+  if (receiptsError) return <ErrorRow label="Failed to load payment history." />;
+
   const unmatchedPaidMonths = months.filter(
     (m) => m.isPaid && !receipts.some((r) => isSameCalendarDay(m.paidOnDate, r.documentDate))
   );
@@ -231,8 +231,8 @@ function ClosureTab({ enrollmentId, enrollmentStatus }) {
   const payload = result?.Entity ?? result;
   const rows = payload && typeof payload === 'object'
     ? orderBenefitRows(
-        Object.entries(payload).filter(([, v]) => v != null && typeof v !== 'object'),
-      )
+      Object.entries(payload).filter(([, v]) => v != null && typeof v !== 'object'),
+    )
     : [];
   const installments = Array.isArray(payload?.Installments) ? payload.Installments : [];
   const delayedCount = installments.filter((i) => i.is_delayed).length;
@@ -321,20 +321,18 @@ function ClosureTab({ enrollmentId, enrollmentStatus }) {
                 return (
                   <div
                     key={key}
-                    className={`flex items-baseline justify-between gap-3 ${
-                      emphasis ? 'mt-1 border-t border-border pt-2' : ''
-                    }`}
+                    className={`flex items-baseline justify-between gap-3 ${emphasis ? 'mt-1 border-t border-border pt-2' : ''
+                      }`}
                   >
                     <dt className={emphasis
                       ? 'text-sm font-medium text-foreground'
                       : 'text-xs text-muted-foreground'}>
                       {prettyLabel(key)}
                     </dt>
-                    <dd className={`tabular-nums ${
-                      emphasis
-                        ? 'text-base font-semibold text-foreground'
-                        : 'text-sm font-medium text-foreground'
-                    }`}>
+                    <dd className={`tabular-nums ${emphasis
+                      ? 'text-base font-semibold text-foreground'
+                      : 'text-sm font-medium text-foreground'
+                      }`}>
                       {formatBenefitValue(key, value)}
                     </dd>
                   </div>
@@ -387,7 +385,7 @@ export default function EnrollmentDetailSheet({ enrollment, isOpen, onClose }) {
 
         <div className="rounded-xl border border-border bg-muted p-3 text-sm flex flex-col gap-1">
           <p className="font-medium text-foreground">{enrollment.schemeName}</p>
-          <p className="text-muted-foreground">{enrollment.partyName} · {formatMobileWithCountryCode(enrollment.mobile)}</p>
+          <p className="text-muted-foreground">{enrollment.partyName} · <PhoneLink phone={enrollment.mobile} /></p>
           <p className="text-muted-foreground">
             Monthly: {formatCurrency(enrollment.schemeAmount)} · Tenure: {enrollment.tenure} months
           </p>
@@ -397,7 +395,7 @@ export default function EnrollmentDetailSheet({ enrollment, isOpen, onClose }) {
 
         {activeTab === 'schedule' && <ScheduleTab enrollmentId={enrollment.enrollmentId} />}
         {activeTab === 'payments' && <PaymentsTab enrollmentId={enrollment.enrollmentId} />}
-        {activeTab === 'closure'  && (
+        {activeTab === 'closure' && (
           <ClosureTab enrollmentId={enrollment.enrollmentId} enrollmentStatus={enrollment.status} />
         )}
       </div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
-import { Search, X, Loader2, RefreshCw, UserX } from 'lucide-react';
+import { Search, X, Loader2, RefreshCw, UserX, SlidersHorizontal } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -19,36 +19,34 @@ import { useNonBuyers } from '@/hooks/customer/useNonBuyers';
 import { selectActiveStoreId, selectActiveStoreName, selectAvailableStores } from '@/store/slices/storeSlice';
 import { selectIsSuperAdmin } from '@/store/slices/authSlice';
 import { todayDateString } from '@/lib/dateUtils';
+import { RECENCY_OPTIONS, VISIT_FREQUENCY_OPTIONS } from '@/lib/buyers/buyerFilters';
 import APP_CONFIG from '@/constants/appConfig';
 
-// Default look-back: recent enough that a follow-up call still makes sense.
-const DEFAULT_LOOKBACK_DAYS = 90;
-const DEFAULT_MIN_VISITS = '2';
+// Every non-buyer is shown by default; the filters narrow it down.
+const MIN_VISITS = '1';
 const DEFAULT_SORT = 'visits';
-
-const MIN_VISIT_OPTIONS = [
-  { value: '1', label: '1+ visits' },
-  { value: '2', label: '2+ visits' },
-  { value: '3', label: '3+ visits' },
-  { value: '5', label: '5+ visits' },
-];
 
 const SORT_OPTIONS = [
   { value: 'visits', label: 'Most visits' },
   { value: 'recent', label: 'Latest visit' },
 ];
 
-function localDateString(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-function defaultFromDate() {
-  const d = new Date();
-  d.setDate(d.getDate() - DEFAULT_LOOKBACK_DAYS);
-  return localDateString(d);
+function FilterSelect({ label, value, onChange, options }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="h-10 w-full" aria-label={label}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent className="max-h-72 overflow-y-auto">
+          {options.map((o) => (
+            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
 }
 
 export default function NonBuyersPage() {
@@ -73,9 +71,10 @@ export default function NonBuyersPage() {
 
   const [search, setSearch]       = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [fromDate, setFromDate]   = useState(defaultFromDate);
+  const [fromDate, setFromDate]   = useState('');
   const [toDate, setToDate]       = useState('');
-  const [minVisits, setMinVisits] = useState(DEFAULT_MIN_VISITS);
+  const [recency, setRecency]     = useState('all');
+  const [frequency, setFrequency] = useState('all');
   const [sortBy, setSortBy]       = useState(DEFAULT_SORT);
   const [selected, setSelected]   = useState(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -92,9 +91,11 @@ export default function NonBuyersPage() {
     setDebouncedSearch('');
   };
 
-  const filters = { companyId, from: fromDate, to: toDate, minVisits, sort: sortBy, search: debouncedSearch };
+  const filters = {
+    companyId, from: fromDate, to: toDate, minVisits: MIN_VISITS, recency, frequency, sort: sortBy, search: debouncedSearch,
+  };
   const {
-    nonBuyers, total, pastBuyerCount, hasMore, loadMore, isLoadingMore, isLoading, isFetching, isError, refresh,
+    nonBuyers, total, hasMore, loadMore, isLoadingMore, isLoading, isFetching, isError, refresh,
   } = useNonBuyers(filters);
 
   // Load the next page as the list's end scrolls into view (same pattern as the Buyers page).
@@ -110,21 +111,20 @@ export default function NonBuyersPage() {
     return () => observer.disconnect();
   }, [hasMore, isLoadingMore, loadMore]);
 
-  const hasDateFilter = !!fromDate || !!toDate;
-  const hasActiveFilters = fromDate !== defaultFromDate() || !!toDate
-    || minVisits !== DEFAULT_MIN_VISITS || sortBy !== DEFAULT_SORT
-    || (isSuperAdmin && storeFilter !== String(activeStoreId));
+  const hasActiveFilters = !!fromDate || !!toDate || recency !== 'all' || frequency !== 'all'
+    || (isSuperAdmin && storeFilter !== (activeStoreId ? String(activeStoreId) : 'all'));
 
   const clearFilters = () => {
-    setFromDate(defaultFromDate());
+    setFromDate('');
     setToDate('');
-    setMinVisits(DEFAULT_MIN_VISITS);
+    setRecency('all');
+    setFrequency('all');
     setSortBy(DEFAULT_SORT);
     if (isSuperAdmin) setStoreFilter(activeStoreId ? String(activeStoreId) : 'all');
   };
 
-  const searchInput = (
-    <div className="relative w-full">
+  const renderSearchInput = (className = '') => (
+    <div className={`relative w-full ${className}`}>
       <Search size={16} aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
       <Input
         type="text"
@@ -148,118 +148,44 @@ export default function NonBuyersPage() {
     </div>
   );
 
-  const dateInputs = (
-    <div className="flex items-center gap-2 w-full">
-      <Input
-        type="date"
-        value={fromDate}
-        max={toDate || todayDateString()}
-        onChange={(e) => setFromDate(e.target.value)}
-        aria-label="From date"
-        className="h-11 flex-1 min-w-0"
-      />
-      <span className="text-muted-foreground text-sm shrink-0">to</span>
-      <Input
-        type="date"
-        value={toDate}
-        min={fromDate || undefined}
-        max={todayDateString()}
-        onChange={(e) => setToDate(e.target.value)}
-        aria-label="To date"
-        className="h-11 flex-1 min-w-0"
-      />
-      {hasDateFilter && (
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          onClick={() => { setFromDate(''); setToDate(''); }}
-          aria-label="Show all dates"
-          className="h-11 w-11 shrink-0"
-        >
-          <X size={14} aria-hidden="true" />
-        </Button>
-      )}
-    </div>
-  );
-
-  const storeSelect = isSuperAdmin && (
-    <Select value={storeFilter} onValueChange={setStoreFilter}>
-      <SelectTrigger className="h-11 w-full" aria-label="Store">
-        <SelectValue placeholder="All stores" />
-      </SelectTrigger>
-      <SelectContent align="start" className="max-h-72 overflow-y-auto">
-        <SelectItem value="all">All stores</SelectItem>
-        {availableStores.map((store) => (
-          <SelectItem key={store.company_id} value={String(store.company_id)}>{store.mailing_name}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-
-  const minVisitsSelect = (
-    <Select value={minVisits} onValueChange={setMinVisits}>
-      <SelectTrigger className="h-11 w-full" aria-label="Minimum visits">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent align="start">
-        {MIN_VISIT_OPTIONS.map((opt) => (
-          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-
-  const sortSelect = (
-    <Select value={sortBy} onValueChange={setSortBy}>
-      <SelectTrigger className="h-11 w-full" aria-label="Sort by">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent align="start">
-        {SORT_OPTIONS.map((opt) => (
-          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-
   return (
     <div className="flex flex-col gap-4 w-full p-4 pb-28 md:p-6 md:pb-6">
       <div className="sticky top-0 z-10 -mx-4 -mt-4 flex flex-col gap-2 border-b border-border bg-background px-4 pt-4 pb-3 md:-mx-6 md:-mt-6 md:px-6 md:pt-6">
         <div>
           <h1 className="text-lg font-bold text-foreground">Non-Buyers</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Walk-ins at {companyId === 'all' ? 'every store' : (companyName ?? 'this store')} who visited but haven&rsquo;t bought since their first visit in the period.
+            Walk-ins at {companyId === 'all' ? 'every store' : (companyName ?? 'this store')} who have never made a purchase.
           </p>
         </div>
 
-        {/* Tablet and desktop: every control inline. Phones use the Filter pill + bottom sheet below. */}
-        <div className="hidden md:flex md:flex-col md:gap-2 lg:flex-row lg:items-center">
-          <div className="lg:flex-1 lg:min-w-56">{searchInput}</div>
-          <div className="lg:w-80">{dateInputs}</div>
-          <div className="flex items-center gap-2">
-            {storeSelect && <div className="flex-1 lg:w-48 lg:flex-none">{storeSelect}</div>}
-            <div className="flex-1 lg:w-32 lg:flex-none">{minVisitsSelect}</div>
-            <div className="flex-1 lg:w-36 lg:flex-none">{sortSelect}</div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => refresh()}
-              disabled={isFetching}
-              aria-label="Refresh"
-              className="h-11 w-11 shrink-0"
-            >
-              <RefreshCw size={16} className={isFetching ? 'animate-spin' : ''} aria-hidden="true" />
-            </Button>
-          </div>
+        <div className="hidden md:flex items-center gap-2">
+          {renderSearchInput('flex-1')}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setIsFilterOpen(true)}
+            className="h-11 w-40 shrink-0 gap-2"
+          >
+            <SlidersHorizontal size={16} aria-hidden="true" />
+            Filters
+            {hasActiveFilters && <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => refresh()}
+            disabled={isFetching}
+            aria-label="Refresh"
+            className="h-11 w-11 shrink-0"
+          >
+            <RefreshCw size={16} className={isFetching ? 'animate-spin' : ''} aria-hidden="true" />
+          </Button>
         </div>
 
         {!isLoading && !isError && (
           <p className="text-xs text-muted-foreground">
-            {total} non-buyer{total !== 1 ? 's' : ''}
-            {pastBuyerCount > 0 ? ` · ${pastBuyerCount} bought here before` : ''}
-            {hasDateFilter ? '' : ' · all dates'}
+            {total} non-buyer{total !== 1 ? 's' : ''}{hasActiveFilters || debouncedSearch ? ' matching filters' : ''}
           </p>
         )}
       </div>
@@ -280,8 +206,8 @@ export default function NonBuyersPage() {
           <EmptyState
             className="col-span-full"
             icon={UserX}
-            title={debouncedSearch ? 'No matching non-buyers.' : 'No non-buyers for these filters.'}
-            description={debouncedSearch ? undefined : 'Try fewer minimum visits or a wider date range.'}
+            title={debouncedSearch || hasActiveFilters ? 'No matching non-buyers.' : 'No non-buyers yet.'}
+            description={hasActiveFilters ? 'Try changing or clearing the filters.' : undefined}
           />
         ) : (
           nonBuyers.map((nonBuyer) => (
@@ -333,28 +259,60 @@ export default function NonBuyersPage() {
           </div>
         }
       >
-        <div className="flex flex-col gap-4">
-          {searchInput}
+        <div className="flex flex-col gap-5">
+          {renderSearchInput('md:hidden')}
+
           <div className="flex flex-col gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">Visit period</span>
-            {dateInputs}
-          </div>
-          {storeSelect && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Store</span>
-              {storeSelect}
+            <div className="flex items-center gap-2 w-full">
+              <Input
+                type="date"
+                value={fromDate}
+                max={toDate || todayDateString()}
+                onChange={(e) => setFromDate(e.target.value)}
+                aria-label="From date"
+                className="h-11 flex-1 min-w-0"
+              />
+              <span className="text-muted-foreground text-sm shrink-0">to</span>
+              <Input
+                type="date"
+                value={toDate}
+                min={fromDate || undefined}
+                max={todayDateString()}
+                onChange={(e) => setToDate(e.target.value)}
+                aria-label="To date"
+                className="h-11 flex-1 min-w-0"
+              />
+              {(fromDate || toDate) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => { setFromDate(''); setToDate(''); }}
+                  aria-label="Show all dates"
+                  className="h-11 w-11 shrink-0"
+                >
+                  <X size={14} aria-hidden="true" />
+                </Button>
+              )}
             </div>
+          </div>
+
+          <FilterSelect label="Days since last visit" value={recency} onChange={setRecency} options={RECENCY_OPTIONS} />
+          <FilterSelect label="Frequency" value={frequency} onChange={setFrequency} options={VISIT_FREQUENCY_OPTIONS} />
+          <FilterSelect label="Sort by" value={sortBy} onChange={setSortBy} options={SORT_OPTIONS} />
+
+          {isSuperAdmin && (
+            <FilterSelect
+              label="Store"
+              value={storeFilter}
+              onChange={setStoreFilter}
+              options={[
+                { value: 'all', label: 'All stores' },
+                ...availableStores.map((s) => ({ value: String(s.company_id), label: s.mailing_name })),
+              ]}
+            />
           )}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Minimum visits</span>
-              {minVisitsSelect}
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Sort by</span>
-              {sortSelect}
-            </div>
-          </div>
         </div>
       </BottomSheet>
 

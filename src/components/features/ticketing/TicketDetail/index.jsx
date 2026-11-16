@@ -28,56 +28,57 @@ import AdvanceReceiptLink from '@/components/features/ticketing/AdvanceReceiptLi
 import { paymentRequiresBank } from '@/lib/checkout/paymentModeRules';
 import { resolveDocumentDateTime } from '@/lib/dateUtils';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
-import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
+import PhoneLink from '@/components/shared/PhoneLink';
 import { formatAmountOrDash } from '@/lib/priceUtils';
+import CheckoutPaymentSection from '@/components/features/checkout/CheckoutPaymentSection';
 
 const STATUS_TONES = {
-  awaiting_g2d:               'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
-  g2d_shared:                 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200',
-  awaiting_cad:               'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
+  awaiting_g2d: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
+  g2d_shared: 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200',
+  awaiting_cad: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
   awaiting_customer_feedback: 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
-  final_received:             'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
-  awaiting_final:             'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
-  order_placed:               'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
-  cancelled:                  'bg-destructive/10 text-destructive',
+  final_received: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+  awaiting_final: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+  order_placed: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+  cancelled: 'bg-destructive/10 text-destructive',
 };
 
 const STAGES = [
-  { key: 'raised',  label: 'Request raised' },
-  { key: 'g2d',     label: 'G2D estimate' },
+  { key: 'raised', label: 'Request raised' },
+  { key: 'g2d', label: 'G2D estimate' },
   { key: 'advance', label: 'G2D approval & advance' },
-  { key: 'design',  label: 'CAD design' },
-  { key: 'cad_ok',  label: 'CAD approval' },
-  { key: 'final',   label: 'Final details & SKU' },
-  { key: 'order',   label: 'Order placed' },
+  { key: 'design', label: 'CAD design' },
+  { key: 'cad_ok', label: 'CAD approval' },
+  { key: 'final', label: 'Final details & SKU' },
+  { key: 'order', label: 'Order placed' },
 ];
 
 const STAGE_BY_STATUS = {
-  awaiting_g2d:               1,
-  g2d_shared:                 2,
-  awaiting_cad:               3,
+  awaiting_g2d: 1,
+  g2d_shared: 2,
+  awaiting_cad: 3,
   awaiting_customer_feedback: 4,
-  awaiting_final:             5,
-  final_received:             6,
-  order_placed:               6,
+  awaiting_final: 5,
+  final_received: 6,
+  order_placed: 6,
 };
 
 const ACTION_LABELS = {
-  ticket_created:     'Ticket created',
-  request_updated:    'Request updated',
+  ticket_created: 'Ticket created',
+  request_updated: 'Request updated',
   share_g2d_estimate: 'G2D estimate shared by CAD team',
-  g2d_approved:       'Customer approved G2D – order confirmed',
-  g2d_rejected:       'G2D changes requested',
-  design_shared:      'Design shared by CAD team',
-  share_cad_design:   'CAD design shared by CAD team',
-  order_created:      'Final details sent · manufacturing order created by workflow team',
-  design_approved:    'Design approved',
-  design_rejected:    'Design changes requested',
+  g2d_approved: 'Customer approved G2D – order confirmed',
+  g2d_rejected: 'G2D changes requested',
+  design_shared: 'Design shared by CAD team',
+  share_cad_design: 'CAD design shared by CAD team',
+  order_created: 'Final details sent · manufacturing order created by workflow team',
+  design_approved: 'Design approved',
+  design_rejected: 'Design changes requested',
   pricing_acknowledged: 'Workflow figures accepted despite highlighted differences',
-  final_reopened:     'Final details sent back – revised final details requested',
+  final_reopened: 'Final details sent back – revised final details requested',
   final_reopened_cad: 'Final details sent back – design changes requested from CAD',
-  ticket_cancelled:   'Ticket cancelled',
-  pos_order_placed:   'Order placed in OrnaVerse',
+  ticket_cancelled: 'Ticket cancelled',
+  pos_order_placed: 'Order placed in OrnaVerse',
 };
 
 const SPEC_LABELS = [
@@ -129,10 +130,9 @@ function StageTracker({ status }) {
             <div className="flex w-full items-center">
               <span className={`h-0.5 flex-1 ${i === 0 ? 'invisible' : i <= current ? 'bg-primary' : 'bg-border'}`} />
               <span
-                className={`flex size-7 shrink-0 items-center justify-center rounded-full border-2 text-xs font-semibold ${
-                  done ? 'border-primary bg-primary text-primary-foreground'
-                    : active ? 'border-primary bg-background text-primary'
-                      : 'border-border bg-background text-muted-foreground'}`}
+                className={`flex size-7 shrink-0 items-center justify-center rounded-full border-2 text-xs font-semibold ${done ? 'border-primary bg-primary text-primary-foreground'
+                  : active ? 'border-primary bg-background text-primary'
+                    : 'border-border bg-background text-muted-foreground'}`}
                 aria-current={active ? 'step' : undefined}
               >
                 {done ? <Check size={14} aria-hidden="true" /> : i + 1}
@@ -381,14 +381,11 @@ function ConfirmOrderDialog({ ticket, isOpen, onOpenChange, isPending, onSave, a
   const { rates, isLoading: isRateLoading } = useMetalRates(rateCode ? [rateCode] : []);
   const goldRate = rateCode ? rates[0]?.rate ?? null : null;
 
+  const [advancePayments, setAdvancePayments] = useState([]);
   const hasAdvance = Number(order.amount_received) > 0;
+  const advancePaidTotal = advancePayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
   const storeId = useSelector(selectActiveStoreId);
   const receiptHeader = useOrderHeaderConfig(APP_CONFIG.DOCUMENT_TYPES.POS_RECEIPT);
-  const { paymentModes, isLoading: modesLoading } = usePaymentModes();
-  const advanceModes = paymentModes.filter((m) => m.modeType !== APP_CONFIG.PAYMENT_MODES.LOYALTY_MODE_TYPE);
-  const mode = advanceModes.find((m) => m.modeId === Number(order.payment_mode_id)) ?? null;
-  const needsBank = !!mode && paymentRequiresBank(mode);
-  const modeFields = advanceModeFields(mode?.modeName);
   const [isCreatingReceipt, setIsCreatingReceipt] = useState(false);
   const receiptLocked = !!advanceReceiptId;
   const missing = [
@@ -398,13 +395,9 @@ function ConfirmOrderDialog({ ticket, isOpen, onOpenChange, isPending, onSave, a
     !order.karat && 'karat',
     !goldRate && "today's gold rate",
     hasAdvance && !order.advance_received_on && 'advance received date',
-    hasAdvance && !mode && 'payment mode',
-    hasAdvance && needsBank && !order.bank_pos_id && 'bank account',
-    hasAdvance && needsBank && !order.reference_no?.trim() && 'reference number',
-    ...(hasAdvance ? modeFields : [])
-      .filter((f) => f.required && !order.payment_details[f.key]?.trim())
-      .map((f) => f.label.toLowerCase()),
-    hasAdvance && order.payment_details.card_last4 && !/^\d{4}$/.test(order.payment_details.card_last4) && 'valid card last 4 digits',
+    hasAdvance && !receiptLocked && advancePayments.length === 0 && 'at least one payment mode',
+    hasAdvance && !receiptLocked && Math.abs(advancePaidTotal - Number(order.amount_received)) > 0.01 && 'payment amounts must equal amount received',
+    hasAdvance && !receiptLocked && advancePayments.some((p) => paymentRequiresBank(p) && (!p.bankPosId || !p.refNo?.trim())) && 'bank account and reference number for card/UPI tenders',
   ].filter(Boolean);
 
   // The advance becomes a real OrnaVerse advance receipt first, so checkout can adjust it against the order.
@@ -428,13 +421,7 @@ function ConfirmOrderDialog({ ticket, isOpen, onOpenChange, isPending, onSave, a
           numberOfBackdatedDays: receiptHeader.numberOfBackdatedDays,
           documentDate: resolveDocumentDateTime(order.advance_received_on).toISOString(),
           narration: `Advance for custom order ticket ${ticket.ticket_number}`,
-          payout: {
-            modeId: mode.modeId,
-            ledgerId: mode.ledgerId,
-            amount: Number(order.amount_received),
-            bankPos: needsBank ? order.bank_pos_id : undefined,
-            refNo: needsBank ? order.reference_no.trim() : undefined,
-          },
+          payments: advancePayments,
         });
         receiptId = res?.EntityId;
         if (!receiptId) throw new Error('OrnaVerse did not return the advance receipt.');
@@ -447,7 +434,8 @@ function ConfirmOrderDialog({ ticket, isOpen, onOpenChange, isPending, onSave, a
         setIsCreatingReceipt(false);
       }
     }
-    onSave({ ...order, payment_mode: mode?.modeName ?? null, advance_receipt_id: receiptId });
+    const modeLabel = advancePayments.map((p) => p.modeName).join(', ') || order.payment_mode || null;
+    onSave({ ...order, payment_mode: modeLabel, advance_receipt_id: receiptId });
   };
 
   return (
@@ -510,40 +498,21 @@ function ConfirmOrderDialog({ ticket, isOpen, onOpenChange, isPending, onSave, a
           <FormField label="Advance received date" htmlFor="co-adv-date" required={hasAdvance}>
             <Input id="co-adv-date" className="h-11" type="date" max={todayIso()} disabled={receiptLocked} value={order.advance_received_on} onChange={set('advance_received_on')} />
           </FormField>
-          <FormField label="Payment mode" htmlFor="co-mode" required={hasAdvance}>
-            <Select value={order.payment_mode_id ? String(order.payment_mode_id) : ''} onValueChange={set('payment_mode_id')} disabled={modesLoading || receiptLocked}>
-              <SelectTrigger id="co-mode" className="h-11 w-full">
-                <SelectValue placeholder={modesLoading ? 'Loading…' : 'Select payment mode'} />
-              </SelectTrigger>
-              <SelectContent>
-                {advanceModes.map((m) => <SelectItem key={m.modeId} value={String(m.modeId)}>{m.modeName}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </FormField>
-          {needsBank && (
-            <>
-              <FormField label="Bank account" htmlFor="co-bank" required={hasAdvance}>
-                <BankPosSelect value={order.bank_pos_id || null} onChange={set('bank_pos_id')} />
-              </FormField>
-              <FormField label="Reference number" htmlFor="co-ref" required={hasAdvance}>
-                <Input id="co-ref" className="h-11" maxLength={100} disabled={receiptLocked} value={order.reference_no} onChange={set('reference_no')} placeholder="UPI / card / bank reference" />
-              </FormField>
-            </>
-          )}
-          {modeFields.map((field) => (
-            <FormField key={field.key} label={field.label} htmlFor={`co-pay-${field.key}`} required={hasAdvance && field.required}>
-              <Input
-                id={`co-pay-${field.key}`}
-                className="h-11"
-                inputMode={field.type === 'last4' ? 'numeric' : undefined}
-                maxLength={field.type === 'last4' ? 4 : 100}
-                value={order.payment_details[field.key] ?? ''}
-                onChange={setDetail(field.key)}
+          {!receiptLocked && hasAdvance && (
+            <div className="sm:col-span-2 pt-1">
+              <CheckoutPaymentSection
+                bare={true}
+                hideHelpers={true}
+                allowPartial={false}
+                amountDue={Number(order.amount_received) || 0}
+                onChange={setAdvancePayments}
+                partyId={ticket.customer_party_id}
+                storeId={storeId}
               />
-            </FormField>
-          ))}
+            </div>
+          )}
           <p className="text-xs text-muted-foreground sm:col-span-2">
-            The advance is booked as an OrnaVerse advance receipt for {ticket.customer_name}; at checkout use “Advance Paid” to adjust it against the order. Card details are kept in the POS record only.
+            The advance is booked as an OrnaVerse advance receipt for {ticket.customer_name}; at checkout use “Advance Paid” to adjust it against the order.
           </p>
         </FormSection>
 
@@ -890,7 +859,7 @@ export default function TicketDetail({ ticket, partyId }) {
               items={[
                 ['Name', ticket.customer_name],
                 ['Customer code', profile?.party_code ?? '—'],
-                ['Mobile', ticket.customer_mobile ? formatMobileWithCountryCode(ticket.customer_mobile) : '—'],
+                ['Mobile', ticket.customer_mobile ? <PhoneLink phone={ticket.customer_mobile} /> : '—'],
                 ['City', [profile?.city_name, profile?.state_name].filter(Boolean).join(', ') || '—'],
                 ['Birthday', formatProfileDate(profile?.birth_date)],
                 ['Anniversary', formatProfileDate(profile?.anniversary)],

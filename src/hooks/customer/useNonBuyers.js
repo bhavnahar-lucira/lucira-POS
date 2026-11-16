@@ -15,6 +15,8 @@ export async function fetchNonBuyers(filters, { skip = 0, limit = NON_BUYERS_PAG
     to: filters.to ?? '',
     minVisits: String(filters.minVisits ?? 2),
     sort: filters.sort ?? 'visits',
+    recency: filters.recency ?? 'all',
+    frequency: filters.frequency ?? 'all',
     search: filters.search ?? '',
     skip: String(skip),
     limit: String(limit),
@@ -40,7 +42,6 @@ export function useNonBuyers(filters) {
   return {
     nonBuyers: query.data?.pages.flatMap((p) => p.rows) ?? [],
     total: firstPage?.total ?? 0,
-    pastBuyerCount: firstPage?.pastBuyerCount ?? 0,
     hasMore: !!query.hasNextPage,
     loadMore: query.fetchNextPage,
     isLoadingMore: query.isFetchingNextPage,

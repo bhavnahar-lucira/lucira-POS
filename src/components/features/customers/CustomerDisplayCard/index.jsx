@@ -2,7 +2,7 @@
 
 import { User, Mail, Phone, MapPin, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
+import PhoneLink from '@/components/shared/PhoneLink';
 
 function getInitials(name) {
   if (!name) return '?';
@@ -46,7 +46,7 @@ export default function CustomerDisplayCard({ customer, onDetach, detachLabel = 
               {customerMobile && (
                 <span className="flex items-center gap-1">
                   <Phone size={13} aria-hidden="true" />
-                  {formatMobileWithCountryCode(customerMobile)}
+                  <PhoneLink phone={customerMobile} />
                 </span>
               )}
               {email && (

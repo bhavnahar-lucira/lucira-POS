@@ -153,18 +153,51 @@ async function stampRefDocumentNo(transactionId) {
  *   partyId: number, partyName: string, activeStoreId: number,
  *   financialYearId: number, documentDate?: string,
  *   credits: { credit: object, amount: number }[],  // what's being settled
- *   payout: { modeId: number, ledgerId: number, amount: number, bankPos?: number,
- *             refNo?: string, chequeNo?: string, chequeDate?: string },
+ *   payments?: { modeId: number, ledgerId: number, amount: number, bankPos?: number,
+ *                refNo?: string, chequeNo?: string, chequeDate?: string, modeName?: string,
+ *                modeCode?: string, modeType?: number }[],
+ *   payout?: { modeId: number, ledgerId: number, amount: number, bankPos?: number,
+ *              refNo?: string, chequeNo?: string, chequeDate?: string },
  * }} params
  * @returns {Promise<object>} SaveResponse { EntityId }
  */
 export async function createRefund({
   partyId, partyName, activeStoreId, financialYearId,
-  documentDate, credits, payout,
+  documentDate, credits, payout, payments,
 }) {
   const knockOffTotal = +credits
     .reduce((sum, c) => sum + (c.amount ?? 0), 0)
     .toFixed(2);
+
+  const payoutList = Array.isArray(payments) && payments.length > 0
+    ? payments.map((p) => ({
+        mode_id:       p.modeId,
+        ledger_id:     p.ledgerId,
+        amount:        Number(p.amount) || 0,
+        exchange_rate: 1,
+        ...(p.bankPos || p.bankPosId ? { bank_pos: Number(p.bankPos || p.bankPosId) } : {}),
+        cheque_no:     p.chequeNo ?? '',
+        cheque_date:   p.chequeDate ?? null,
+        ref_no:        p.refNo ?? '',
+        mode_name:     p.modeName ?? undefined,
+        mode_code:     p.modeCode ?? undefined,
+        mode_type:     p.modeType ?? undefined,
+      }))
+    : payout ? [{
+        mode_id:       payout.modeId,
+        ledger_id:     payout.ledgerId,
+        amount:        payout.amount,
+        exchange_rate: 1,
+        ...(payout.bankPos ? { bank_pos: Number(payout.bankPos) } : {}),
+        cheque_no:     payout.chequeNo ?? '',
+        cheque_date:   payout.chequeDate ?? null,
+        ref_no:        payout.refNo ?? '',
+        mode_name:     payout.modeName ?? undefined,
+        mode_code:     payout.modeCode ?? undefined,
+        mode_type:     payout.modeType ?? undefined,
+      }] : [];
+
+  const totalPayout = payoutList.reduce((sum, p) => sum + (p.amount ?? 0), 0);
 
   const entity = {
     party_id:      partyId,
@@ -177,7 +210,7 @@ export async function createRefund({
     exchange_rate: 1,
     user_id:       null,
     // both sides must balance — the ERP blocks Save otherwise
-    total_amount:    payout.amount,
+    total_amount:    totalPayout,
     knock_off_total: knockOffTotal,
     payable_ledger_id:    167,
     receivable_ledger_id: 167,
@@ -192,20 +225,7 @@ export async function createRefund({
     // Same as OrnaVerse's Refund screen: without it the refund is saved unposted.
     auto_posting: true,
     // HOW the money leaves
-    details: [{
-      mode_id:       payout.modeId,
-      ledger_id:     payout.ledgerId,
-      amount:        payout.amount,
-      exchange_rate: 1,
-      // OrnaVerse 500s on bank_pos: "" — send it only when a terminal was chosen.
-      ...(payout.bankPos ? { bank_pos: Number(payout.bankPos) } : {}),
-      cheque_no:     payout.chequeNo ?? '',
-      cheque_date:   payout.chequeDate ?? null,
-      ref_no:        payout.refNo ?? '',
-      mode_name:     payout.modeName ?? undefined,
-      mode_code:     payout.modeCode ?? undefined,
-      mode_type:     payout.modeType ?? undefined,
-    }],
+    details: payoutList,
     // WHICH credits are knocked off
     receipts: credits.map(({ credit, amount }) => toRefundReceipt(credit, amount)),
     // document_no deliberately omitted — the server assigns it.

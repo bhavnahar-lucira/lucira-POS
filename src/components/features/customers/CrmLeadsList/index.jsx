@@ -7,7 +7,7 @@ import InlineLoader from '@/components/shared/InlineLoader';
 import { StaggerList } from '@/components/shared/StaggerList';
 import { useCrmLeads } from '@/hooks/customer/useCrmLeads';
 import { formatDateNumeric } from '@/lib/dateUtils';
-import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
+import PhoneLink from '@/components/shared/PhoneLink';
 
 function LeadRow({ lead }) {
   return (
@@ -18,7 +18,7 @@ function LeadRow({ lead }) {
           {lead.createdAt ? formatDateNumeric(lead.createdAt) : '—'}
         </p>
       </div>
-      <p className="text-xs text-muted-foreground">{formatMobileWithCountryCode(lead.mobile) || '—'}</p>
+      <p className="text-xs text-muted-foreground"><PhoneLink phone={lead.mobile} /></p>
       {(lead.budget || lead.notes) && (
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground/80 mt-1">
           {lead.budget && <span>Budget: ₹{lead.budget.toLocaleString('en-IN')}</span>}

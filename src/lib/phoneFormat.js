@@ -12,3 +12,25 @@ export function formatMobileWithCountryCode(raw) {
   if (parsed) return parsed.formatInternational();
   return value.startsWith('+') ? value : `+91 ${value}`;
 }
+
+export function toTelHref(raw) {
+  if (raw == null) return null;
+  const value = String(raw).trim();
+  if (!value || value === 'NA' || value.includes('*')) return null;
+
+  try {
+    const parsed = parsePhoneNumberFromString(value, 'IN');
+    if (parsed) {
+      const uri = parsed.getURI();
+      if (uri) return uri;
+    }
+  } catch {
+    // fallback below
+  }
+
+  const cleaned = value.replace(/[^\d+]/g, '');
+  if (!cleaned || cleaned.replace(/\D/g, '').length < 7) return null;
+  if (/^\d{10}$/.test(cleaned)) return `tel:+91${cleaned}`;
+  if (/^91\d{10}$/.test(cleaned)) return `tel:+${cleaned}`;
+  return cleaned.startsWith('+') ? `tel:${cleaned}` : `tel:+91${cleaned}`;
+}

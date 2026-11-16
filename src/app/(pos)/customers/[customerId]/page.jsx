@@ -60,6 +60,7 @@ import { formatAmountOrDash } from '@/lib/priceUtils';
 import { formatDateNumeric, todayDateString } from '@/lib/dateUtils';
 import Link from 'next/link';
 import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
+import PhoneLink from '@/components/shared/PhoneLink';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt = formatAmountOrDash;
@@ -123,7 +124,7 @@ function ProfileTab({ customer }) {
       {customerMobile && (
         <div className="flex items-center gap-2 text-muted-foreground">
           <Phone size={15} className="shrink-0 text-muted-foreground/70" />
-          {formatMobileWithCountryCode(customerMobile)}
+          <PhoneLink phone={customerMobile} />
         </div>
       )}
       {customerEmail && (
