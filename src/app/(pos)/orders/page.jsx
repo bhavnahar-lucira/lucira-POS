@@ -1,7 +1,14 @@
 'use client';
 
-import { useMemo, useRef, useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, Receipt, Search, X } from 'lucide-react';
+import { useRef, useState, useEffect } from 'react';
+import { ChevronLeft, ChevronRight, Download, Loader2, Receipt, Search, X } from 'lucide-react';
+import { toast } from 'sonner';
+import { downloadDocumentList } from '@/lib/documentListExport';
+import { useSelector } from 'react-redux';
+import { selectActiveStoreId } from '@/store/slices/storeSlice';
+import { switchCompany } from '@/services/storeService';
+import { fetchStoreScopedDocuments } from '@/services/crossStoreDocuments';
+import { normalizeCustomerOrder } from '@/hooks/customer/useCustomerOrders';
 import { Button } from '@/components/ui/button';
 import EmptyState from '@/components/shared/EmptyState';
 import ErrorState from '@/components/shared/ErrorState';
@@ -64,6 +71,8 @@ export default function OrdersPage() {
     isLoading: isAllLoading,
     isFetching: isAllFetching,
   } = useAllOrders();
+  const [isExporting, setIsExporting] = useState(false);
+  const activeStoreId = useSelector(selectActiveStoreId);
 
   const deepLinked = deepLinkOrder ? allOrders.find((o) => o.orderNo === deepLinkOrder) ?? null : null;
   const openOrder = selectedOrder ?? deepLinked;
@@ -103,10 +112,8 @@ export default function OrdersPage() {
     !!toDate ||
     !!statusFilter;
 
-  const filteredOrders = useMemo(() => {
-    if (!isSearchActive) return [];
-
-    let result = allOrders;
+  const applyFilters = (list) => {
+    let result = list;
 
     if (q.length >= APP_CONFIG.SEARCH.MIN_QUERY_LENGTH) {
       result = result.filter((order) => {
@@ -139,7 +146,9 @@ export default function OrdersPage() {
     }
 
     return result;
-  }, [allOrders, q, fromDate, toDate, statusFilter, isSearchActive, readyByOrder]);
+  };
+
+  const filteredOrders = isSearchActive ? applyFilters(allOrders) : [];
 
   // ── Display resolution ───────────────────────────────────
   const displayOrders = isSearchActive ? filteredOrders : pagedOrders;
@@ -148,6 +157,22 @@ export default function OrdersPage() {
   const isLoading    = isSearchActive ? isFilterBusy : isPagedLoading;
   const isError      = isSearchActive ? false : isPagedError;
   const hasFilters   = !!inputVal || !!fromDate || !!toDate || !!statusFilter;
+
+  const handleDownload = async () => {
+    setIsExporting(true);
+    try {
+      await switchCompany(activeStoreId);
+      const { entities } = await fetchStoreScopedDocuments({ kind: 'order', companyId: activeStoreId });
+      const fresh = entities.filter((e) => e.company_id === activeStoreId).map((e) => normalizeCustomerOrder(e, 'order')).filter(Boolean);
+      const rows = (isSearchActive ? applyFilters(fresh) : fresh).filter((o) => o.documentType === 'order');
+      if (!rows.length) { toast.info('No orders to download.'); return; }
+      downloadDocumentList({ kind: 'order', entities: rows.map((o) => o.raw) });
+    } catch {
+      toast.error('Could not load orders for download. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const totalPages  = Math.max(1, Math.ceil(totalCount / take));
   const currentPage = Math.floor(skip / take) + 1;
@@ -223,6 +248,17 @@ export default function OrdersPage() {
               ))}
             </SelectContent>
           </Select>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleDownload}
+            disabled={isExporting}
+            className="gap-1.5 shrink-0 w-full md:w-auto"
+          >
+            {isExporting ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Download size={14} aria-hidden="true" />}
+            Download Excel
+          </Button>
 
           {hasFilters && (
             <Button

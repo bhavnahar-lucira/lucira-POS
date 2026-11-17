@@ -31,7 +31,7 @@ export const NAV_ITEMS = [
   { label: 'Transactions', href: '/transactions', icon: ArrowLeftRight  },
   { label: 'Repair',       href: '/repair',       icon: Wrench          },
   { label: 'Transfers',    href: '/transfers',    icon: Repeat          },
-  { label: 'Branch Transfer', href: '/branch-transfer', icon: Truck     },
+  // { label: 'Branch Transfer', href: '/branch-transfer', icon: Truck     },
   { label: 'Estimation',   href: '/estimation',   icon: FileSpreadsheet },
   { label: 'Ticketing',    href: '/ticketing',    icon: Ticket          },
   // { label: 'Customers',    href: '/customers',    icon: Users           },

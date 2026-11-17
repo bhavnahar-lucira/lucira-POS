@@ -6,6 +6,8 @@ import { selectIsSuperAdmin } from '@/store/slices/authSlice';
 import { useZohoDeals } from '@/hooks/admin/useZohoDeals';
 import DealsSummaryCards from '@/components/features/deals/DealsSummaryCards';
 import DealDetailSheet from '@/components/features/deals/DealDetailSheet';
+import ZohoMeetingsPanel from '@/components/features/deals/ZohoMeetingsPanel';
+import ZohoBirthdaysPanel from '@/components/features/deals/ZohoBirthdaysPanel';
 import PhoneLink from '@/components/shared/PhoneLink';
 import EmptyState from '@/components/shared/EmptyState';
 import ListRowsSkeleton from '@/components/shared/ListRowsSkeleton';
@@ -79,6 +81,7 @@ function DealScorePill({ score }) {
 export default function DealsPage() {
   const isSuperAdmin = useSelector(selectIsSuperAdmin);
 
+  const [section, setSection] = useState('leads');
   const [activeTab, setActiveTab] = useState('all');
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(50);
@@ -187,7 +190,7 @@ export default function DealsPage() {
       fromDate,
       toDate,
     },
-    { enabled: isSuperAdmin }
+    { enabled: isSuperAdmin && section === 'leads' }
   );
 
   const handleRetry = async () => {
@@ -270,6 +273,32 @@ export default function DealsPage() {
       !!d.appointmentDateTime
   ).length;
 
+  const sectionSwitch = (
+    <Tabs value={section} onValueChange={setSection} className="w-full">
+      <TabsList className="grid grid-cols-3 w-full h-11 p-1 bg-muted/80 rounded-xl">
+        <TabsTrigger value="leads" className="text-xs sm:text-sm font-medium py-2">Leads</TabsTrigger>
+        <TabsTrigger value="meetings" className="text-xs sm:text-sm font-medium py-2">Meetings</TabsTrigger>
+        <TabsTrigger value="birthdays" className="text-xs sm:text-sm font-medium py-2">Birthdays & Anniversaries</TabsTrigger>
+      </TabsList>
+    </Tabs>
+  );
+
+  if (section !== 'leads') {
+    return (
+      <div className="flex flex-col gap-5 p-4 sm:p-6 max-w-7xl mx-auto w-full">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="font-heading text-2xl font-bold text-foreground tracking-tight">CRM Deals & Leads</h1>
+            <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">Super Admin</span>
+          </div>
+          <p className="text-sm text-muted-foreground mt-0.5">Read-only view of Zoho CRM — nothing here is sent back to Zoho.</p>
+        </div>
+        {sectionSwitch}
+        {section === 'meetings' ? <ZohoMeetingsPanel /> : <ZohoBirthdaysPanel />}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6 max-w-7xl mx-auto w-full">
       {/* Page Header */}
@@ -297,6 +326,8 @@ export default function DealsPage() {
           <span>Refresh</span>
         </Button>
       </div>
+
+      {sectionSwitch}
 
       {/* Summary KPI Cards */}
       <DealsSummaryCards summary={summary} isLoading={isLoading} />
@@ -393,10 +424,10 @@ export default function DealsPage() {
           <Select value={storeFilter} onValueChange={handleStoreChange}>
             <SelectTrigger className="h-10 w-[160px]">
               <Store size={14} className="text-muted-foreground mr-1.5 shrink-0" />
-              <SelectValue placeholder="All Stores" />
+              <SelectValue placeholder="All owners (store / team)" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Stores</SelectItem>
+              <SelectItem value="all">All owners (store / team)</SelectItem>
               {availableStores.map((s) => (
                 <SelectItem key={s.name} value={s.name}>
                   {s.name} ({s.count})
@@ -431,13 +462,15 @@ export default function DealsPage() {
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive mb-3">
             <ShieldAlert size={24} />
           </div>
-          <p className="text-base font-semibold text-destructive">Could not load Zoho CRM Deals</p>
+          <p className="text-base font-semibold text-destructive">Could not load Zoho CRM leads</p>
           <p className="text-sm text-foreground/80 mt-2 max-w-md font-medium">
             {error?.response?.data?.error || error?.message || 'Check Zoho CRM credentials and connection.'}
           </p>
-          <p className="text-xs text-muted-foreground mt-1.5 max-w-md">
-            If rate-limited by Zoho, please pause for 60 seconds before retrying to allow the token refresh quota to reset.
-          </p>
+          {/rate limit|cooling down|too many/i.test(error?.message ?? '') && (
+            <p className="text-xs text-muted-foreground mt-1.5 max-w-md">
+              Zoho is rate-limiting token requests — wait about 60 seconds, then retry.
+            </p>
+          )}
           <Button
             variant="outline"
             size="sm"

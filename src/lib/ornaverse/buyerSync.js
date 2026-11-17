@@ -25,7 +25,7 @@
 
 import { UPSTREAM } from '@/lib/ornaverse/upstream';
 import {
-  upsertPurchase, unnamedSalesPersonIds, fillSalesPersonNames, recordsMissingCategory, markCategoriesChecked,
+  getBuyerHistory, upsertPurchase, unnamedSalesPersonIds, fillSalesPersonNames, recordsMissingCategory, markCategoriesChecked,
 } from '@/lib/mongo/buyerPurchases';
 import API from '@/constants/apiEndpoints';
 
@@ -317,8 +317,42 @@ async function syncCustomerKind(kind, rows, session) {
  *   returnsSynced: number, exchangesSynced: number, buybacksSynced: number,
  * }>}
  */
+async function partyRowsInSessionStore(kind, partyId, session) {
+  const list = await ornaversePost(LIST_PATH[kind], { Take: 0, Skip: 0, EqualityFilter: { party_id: partyId } }, session);
+  return (list?.Entities ?? []).filter((e) => e.party_id === partyId);
+}
+
+// Store logins are denied GetPartyTransactions, so they refresh only their own store's documents for this
+// customer; other stores' documents come from what those stores already synced into buyerPurchases_POS.
+async function syncCustomerFromSessionStore(partyId, session) {
+  // Retrieve is not store-restricted, so documents already known from other stores are re-read live too.
+  const known = await getBuyerHistory(partyId);
+  const [invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced] = await Promise.all(
+    STORE_SYNC_KINDS.map(async (kind) => {
+      try {
+        const rows = await partyRowsInSessionStore(kind, partyId, session);
+        const seen = new Set(rows.map((r) => r.transaction_id));
+        for (const p of known) {
+          if (p.documentType === kind && !seen.has(p.transactionId)) rows.push({ transaction_id: p.transactionId });
+        }
+        return await syncCustomerKind(kind, rows, session);
+      } catch (err) {
+        console.warn(`[buyerSync] ${kind} list for party ${partyId} failed`, err.message);
+        return 0;
+      }
+    }),
+  );
+  return { scope: 'store', invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced };
+}
+
 export async function syncCustomerPurchases({ partyId, session }) {
-  const tx = await ornaversePost(API.CUSTOMER_HISTORY.PARTY_TRANSACTIONS, { party_id: partyId }, session);
+  let tx;
+  try {
+    tx = await ornaversePost(API.CUSTOMER_HISTORY.PARTY_TRANSACTIONS, { party_id: partyId }, session);
+  } catch {
+    tx = null;
+  }
+  if (!tx || tx.Error) return syncCustomerFromSessionStore(partyId, session);
 
   // tx.Returns also carries this tenant's Credit Notes — confirmed
   // elsewhere (CreditNote/Retrieve on this tenant returns a full Return
@@ -331,5 +365,5 @@ export async function syncCustomerPurchases({ partyId, session }) {
     syncCustomerKind('exchange', tx?.Exchanges ?? [], session),
     syncCustomerKind('buyback',  tx?.BuyBacks  ?? [], session),
   ]);
-  return { invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced };
+  return { scope: 'all', invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced };
 }

@@ -41,7 +41,7 @@ async function requestTokenFromDomain(domain, clientId, clientSecret, refreshTok
 
   const url = `${domain}/oauth/v2/token?${params.toString()}`;
 
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -152,11 +152,26 @@ function invalidateZohoToken() {
   cache.expiresAt = 0;
 }
 
+// The connection to Zoho drops now and then ("fetch failed" — nothing reached Zoho), so a request is tried
+// up to 3 times before giving up with a readable message.
+async function fetchWithRetry(url, options, attempts = 3) {
+  for (let i = 1; ; i += 1) {
+    try {
+      return await fetch(url, { ...options, signal: AbortSignal.timeout(20000) });
+    } catch (err) {
+      if (i >= attempts) {
+        throw new Error('Could not reach Zoho CRM — the connection dropped. Please press Refresh in a moment.', { cause: err });
+      }
+      await new Promise((r) => setTimeout(r, 800 * i));
+    }
+  }
+}
+
 async function zohoGet(url) {
-  let res = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${await getZohoAccessToken()}` } });
+  let res = await fetchWithRetry(url, { headers: { Authorization: `Zoho-oauthtoken ${await getZohoAccessToken()}` } });
   if (res.status === 401) {
     invalidateZohoToken();
-    res = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${await getZohoAccessToken()}` } });
+    res = await fetchWithRetry(url, { headers: { Authorization: `Zoho-oauthtoken ${await getZohoAccessToken()}` } });
   }
   return res;
 }
@@ -378,8 +393,9 @@ export async function getZohoDeals({
 
   // Store and stage filter the page Zoho returned; the dropdown options always come from the whole page.
   if (store && store !== 'all') {
+    // Zoho's record owner is the store / team that works the lead.
     formattedList = formattedList.filter((d) =>
-      (d.storeAssigned || UNASSIGNED_STORE).toLowerCase() === store.toLowerCase()
+      (d.dealOwner || UNASSIGNED_STORE).toLowerCase() === store.toLowerCase()
     );
   }
   if (stage && stage !== 'all') {
@@ -407,7 +423,7 @@ export async function getZohoDeals({
   const utmMap   = {};
 
   for (const d of pageRows) {
-    const storeKey = d.storeAssigned || UNASSIGNED_STORE;
+    const storeKey = d.dealOwner || UNASSIGNED_STORE;
     storeMap[storeKey] = (storeMap[storeKey] || 0) + 1;
     if (d.stage) {
       stageMap[d.stage] = (stageMap[d.stage] || 0) + 1;
@@ -463,4 +479,107 @@ export async function getSingleZohoDeal(recordId) {
   const json = await res.json();
   const item = json?.data?.[0];
   return item ? formatDealRow(item) : null;
+}
+
+function zohoApiBase() {
+  const cache = globalThis.__zohoCache || {};
+  return cache.resolvedApiUrl || clean(process.env.ZOHO_CRM_API_URL, 'https://www.zohoapis.in');
+}
+
+async function zohoJson(url) {
+  const res = await zohoGet(url);
+  if (res.status === 204) return { data: [], info: { more_records: false } };
+  if (!res.ok) throw new Error(`Zoho request failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+
+const EVENT_FIELDS = 'Event_Title,Start_DateTime,End_DateTime,Owner,Who_Id,What_Id,Venue,Description,Created_Time';
+
+/**
+ * Zoho "Meetings" (the Events module), read-only. Dates filter on the meeting's start (IST);
+ * owner (the store / team that owns it in Zoho) filters the page Zoho returned.
+ * @param {{ page?: number, perPage?: number, fromDate?: string, toDate?: string, owner?: string, search?: string }} params
+ */
+export async function getZohoMeetings({ page = 1, perPage = 100, fromDate = '', toDate = '', owner = 'all', search = '' } = {}) {
+  await getZohoAccessToken();
+  const base = zohoApiBase();
+  const term = search?.trim().length >= 2 ? search.trim() : '';
+  const range = fromDate || toDate
+    ? `(Start_DateTime:between:${fromDate || '2000-01-01'}T00:00:00+05:30,${toDate || '2100-12-31'}T23:59:59+05:30)`
+    : '';
+  const criteria = [range, term ? `(Event_Title:starts_with:${criteriaValue(term)})` : ''].filter(Boolean);
+  const url = criteria.length
+    ? `${base}/crm/v8/Events/search?criteria=${encodeURIComponent(criteria.length > 1 ? `(${criteria.join('and')})` : criteria[0])}&fields=${EVENT_FIELDS}&per_page=${perPage}&page=${page}`
+    : `${base}/crm/v8/Events?fields=${EVENT_FIELDS}&per_page=${perPage}&page=${page}&sort_by=Created_Time&sort_order=desc`;
+  const json = await zohoJson(url);
+  const all = (json.data ?? []).map((e) => ({
+    id: String(e.id),
+    title: fieldText(e.Event_Title) || 'Meeting',
+    start: e.Start_DateTime ?? null,
+    end: e.End_DateTime ?? null,
+    owner: fieldText(e.Owner) || 'Unassigned',
+    customer: fieldText(e.Who_Id) || null,
+    relatedTo: fieldText(e.What_Id) || null,
+    venue: fieldText(e.Venue) || null,
+    description: fieldText(e.Description) || null,
+    createdTime: e.Created_Time ?? null,
+  }));
+  const owners = [...new Set(all.map((m) => m.owner))].sort();
+  const meetings = (owner && owner !== 'all' ? all.filter((m) => m.owner === owner) : all)
+    .sort((a, b) => new Date(a.start ?? 0) - new Date(b.start ?? 0));
+  return { meetings, owners, info: json.info ?? { page, per_page: perPage, more_records: false } };
+}
+
+/**
+ * Leads carrying a Birthday or Anniversary in Zoho, read-only, soonest upcoming first.
+ * @param {{ type?: 'all'|'birthday'|'anniversary', month?: string|number, owner?: string }} params
+ *   month — 1–12 to keep only that month, or 'all'.
+ */
+export async function getZohoBirthdays({ type = 'all', month = 'all', owner = 'all' } = {}) {
+  await getZohoAccessToken();
+  const base = zohoApiBase();
+  const fields = 'Full_Name,First_Name,Last_Name,Mobile,Phone,Email,Birthday,Anniversary,Owner,City,Lead_Status';
+  const kinds = type === 'all' ? ['Birthday', 'Anniversary'] : [type === 'birthday' ? 'Birthday' : 'Anniversary'];
+  const rows = [];
+  for (const field of kinds) {
+    for (let page = 1; page <= 10; page += 1) {
+      const json = await zohoJson(`${base}/crm/v8/Leads/search?criteria=${encodeURIComponent(`(${field}:not_equal:null)`)}&fields=${fields}&per_page=200&page=${page}`);
+      for (const l of json.data ?? []) {
+        if (!l[field]) continue;
+        rows.push({
+          id: `${l.id}-${field}`,
+          leadId: String(l.id),
+          kind: field === 'Birthday' ? 'Birthday' : 'Anniversary',
+          date: l[field],
+          name: fieldText(l.Full_Name) || `${fieldText(l.First_Name)} ${fieldText(l.Last_Name)}`.trim() || 'Unknown',
+          mobile: fieldText(l.Mobile) || fieldText(l.Phone) || null,
+          email: fieldText(l.Email) || null,
+          owner: fieldText(l.Owner) || 'Unassigned',
+          city: fieldText(l.City) || null,
+          status: fieldText(l.Lead_Status) || null,
+        });
+      }
+      if (!json.info?.more_records) break;
+    }
+  }
+  // "Today" in India time — the server may run in UTC.
+  const [ty, tm, td] = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date()).split('-').map(Number);
+  const today = new Date(ty, tm - 1, td);
+  const nextOccurrence = (iso) => {
+    const [, m, d] = String(iso).split('-').map(Number);
+    let next = new Date(today.getFullYear(), m - 1, d);
+    if (next < today) next = new Date(today.getFullYear() + 1, m - 1, d);
+    return next;
+  };
+  const owners = [...new Set(rows.map((r) => r.owner))].sort();
+  const list = rows
+    .filter((r) => month === 'all' || Number(String(r.date).split('-')[1]) === Number(month))
+    .filter((r) => owner === 'all' || r.owner === owner)
+    .map((r) => {
+      const n = nextOccurrence(r.date);
+      const pad = (x) => String(x).padStart(2, '0');
+      return { ...r, next: `${n.getFullYear()}-${pad(n.getMonth() + 1)}-${pad(n.getDate())}` };
+    })
+    .sort((a, b) => a.next.localeCompare(b.next));
+  return { rows: list, owners };
 }

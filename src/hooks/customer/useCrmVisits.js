@@ -8,7 +8,8 @@ export function useCrmVisits(companyId) {
   const query = useQuery({
     queryKey: QUERY_KEYS.CRM.VISITS(companyId),
     queryFn: async () => {
-      const data = await getCustomerVisits({ companyId, take: 300 });
+      // Take 0 = every visit, so the counts match OrnaVerse (a 300 cap silently dropped older visits).
+      const data = await getCustomerVisits({ companyId, take: 0 });
       const entities = data?.Entities ?? [];
       return entities.map(normalizeCrmVisit).filter(Boolean)
         .sort((a, b) => new Date(b.visitedAt) - new Date(a.visitedAt));

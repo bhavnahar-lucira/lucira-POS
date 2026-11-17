@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import Link from 'next/link';
-import { ChevronLeft, Loader2, UserCircle } from 'lucide-react';
+import { ChevronLeft, History, Loader2, UserCircle } from 'lucide-react';
 import BottomSheet from '@/components/shared/BottomSheet';
 import CustomerLookupInput from '../CustomerLookupInput';
 import CustomerDisplayCard from '../CustomerDisplayCard';
@@ -138,6 +138,16 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
                 >
                   <UserCircle size={16} />
                   View Full Profile
+                </Link>
+              </Button>
+
+              <Button asChild type="button" variant="outline" className="h-11 w-full gap-2">
+                <Link
+                  href={`/customers/${session.customerId}?tab=history${session.customerName ? `&name=${encodeURIComponent(session.customerName)}` : ''}`}
+                  onClick={handleClose}
+                >
+                  <History size={16} />
+                  Purchase History
                 </Link>
               </Button>
 

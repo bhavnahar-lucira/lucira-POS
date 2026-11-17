@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
-import { getInvoiceList } from '@/services/orderService';
+import { fetchStoreScopedDocuments } from '@/services/crossStoreDocuments';
 import { normalizeInvoice } from '@/hooks/invoices/useInvoiceList';
 import { selectIsAuthenticated } from '@/store/slices/authSlice';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
@@ -14,9 +14,11 @@ export function useAllInvoices({ enabled = true } = {}) {
   const query = useQuery({
     queryKey: QUERY_KEYS.INVOICES.ALL(activeStoreId),
     queryFn: async () => {
-      const data     = await getInvoiceList({ take: 0, skip: 0, company_id: activeStoreId });
-      const entities = data?.Entities ?? [];
-      return entities.map(normalizeInvoice).filter(Boolean);
+      const { entities } = await fetchStoreScopedDocuments({ kind: 'invoice', companyId: activeStoreId });
+      return entities
+        .filter((e) => e.company_id === activeStoreId)
+        .map(normalizeInvoice)
+        .filter(Boolean);
     },
     enabled:   enabled && isAuthenticated && !!activeStoreId,
     staleTime: APP_CONFIG.STALE_TIME.ORDERS,

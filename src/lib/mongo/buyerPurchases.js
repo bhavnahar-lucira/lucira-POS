@@ -248,8 +248,19 @@ export async function salesPersonSalesDetails({ companyIds, fromDate, toDate }) 
  */
 export async function getBuyerHistory(customerId) {
   const db = await getDb();
-  return db.collection(COLLECTION)
-    .find({ customerId, ...environmentMatch() })
-    .sort({ documentDate: -1 })
-    .toArray();
+  const col = db.collection(COLLECTION);
+  const purchases = await col.find({ customerId, ...environmentMatch() }).sort({ documentDate: -1 }).toArray();
+
+  // Exchange/BuyBack documents come back from OrnaVerse without company_name; name them from the same store's other documents.
+  const unnamed = [...new Set(purchases.filter((p) => !p.storeName && p.companyId != null).map((p) => p.companyId))];
+  if (unnamed.length) {
+    const names = await col.aggregate([
+      { $match: { companyId: { $in: unnamed }, storeName: { $nin: [null, ''] }, ...environmentMatch() } },
+      { $sort: { updatedAt: -1 } },
+      { $group: { _id: '$companyId', storeName: { $first: '$storeName' } } },
+    ]).toArray();
+    const byCompany = new Map(names.map((n) => [n._id, n.storeName]));
+    for (const p of purchases) if (!p.storeName) p.storeName = byCompany.get(p.companyId) ?? null;
+  }
+  return purchases;
 }

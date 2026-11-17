@@ -46,9 +46,12 @@ async function proxy(request, { params }) {
     const style = '<style>@page { margin: 0; } @media print { html, body { margin: 0; } }</style>';
     responseBody = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => `${m}${style}`) : `${style}${html}`;
   }
+  const headersOut = { 'Content-Type': contentTypeOut };
+  const disposition = upstreamRes.headers.get('content-disposition');
+  if (disposition) headersOut['Content-Disposition'] = disposition;
   return new Response(responseBody, {
     status:  upstreamRes.status,
-    headers: { 'Content-Type': contentTypeOut },
+    headers: headersOut,
   });
 }
 

@@ -1,7 +1,14 @@
 'use client';
 
-import { useMemo, useRef, useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, Receipt, Search, X } from 'lucide-react';
+import { useRef, useState, useEffect } from 'react';
+import { ChevronLeft, ChevronRight, Download, Loader2, Receipt, Search, X } from 'lucide-react';
+import { toast } from 'sonner';
+import { downloadDocumentList } from '@/lib/documentListExport';
+import { useSelector } from 'react-redux';
+import { selectActiveStoreId } from '@/store/slices/storeSlice';
+import { switchCompany } from '@/services/storeService';
+import { fetchStoreScopedDocuments } from '@/services/crossStoreDocuments';
+import { normalizeInvoice } from '@/hooks/invoices/useInvoiceList';
 import { Button } from '@/components/ui/button';
 import EmptyState from '@/components/shared/EmptyState';
 import ErrorState from '@/components/shared/ErrorState';
@@ -43,6 +50,8 @@ export default function InvoicesPage() {
     isLoading: isAllLoading,
     isFetching: isAllFetching,
   } = useAllInvoices({ enabled: !!inputVal || !!fromDate || !!toDate });
+  const [isExporting, setIsExporting] = useState(false);
+  const activeStoreId = useSelector(selectActiveStoreId);
 
   // ── Debounced search ─────────────────────────────────────
   const handleSearchChange = (e) => {
@@ -74,10 +83,8 @@ export default function InvoicesPage() {
   const isSearchActive =
     q.length >= APP_CONFIG.SEARCH.MIN_QUERY_LENGTH || !!fromDate || !!toDate;
 
-  const filteredInvoices = useMemo(() => {
-    if (!isSearchActive) return [];
-
-    let result = allInvoices;
+  const applyFilters = (list) => {
+    let result = list;
 
     if (q.length >= APP_CONFIG.SEARCH.MIN_QUERY_LENGTH) {
       result = result.filter((inv) => {
@@ -104,7 +111,9 @@ export default function InvoicesPage() {
     }
 
     return result;
-  }, [allInvoices, q, fromDate, toDate, isSearchActive]);
+  };
+
+  const filteredInvoices = isSearchActive ? applyFilters(allInvoices) : [];
 
   // ── Display resolution ───────────────────────────────────
   const displayInvoices = isSearchActive ? filteredInvoices : pagedInvoices;
@@ -113,6 +122,22 @@ export default function InvoicesPage() {
   const isLoading    = isSearchActive ? isFilterBusy : isPagedLoading;
   const isError      = isSearchActive ? false : isPagedError;
   const hasFilters   = !!inputVal || !!fromDate || !!toDate;
+
+  const handleDownload = async () => {
+    setIsExporting(true);
+    try {
+      await switchCompany(activeStoreId);
+      const { entities } = await fetchStoreScopedDocuments({ kind: 'invoice', companyId: activeStoreId });
+      const fresh = entities.filter((e) => e.company_id === activeStoreId).map(normalizeInvoice).filter(Boolean);
+      const rows = isSearchActive ? applyFilters(fresh) : fresh;
+      if (!rows.length) { toast.info('No invoices to download.'); return; }
+      downloadDocumentList({ kind: 'invoice', entities: rows.map((r) => r.raw) });
+    } catch {
+      toast.error('Could not load invoices for download. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const totalPages  = Math.max(1, Math.ceil(totalCount / take));
   const currentPage = Math.floor(skip / take) + 1;
@@ -175,6 +200,17 @@ export default function InvoicesPage() {
               className="flex-1 min-w-0 md:w-36 md:flex-none"
             />
           </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleDownload}
+            disabled={isExporting || isFilterBusy}
+            className="gap-1.5 shrink-0 w-full md:w-auto"
+          >
+            {isExporting ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Download size={14} aria-hidden="true" />}
+            Download Excel
+          </Button>
 
           {hasFilters && (
             <Button

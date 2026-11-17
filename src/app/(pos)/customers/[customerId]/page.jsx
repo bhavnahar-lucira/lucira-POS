@@ -32,6 +32,7 @@ import LocationSelect from '@/components/shared/LocationSelect';
 import PanDocumentUpload from '@/components/shared/PanDocumentUpload';
 import PillTabs from '@/components/shared/PillTabs';
 import TicketList from '@/components/features/ticketing/TicketList';
+import PurchaseHistory from '@/components/features/buyers/PurchaseHistory';
 import EmptyState from '@/components/shared/EmptyState';
 import ErrorState from '@/components/shared/ErrorState';
 import InlineLoader from '@/components/shared/InlineLoader';
@@ -65,13 +66,14 @@ import PhoneLink from '@/components/shared/PhoneLink';
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt = formatAmountOrDash;
 const fmtDate = formatDateNumeric;
-const TABS    = ['profile', 'edit', 'schemes', 'points', '360', 'wishlist', 'RecentlyViewed', 'ticketing'];
+const TABS    = ['profile', 'edit', 'schemes', 'points', 'history', '360', 'wishlist', 'RecentlyViewed', 'ticketing'];
 const TEXT_TABS = ['profile', 'edit', 'schemes', 'points', '360'];
 const TAB_LABELS = {
   profile:  'Profile',
   edit:     'Edit',
   schemes:  'Schemes',
   points:   'Points',
+  history:  'Purchase history',
   '360':    '360',
   wishlist: 'Wishlist',
   RecentlyViewed: 'Recently Viewed',
@@ -1059,7 +1061,9 @@ export default function CustomerDetailPage() {
   // same routine action through this entry point only. '360' stays
   // admin-only — a separate analytics view, no evidence OrnaVerse treats it
   // the same way.
-  const visibleTabs = isSuperAdmin ? TABS : TABS.filter((t) => t !== '360');
+  const { customerId: attachedCustomerId } = useCustomerSession();
+  const isLoggedInCustomer = !!partyId && Number(attachedCustomerId) === partyId;
+  const visibleTabs = TABS.filter((t) => (t === '360' ? isSuperAdmin : t !== 'history' || isSuperAdmin || isLoggedInCustomer));
   const [activeTab, setActiveTab] = useState(() => {
     const requested = searchParams.get('tab');
     if (requested && visibleTabs.includes(requested)) return requested;
@@ -1070,7 +1074,6 @@ export default function CustomerDetailPage() {
     enabled: !!partyId,
   });
 
-  const { customerId: attachedCustomerId } = useCustomerSession();
   const wasAttachedRef = useRef(false);
   useEffect(() => {
     if (attachedCustomerId === partyId) {
@@ -1141,6 +1144,7 @@ export default function CustomerDetailPage() {
             {activeTab === 'edit'    && <EditTab customer={customer} onSaved={handleSaved} />}
             {activeTab === 'schemes' && <SchemesTab customerId={customer.customerId} />}
             {activeTab === 'points'  && <PointsTab customerMobile={customer.customerMobile} customerId={customer.customerId} />}
+            {activeTab === 'history' && visibleTabs.includes('history') && <PurchaseHistory customerId={customer.customerId} />}
             {activeTab === '360'     && isSuperAdmin && <Customer360Tab customerId={customer.customerId} />}
             {activeTab === 'wishlist' && <WishlistTab customerId={customer.customerId} customerMobile={customer.customerMobile} customerEmail={customer.customerEmail} />}
             {activeTab === 'RecentlyViewed' && <RecentlyViewedTab customerId={customer.customerId} customerMobile={customer.customerMobile} customerEmail={customer.customerEmail} />}
