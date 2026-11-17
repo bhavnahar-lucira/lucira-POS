@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion, useReducedMotion } from 'motion/react';
-import { Bell, BellOff } from 'lucide-react';
+import { Bell, BellOff, Truck } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import BottomSheet from '@/components/shared/BottomSheet';
@@ -11,14 +12,17 @@ import TicketNotificationsList from '@/components/features/ticketing/TicketNotif
 import { EventRow } from '@/components/features/dashboard/UpcomingEventsCard';
 import { useTicketNotifications } from '@/hooks/ticketing/useTickets';
 import { useUpcomingEvents } from '@/hooks/dashboard/useUpcomingEvents';
+import { usePendingBranchIns } from '@/hooks/branchTransfer/useBranchTransfer';
+import { formatAmountOrDash } from '@/lib/priceUtils';
 
 const SEEN_KEY = 'pos.ticketNotificationsSeen';
 const SHAKE = { rotate: [0, -16, 14, -10, 8, -4, 0] };
 
 // Overdue reminders and future birthdays are excluded: they are not news, so they never make the bell shake.
-function newsKeys(data, todayEvents) {
+function newsKeys(data, todayEvents, transfers) {
   const today = new Date().toDateString();
   return [
+    ...transfers.map((t) => `transfer:${t.transaction_id}`),
     ...todayEvents.map((e) => `${e.type}:${e.partyId}:${today}`),
     ...(data?.g2dShared ?? []).map((t) => `g2d:${t.ticket_number}`),
     ...(data?.designReady ?? []).map((t) => `design:${t.ticket_number}:${t.latest_design_label}`),
@@ -40,6 +44,33 @@ function writeSeen(keys) {
   } catch {}
 }
 
+function TransferNotices({ transfers, onNavigate }) {
+  if (!transfers.length) return null;
+  return (
+    <section className="mb-5">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Branch transfers</h3>
+      <div className="flex flex-col gap-2">
+        {transfers.map((t) => (
+          <Link
+            key={t.transaction_id}
+            href={`/branch-transfer?tab=receive&in=${t.transaction_id}`}
+            onClick={onNavigate}
+            className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 transition-colors hover:shadow-sm dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+          >
+            <Truck size={18} className="mt-0.5 shrink-0" aria-hidden="true" />
+            <span className="min-w-0 flex-1">
+              <strong>{t.party_display_name ?? t.party_name ?? 'Another branch'}</strong> has sent{' '}
+              {t.pieces ?? 0} {t.pieces === 1 ? 'piece' : 'pieces'} ({t.document_no}
+              {t.net_amount ? ` · ${formatAmountOrDash(t.net_amount)}` : ''}), kindly receive and authorise it.
+            </span>
+            <span className="shrink-0 text-xs font-semibold">Receive</span>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function EventSection({ title, events, onSelect }) {
   if (!events.length) return null;
   return (
@@ -58,14 +89,15 @@ export default function NotificationBell() {
   const router = useRouter();
   const { data } = useTicketNotifications();
   const { birthdays, anniversaries } = useUpcomingEvents();
+  const transfers = usePendingBranchIns();
   const [open, setOpen] = useState(false);
   const [seen, setSeen] = useState(readSeen);
   const reduceMotion = useReducedMotion();
 
   const todayEvents = [...birthdays, ...anniversaries].filter((e) => e.isToday);
-  const keys = newsKeys(data, todayEvents);
+  const keys = newsKeys(data, todayEvents, transfers);
   const total = keys.length + (data?.cadOverdue?.length ?? 0);
-  const ticketCount = total - todayEvents.length;
+  const ticketCount = total - todayEvents.length - transfers.length;
   const hasEvents = birthdays.length + anniversaries.length > 0;
   const openCustomer = (event) => {
     setOpen(false);
@@ -118,8 +150,9 @@ export default function NotificationBell() {
         <p className="mb-4 text-sm text-muted-foreground">
           {total > 0 ? `${total} ${total === 1 ? 'item needs' : 'items need'} attention` : 'You are all caught up'}
         </p>
-        {ticketCount > 0 || hasEvents ? (
+        {ticketCount > 0 || hasEvents || transfers.length > 0 ? (
           <>
+            <TransferNotices transfers={transfers} onNavigate={() => setOpen(false)} />
             {ticketCount > 0 && (
               <section>
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tickets</h3>

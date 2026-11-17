@@ -41,6 +41,19 @@ export async function getReadyToInvoiceLines({ partyId }) {
   return response.data?.Entities ?? [];
 }
 
+/** Every ready-to-invoice order line at the store, all customers (same call as above without party_id). */
+export async function getStoreReadyToInvoiceLines({ companyId }) {
+  if (!companyId) return [];
+  const response = await axiosInstance.post(API.ORDER_FULFILLMENT.READY_TO_INVOICE, {
+    company_id:             companyId,
+    validate_against_stock: true,
+    document_id:            APP_CONFIG.DOCUMENT_TYPES.POS_INVOICE,
+    document_status:        1,
+    Take:                   0,
+  });
+  return response.data?.Entities ?? [];
+}
+
 /**
  * Every open order line for this party, regardless of readiness — each row
  * carries `status_id`/`reason_status_description` ("New", "Ready To
@@ -105,6 +118,14 @@ export function mapFulfillmentLineToCartItem(line) {
     // close out, and to avoid two open orders on the same style claiming
     // each other's reserved piece.
     fulfillmentItemLineNo: line.item_line_no ?? null,
+    // A piece reserved by Stock Allocation: the invoice line must point at the allocation, as OrnaVerse's own bills do.
+    fulfillmentRef: line.ref_document_id === APP_CONFIG.DOCUMENT_TYPES.STOCK_ALLOCATION
+      ? {
+        ref_document_id:         line.ref_document_id,
+        ref_transaction_id:      line.ref_transaction_id,
+        ref_transaction_item_id: line.ref_transaction_item_id,
+      }
+      : null,
   };
 }
 

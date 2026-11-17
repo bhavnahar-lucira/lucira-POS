@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { useCancelInvoice } from '@/hooks/invoices/useCancelInvoice';
 import { useAddInvoiceReceipt } from '@/hooks/invoices/useAddInvoiceReceipt';
 import { usePaymentModes } from '@/hooks/checkout/usePaymentModes';
-import { paymentRequiresBank } from '@/lib/checkout/paymentModeRules';
+import { validatePayments } from '@/lib/checkout/paymentModeRules';
 import { useOrderHeaderConfig } from '@/hooks/checkout/useOrderHeaderConfig';
 import { useInvoiceDetail } from '@/hooks/checkout/useInvoiceDetail';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
@@ -141,7 +141,7 @@ function CollectPaymentPanel({ raw, onDone, onDismiss }) {
   const storeId = useSelector(selectActiveStoreId);
   const { paymentModes } = usePaymentModes();
   const headerConfig = useOrderHeaderConfig(APP_CONFIG.DOCUMENT_TYPES.POS_INVOICE);
-  const addReceipt = useAddInvoiceReceipt();
+  const addReceipt = useAddInvoiceReceipt({ notify: false });
   const [payments, setPayments] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -149,49 +149,48 @@ function CollectPaymentPanel({ raw, onDone, onDismiss }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!payments.length) return toast.error('Add payment details before recording payment.');
-
-    const totalPaid = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-    if (totalPaid <= 0) return toast.error('Enter a valid payment amount.');
-    if (totalPaid > balanceDue + 0.01) {
-      return toast.error(`Payment total (${formatCurrency(totalPaid)}) cannot exceed balance due (${formatCurrency(balanceDue)}).`);
+    const paymentError = validatePayments(payments, { amountDue: balanceDue, allowPartial: true, label: 'the balance due' });
+    if (paymentError) return toast.error(paymentError);
+    if (!headerConfig.isReady) {
+      if (headerConfig.isError) headerConfig.refetch();
+      return toast.error('Store configuration is still loading — try again in a moment.');
     }
 
-    for (const p of payments) {
-      const mode = paymentModes.find((m) => m.modeId === p.modeId);
-      const reqBank = mode && paymentRequiresBank(mode);
-      if (reqBank && !p.bankPosId) {
-        return toast.error(`Select the bank account for ${p.modeName || 'this payment'}.`);
-      }
-      if (reqBank && !p.refNo?.trim()) {
-        return toast.error(`Enter the payment reference number for ${p.modeName || 'this payment'}.`);
-      }
-    }
-
+    // InvoiceReceipt/Create takes one payment mode per receipt, so each tender is its own receipt.
     setSubmitting(true);
+    const recorded = [];
     try {
       for (const p of payments) {
-        const mode = paymentModes.find((m) => m.modeId === p.modeId) || {
-          modeId: p.modeId,
-          modeCode: p.modeCode,
-          modeName: p.modeName,
-          ledgerId: p.ledgerId,
-          raw: p.raw,
-        };
+        const mode = paymentModes.find((m) => m.modeId === p.modeId);
         await addReceipt.mutateAsync({
           transactionId: raw.transaction_id,
           partyId: raw.party_id,
           companyId: storeId,
           financialYearId: headerConfig.financialYearId,
-          mode,
+          mode: {
+            modeId: p.modeId,
+            modeCode: p.modeCode,
+            modeName: p.modeName,
+            ledgerId: p.ledgerId ?? mode?.ledgerId ?? null,
+            raw: p.raw ?? mode?.raw,
+          },
           amount: Number(p.amount),
-          bankPos: p.bankPosId || undefined,
+          bankPos: p.bankPosId ?? undefined,
           refNo: p.refNo?.trim() || undefined,
         });
+        recorded.push(p);
       }
+      toast.success(`Payment of ${formatCurrency(recorded.reduce((s, p) => s + Number(p.amount), 0))} recorded.`);
       onDone();
-    } catch {
-      // toast is already handled in mutation onError or service
+    } catch (err) {
+      const failed = payments[recorded.length];
+      const reason = err?.response?.data?.Error?.Message ?? err?.message ?? 'OrnaVerse rejected it';
+      if (recorded.length) {
+        toast.error(`${recorded.map((p) => `${p.modeName} ${formatCurrency(p.amount)}`).join(', ')} recorded, but ${failed?.modeName ?? 'the next payment'} failed: ${reason}. The balance is refreshed — collect the rest again.`);
+        onDone();
+      } else {
+        toast.error(`Payment not recorded: ${reason}`);
+      }
     } finally {
       setSubmitting(false);
     }

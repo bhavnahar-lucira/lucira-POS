@@ -161,7 +161,7 @@ function CancelConfirmBanner({ onConfirm, onDismiss, isPending }) {
   );
 }
 
-export default function OrderDetailSheet({ order, isOpen, onClose }) {
+export default function OrderDetailSheet({ order, isOpen, onClose, readyLines = null }) {
   const isInvoice = order?.documentType === 'invoice';
 
   // Order/List and Invoice/List (what feeds every list this sheet is opened
@@ -236,7 +236,7 @@ export default function OrderDetailSheet({ order, isOpen, onClose }) {
             documentLabel={printDocumentLabel}
           />
 
-          {isFulfillable && <FulfillOrderAction raw={raw} />}
+          {isFulfillable && <FulfillOrderAction key={`${raw?.transaction_id}-${readyLines?.length > 0}`} raw={raw} autoCheck={readyLines?.length > 0} />}
 
           {isCancelled && (
             <div className="rounded-xl border border-border bg-muted/40 p-3 flex items-center gap-2 text-sm text-muted-foreground">

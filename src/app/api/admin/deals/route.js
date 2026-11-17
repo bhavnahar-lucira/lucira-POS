@@ -43,7 +43,6 @@ export async function GET(request) {
       {
         ok: false,
         error: err.message || 'Failed to fetch Zoho CRM deals',
-        details: err?.cause?.message || String(err),
       },
       { status: 500 }
     );

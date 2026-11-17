@@ -5,9 +5,10 @@ import { getOrderAdvance } from '@/services/orderFulfillmentService';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 
 /** The advance already paid on the order being billed ("Fulfill from Order"), or null. */
-export function useOrderAdvance() {
-  const orderId = useSelector(selectFulfillmentOrderId);
+export function useOrderAdvance({ enabled = true } = {}) {
+  const storeOrderId = useSelector(selectFulfillmentOrderId);
   const orderNo = useSelector(selectFulfillmentOrderNo);
+  const orderId = enabled ? storeOrderId : null;
   const query = useQuery({
     queryKey: QUERY_KEYS.ORDER_FULFILLMENT.ADVANCE(orderId),
     queryFn:  () => getOrderAdvance({ orderId, orderNo }),
@@ -16,5 +17,5 @@ export function useOrderAdvance() {
     gcTime:    0,
     retry:     false,
   });
-  return { orderAdvance: query.data ?? null, isLoading: !!orderId && query.isLoading };
+  return { orderAdvance: orderId ? (query.data ?? null) : null, isLoading: !!orderId && query.isLoading };
 }

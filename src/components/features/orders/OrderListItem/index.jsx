@@ -1,6 +1,6 @@
 'use client';
 
-import { User, Calendar, Store } from 'lucide-react';
+import { User, Calendar, Store, PackageCheck } from 'lucide-react';
 import ListItemCard from '@/components/shared/ListItemCard';
 import PaymentStatusBadge, { mapOrderStatus } from '@/components/shared/PaymentStatusBadge';
 import { formatDateSlashed } from '@/lib/dateUtils';
@@ -11,8 +11,9 @@ import { formatDateSlashed } from '@/lib/dateUtils';
  *   onSelect: () => void,
  * }} props
  */
-export default function OrderListItem({ order, onSelect }) {
+export default function OrderListItem({ order, onSelect, readyLines = null }) {
   const { orderNo, orderDate, customerName, totalAmount, status, companyName } = order;
+  const reservedSkus = (readyLines ?? []).map((l) => l.sku).filter(Boolean);
 
   return (
     <ListItemCard
@@ -43,6 +44,17 @@ export default function OrderListItem({ order, onSelect }) {
           </span>
         )}
       </div>
+
+      {readyLines?.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-[13px]">
+          <span className="inline-flex items-center gap-1 rounded-full bg-status-in-stock/15 px-2 py-0.5 text-[11px] font-medium text-status-in-stock">
+            <PackageCheck size={12} aria-hidden="true" /> Ready to bill
+          </span>
+          {reservedSkus.length > 0 && (
+            <span className="truncate text-muted-foreground">Reserved {reservedSkus.join(', ')}</span>
+          )}
+        </div>
+      )}
 
       {companyName && (
         <div className="flex items-center gap-2 text-[13px] text-muted-foreground">

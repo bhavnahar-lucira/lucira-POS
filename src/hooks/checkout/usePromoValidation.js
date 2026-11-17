@@ -3,6 +3,10 @@ import { toast } from 'sonner';
 import { listPromotions } from '@/services/promotionService';
 import { applyPromotionsToLines } from '@/services/checkoutPricingService';
 import { getItemDetail } from '@/services/itemService';
+import { getStockPieces } from '@/services/inventoryService';
+import { useSelector } from 'react-redux';
+import { selectActiveStoreId } from '@/store/slices/storeSlice';
+import { formatAmountOrDash } from '@/lib/priceUtils';
 import { useCart } from '@/hooks/cart/useCart';
 import { useSessionTrackingContext } from '@/hooks/analytics/useSessionTrackingContext';
 import { isPromotionActive } from '@/lib/normalizers/promotion';
@@ -17,6 +21,7 @@ import APP_CONFIG from '@/constants/appConfig';
 export function usePromoValidation({ invoice, order }) {
   const { applyPromo, items } = useCart();
   const sessionCtx = useSessionTrackingContext();
+  const activeStoreId = useSelector(selectActiveStoreId);
 
   const mutation = useMutation({
     mutationFn: async (input) => {
@@ -62,6 +67,29 @@ export function usePromoValidation({ invoice, order }) {
           (i) => i.itemId === promotion.free_item_id && i.freeGiftPromoCode === promotion.promotion_code
         );
         if (alreadyGifted) return { status: 'eligible', promotion, overrideAmount };
+
+        // Checked before the free line is added: adding it re-prices the whole cart, and a gift line the store
+        // can't supply from stock turns an in-stock bill into a Made-to-Order one.
+        const name = promotion.promotion_name ?? promotion.promotion_code;
+        const minSpend = Number(promotion.minimum_sales_amount) || 0;
+        const cartValue = [...(invoice?.lineItems ?? []), ...(order?.lineItems ?? [])]
+          .filter((r) => !r.is_gift)
+          .reduce((sum, r) => sum + (Number(r.net_amount) || 0), 0);
+        if (minSpend > 0 && cartValue < minSpend) {
+          return {
+            status: 'ineligible', promotion,
+            reason: `${name} needs a purchase of at least ${formatAmountOrDash(minSpend)} — this cart is ${formatAmountOrDash(cartValue)}.`,
+          };
+        }
+        if (invoice?.lineItems?.length) {
+          const stock = (await getStockPieces({ itemId: promotion.free_item_id, companyId: activeStoreId }))?.data?.Entities ?? [];
+          if (!stock.some((r) => !r.is_allocated)) {
+            return {
+              status: 'ineligible', promotion,
+              reason: `${name}: the free item isn't in stock at this store, so it can't be given on an in-stock bill.`,
+            };
+          }
+        }
 
         const itemResponse = await getItemDetail(promotion.free_item_id);
         const freeItem = itemResponse?.data?.Entity;
@@ -112,7 +140,7 @@ export function usePromoValidation({ invoice, order }) {
           return;
 
         case 'ineligible':
-          toast.error(TOAST.CART.PROMO_NOT_APPLICABLE(result.promotion.promotion_name ?? result.promotion.promotion_code));
+          toast.error(result.reason ?? TOAST.CART.PROMO_NOT_APPLICABLE(result.promotion.promotion_name ?? result.promotion.promotion_code));
           tracker.track(EVENTS.PROMO_FAILED, {
             reason: 'ineligible', promoCode: result.promotion.promotion_code, ...sessionCtx,
           });

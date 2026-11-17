@@ -39,9 +39,9 @@ function getStageGuidance(reasonStatusDescription) {
 /**
  * @param {{ raw: object }} props
  */
-export default function FulfillOrderAction({ raw }) {
+export default function FulfillOrderAction({ raw, autoCheck = false }) {
   const router = useRouter();
-  const [checked, setChecked] = useState(false);
+  const [checked, setChecked] = useState(autoCheck);
   const [showSwitchConfirm, setShowSwitchConfirm] = useState(false);
   const [ornaverseBaseUrl, setOrnaverseBaseUrl] = useState(null);
   const cart = useCart();
@@ -108,7 +108,7 @@ export default function FulfillOrderAction({ raw }) {
       ) : thisOrderReady.length > 0 ? (
         <Button variant="premium" className="w-full gap-2" onClick={handleLoadClick}>
           <PackageCheck size={16} aria-hidden="true" />
-          Load {thisOrderReady.length} item{thisOrderReady.length > 1 ? 's' : ''} to Invoice
+          Bill now · load {thisOrderReady.length} item{thisOrderReady.length > 1 ? 's' : ''} to invoice
         </Button>
       ) : (
         <div className="rounded-lg border border-border bg-muted px-3 py-2.5 flex flex-col gap-1.5">

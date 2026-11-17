@@ -1,14 +1,14 @@
 import { calculateItemRates } from '@/services/pricingService';
 import {
-  getMetalRateForItem, getItemSizesByType, getStoneRate, getStoneTypeDetails, getLabourRate, applyLabourToLine,
+  getMetalRateForItem, getItemSizesByType, getStoneRate, getLabourRate, applyLabourToLine,
 } from '@/services/customEstimateService';
 import { uploadTemporaryFile } from '@/services/fileUploadService';
+import {
+  DIAMOND_ITEM_GROUP_ID, STONE_COSTING_DEFAULTS, norm, matchLabel, resolveStone,
+} from '@/lib/ticketing/attributeMatch';
 import APP_CONFIG from '@/constants/appConfig';
 
-export const DIAMOND_ITEM_GROUP_ID = 112;
-export const STONE_COSTING_DEFAULTS = {
-  [DIAMOND_ITEM_GROUP_ID]: { baseItemId: 13, salesCostingId: 10, purchaseCostingId: 10 },
-};
+export { DIAMOND_ITEM_GROUP_ID, STONE_COSTING_DEFAULTS };
 
 /**
  * Whether OrnaVerse charges this item's metal on PURE weight (weight × purity) rather than gross weight —
@@ -20,35 +20,7 @@ export function isMetalOnPureWeight(row) {
   return Math.abs(m.amount - (m.pure_weight ?? 0) * m.rate) < Math.abs(m.amount - (m.weight ?? 0) * m.rate);
 }
 
-const norm = (v) => String(v ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const karatNumber = (v) => String(v ?? '').match(/\d+/)?.[0] ?? null;
-const findByLabel = (options, label) => (label ? options.find((o) => norm(o.label) === norm(label)) ?? null : null);
-
-export const matchOption = (options, label) => {
-  if (!options || !options.length) return null;
-  if (!label) return options[0];
-  const target = norm(label);
-  const segments = String(label).split(/[|/,-]+/).map(norm).filter(Boolean);
-  return options.find((o) => norm(o.label) === target)
-    ?? options.find((o) => segments.some((seg) => norm(o.label) === seg))
-    ?? options.find((o) => segments.some((seg) => norm(o.label).includes(seg) || seg.includes(norm(o.label))))
-    ?? options.find((o) => norm(o.label).includes(target) || target.includes(norm(o.label)))
-    ?? options[0];
-};
-
-export const matchStoneType = (types, rawType, rawGroup) => {
-  if (!types || !types.length) return null;
-  const normType = norm(rawType);
-  const segments = String(rawType ?? '').split(/[|/,-]+/).map(norm).filter(Boolean);
-  return types.find((t) => norm(t.type_name) === normType)
-    ?? types.find((t) => segments.some((seg) => norm(t.type_name) === seg))
-    ?? types.find((t) => segments.some((seg) => norm(t.type_name).includes(seg) || seg.includes(norm(t.type_name))))
-    ?? types.find((t) => norm(t.type_name).includes(normType) || normType.includes(norm(t.type_name)))
-    ?? (String(rawType || rawGroup || '').toLowerCase().match(/diamond|lgd|lab/i)
-        ? types.find((t) => /diamond|lgd|lab/i.test(t.type_name))
-        : null)
-    ?? types[0];
-};
 
 /** Custom-estimate item for the panel's category, e.g. "Pendants" → "Customized Pendant"; falls back to the generic custom order item. */
 export function matchCustomItem(items, category) {
@@ -113,9 +85,10 @@ export async function prefillFromTicket(final, lookups) {
     patchMetal({ karat_id: karatOpt.value, karat_name: karatOpt.label, purity: karatOpt.purity, rate: rate || 0 });
   }
 
-  const colorOpt = findByLabel(metalColorOptions, metal.color);
+  const { match: colorOpt, exact: colorExact } = matchLabel(metalColorOptions, metal.color);
   if (colorOpt) patchMetal({ metal_color_id: colorOpt.value, metal_color_name: colorOpt.label });
-  else if (metal.color) warnings.push(`Metal colour "${metal.color}" was not found — the item's default colour is used.`);
+  if (colorOpt && !colorExact) warnings.push(`Metal colour "${metal.color}" mapped to "${colorOpt.label}" — check it.`);
+  else if (!colorOpt && metal.color) warnings.push(`Metal colour "${metal.color}" was not found — the item's default colour is used.`);
 
   const weight = Number(metal.weight ?? lineItem.weight) || Number(selectedItem.weight) || 0;
 
@@ -130,31 +103,23 @@ export async function prefillFromTicket(final, lookups) {
 
   const stones = [];
   for (const s of final.stones ?? []) {
-    const group = (s.groupId && stoneItemGroups.find((g) => g.item_group_id === s.groupId))
-      ?? stoneItemGroups.find((g) => norm(g.item_group_name) === norm(s.group))
-      ?? stoneItemGroups.find((g) => {
-        const gNorm = norm(g.item_group_name);
-        const sNorm = norm(s.group);
-        return gNorm && sNorm && (gNorm.includes(sNorm) || sNorm.includes(gNorm));
-      })
-      ?? (String(s.type || s.group || '').toLowerCase().match(/diamond|lgd|lab/i)
-        ? stoneItemGroups.find((g) => g.item_group_id === DIAMOND_ITEM_GROUP_ID || /diamond/i.test(g.item_group_name))
-        : null)
-      ?? stoneItemGroups[0];
-
-    const shape = matchOption(shapeOptions, s.shape) ?? { value: 0, label: s.shape || 'NA' };
-    const color = matchOption(colorOptions, s.color) ?? { value: 0, label: s.color || 'NA' };
-    const quality = matchOption(qualityOptions, s.quality) ?? { value: 0, label: s.quality || 'NA' };
-    const defaults = (group && STONE_COSTING_DEFAULTS[group.item_group_id])
-      || STONE_COSTING_DEFAULTS[DIAMOND_ITEM_GROUP_ID]
-      || { baseItemId: 13, salesCostingId: 10, purchaseCostingId: 10 };
-
-    const types = group ? (await getStoneTypeDetails(group.item_group_id).catch(() => [])) : [];
-    const type = matchStoneType(types, s.type, s.group) ?? { type_id: 0, type_name: s.type || 'Stone' };
+    const label = `Stone ${s.pieces ?? ''} pcs / ${s.weight ?? ''} ct`;
+    const { group, costing: defaults, shape, color, quality, type, notes, unresolved, complete } = await resolveStone(s, {
+      stoneItemGroups, shapeOptions, colorOptions, qualityOptions,
+    });
+    if (!complete) {
+      const missing = [
+        !group && `group "${s.group ?? '—'}"`,
+        ...unresolved.filter((u) => u.chosen == null).map((u) => `${u.name} "${u.raw || '—'}"`),
+      ].filter(Boolean);
+      warnings.push(`${label} not added — not found in OrnaVerse: ${missing.join(', ')}. Add it manually.`);
+      continue;
+    }
+    warnings.push(...notes);
 
     const stoneWeight = Number(s.weight) || 0;
     let rate = Number(s.rate) || 0;
-    if (!(rate > 0) && group && type.type_id && shape.value && color.value && quality.value) {
+    if (!(rate > 0)) {
       try {
         const ov = await getStoneRate({
           baseItemId: defaults.baseItemId, itemGroupId: group.item_group_id, typeId: type.type_id, shapeId: shape.value,
@@ -166,9 +131,13 @@ export async function prefillFromTicket(final, lookups) {
         rate = 0;
       }
     }
+    if (!(rate > 0)) {
+      warnings.push(`OrnaVerse has no rate for ${s.type} · ${s.color} · ${s.quality} (${label}) — choose a priced combination and add it manually.`);
+      continue;
+    }
 
     stones.push({
-      itemGroupId: group?.item_group_id ?? DIAMOND_ITEM_GROUP_ID,
+      itemGroupId: group.item_group_id,
       shapeId: shape.value,
       stoneColorId: color.value,
       qualityId: quality.value,
@@ -180,7 +149,7 @@ export async function prefillFromTicket(final, lookups) {
       baseItemId: defaults.baseItemId,
       salesCostingId: defaults.salesCostingId,
       purchaseCostingId: defaults.purchaseCostingId,
-      itemGroupName: group?.item_group_name ?? 'Diamond',
+      itemGroupName: group.item_group_name,
       shapeName: shape.label,
       colorName: color.label,
       qualityName: quality.label,

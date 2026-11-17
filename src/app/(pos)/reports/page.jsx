@@ -437,7 +437,8 @@ const WALKIN_COLUMNS = [
   { key: 'customer_name', label: 'Customer', mobile: true },
   { key: 'mobile', label: 'Mobile', format: (v) => (v ? <PhoneLink phone={v} /> : '—'), hidden: true },
   { key: 'email', label: 'Email' },
-  { key: 'source', label: 'Source', filter: true },
+  { key: 'source', label: 'Visit type', filter: true },
+  { key: 'purpose', label: 'Purpose', format: (v) => v ?? '—', filter: true },
   { key: 'jewelry_consultant', label: 'Jewelry Consultant', format: (v) => v ?? '—', filter: true },
   { key: 'visits_in_period', label: 'Visits in period', align: 'right', filter: true },
   { key: 'notes', label: 'Notes' },
@@ -808,7 +809,7 @@ export default function ReportsPage() {
             { key: 'mobile', label: 'Mobile' },
             { key: 'visited_on', label: 'Visit Date' },
             { key: 'visited_time', label: 'Visit Time' },
-            { key: 'source', label: 'Source' },
+            { key: 'source', label: 'Visit type' },
             { key: 'notes', label: 'Notes' },
           ],
           rows: walkinsRows,
@@ -1131,6 +1132,11 @@ export default function ReportsPage() {
 
           {activeTab === 'salesperson' && (
             <>
+              {!salesPersonReport.countsAvailable && !salesPersonReport.isLoading && (
+                <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                  Invoice, MTO, category and customer counts couldn&apos;t be loaded from the POS database right now — those columns show 0. Sales values from OrnaVerse are unaffected. Try again shortly.
+                </p>
+              )}
               <DataTable
                 key={tableKey}
                 columns={TAB_REPORTS.salesperson.columns}

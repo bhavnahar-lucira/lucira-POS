@@ -6,14 +6,13 @@ import { toast } from 'sonner';
 import { Check } from 'lucide-react';
 import { useCustomerSession } from '@/hooks/customer/useCustomerSession';
 import { useOrderHeaderConfig } from '@/hooks/checkout/useOrderHeaderConfig';
-import { usePaymentModes } from '@/hooks/checkout/usePaymentModes';
 import { useRepairedItemsReadyForBilling, useRepairMutation } from '@/hooks/repair/useRepairs';
 import {
   REPAIR_DOC, priceRepairInvoiceLines, applyRepairCharge, aggregateLineTotals,
   buildRepairInvoiceEntity, createRepairInvoice,
 } from '@/services/repairService';
 import { buildReceiptDetails } from '@/lib/checkout/documentFields';
-import { paymentRequiresBank } from '@/lib/checkout/paymentModeRules';
+import { validatePayments } from '@/lib/checkout/paymentModeRules';
 import { selectActiveStoreId, selectActiveStoreCode } from '@/store/slices/storeSlice';
 import CustomerAttachedBanner from '@/components/shared/CustomerAttachedBanner';
 import ListRowsSkeleton from '@/components/shared/ListRowsSkeleton';
@@ -36,7 +35,6 @@ function NewRepairInvoiceFormBody({ onDone }) {
   const companyCode = useSelector(selectActiveStoreCode);
   const { customerId, customerName, customerMobile } = useCustomerSession();
   const headerConfig = useOrderHeaderConfig(REPAIR_DOC.INVOICE);
-  const { paymentModes } = usePaymentModes();
   const readyItems = useRepairedItemsReadyForBilling(customerId);
 
   const [selected, setSelected] = useState({});
@@ -97,21 +95,8 @@ function NewRepairInvoiceFormBody({ onDone }) {
     if (!lines.length) return toast.error('Add the repaired items first.');
     if (!salesPersonId) return toast.error('Select the jewelry consultant.');
     if (totals.net_amount > 0.01) {
-      if (!payments.length) return toast.error('Select how the customer is paying.');
-      const totalPaid = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-      if (Math.abs(totalPaid - totals.net_amount) > 0.01) {
-        return toast.error(`Payment amount (${formatINR(totalPaid)}) must match total charge (${formatINR(totals.net_amount)}).`);
-      }
-      for (const p of payments) {
-        const m = paymentModes.find((x) => x.modeId === p.modeId);
-        const reqBank = m && paymentRequiresBank(m);
-        if (reqBank && !p.bankPosId) {
-          return toast.error(`Select the bank account for ${p.modeName || 'this payment'}.`);
-        }
-        if (reqBank && !p.refNo?.trim()) {
-          return toast.error(`Enter the payment reference number for ${p.modeName || 'this payment'}.`);
-        }
-      }
+      const paymentError = validatePayments(payments, { amountDue: totals.net_amount, label: 'the total charge' });
+      if (paymentError) return toast.error(paymentError);
     }
     try {
       const result = await save.mutateAsync();

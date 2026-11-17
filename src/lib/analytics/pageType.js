@@ -9,6 +9,7 @@ const ROUTES = [
   ['/invoices',         'invoices'],
   ['/transactions',     'transactions'],
   ['/transfers',        'interstore_return'],
+  ['/branch-transfer',  'branch_transfer'],
   ['/schemes',          'schemes'],
   ['/walkins',          'walkins'],
   ['/settings',         'settings'],

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDispatch, useSelector } from 'react-redux';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AlertTriangle, CheckCircle2, ShoppingCart } from 'lucide-react';
 
@@ -12,6 +12,7 @@ import InvoiceReportButton from '@/components/features/checkout/InvoiceReportBut
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useCustomEstimateItems } from '@/hooks/estimation/useCustomEstimate';
 import { useItemGroups } from '@/hooks/catalog/useCategoryFilters';
 import { useAttributeOptions, useKaratOptions } from '@/hooks/catalog/useCatalogFilterOptions';
@@ -107,9 +108,10 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
   const cartCustomerId = useSelector(selectCartCustomerId);
   const cartItems = useSelector(selectCartItems);
   const action = useTicketAction(ticket.ticket_number, { partyId });
-  const [acknowledged, setAcknowledged] = useState(false);
   const [note, setNote] = useState('');
   const [isAttaching, setIsAttaching] = useState(false);
+  const [overrides, setOverrides] = useState({});
+  const chooseOverride = (key, value) => setOverrides((prev) => ({ ...prev, [key]: Number(value) }));
 
   const { items } = useCustomEstimateItems();
   const { data: itemGroupsRaw } = useItemGroups();
@@ -124,11 +126,12 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
 
   const final = ticket.final_details;
   const query = useQuery({
-    queryKey: ['ticket-order', ticket.ticket_number, ticket.updated_at],
+    queryKey: ['ticket-order', ticket.ticket_number, ticket.updated_at, overrides],
     queryFn: () => buildOrderFromFinal(final, ticket, {
       items, karatOptions, metalColorOptions, stoneItemGroups, shapeOptions, colorOptions, qualityOptions,
-    }),
+    }, overrides),
     enabled: !!final && lookupsReady,
+    placeholderData: keepPreviousData,
     staleTime: 0,
     gcTime: 0,
     retry: false,
@@ -145,17 +148,25 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
     );
   }
 
-  const { blockers = [], warnings = [], checks = [], line, item, summary } = query.data ?? {};
+  const { blockers = [], warnings = [], review = [], unresolved = [], checks = [], line, item, summary } = query.data ?? {};
   const mismatches = checks.filter((c) => !c.ok);
-  const canProceed = !!line;
+  // Rate/figure differences (the rate was locked when the ticket was created) and mapped values are shown
+  // for information and logged to the ticket history; only values with no OrnaVerse match need a choice.
+  const hasNotes = mismatches.length > 0 || review.length > 0;
+  const isRebuilding = query.isFetching && query.isPlaceholderData;
+  const pendingChoices = unresolved.filter((u) => u.chosen == null).length;
+  const canProceed = !!line && !blockers.length && !pendingChoices && !isRebuilding;
 
-  const recordAcknowledgement = () => (mismatches.length
+  const recordAcknowledgement = () => (hasNotes
     ? action.mutateAsync({
       action: 'acknowledge_pricing',
-      mismatches: mismatches.map((c) => ({ label: c.label, workflow: c.workflow ?? null, reference: c.reference ?? null })),
+      mismatches: [
+        ...mismatches.map((c) => ({ label: c.label, workflow: c.workflow ?? null, reference: c.reference ?? null })),
+        ...review.map((r) => ({ label: r.slice(0, 200), workflow: null, reference: null })),
+      ].slice(0, 30),
       note: note.trim() || null,
-    }).catch((err) => {
-      console.warn('Could not record pricing acknowledgement:', err);
+    }).catch(() => {
+      toast.warning('The acknowledgement could not be saved to the ticket history — the order still proceeds.');
     })
     : Promise.resolve());
 
@@ -237,9 +248,39 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
       </div>
 
       {blockers.length > 0 && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-          <p className="font-medium">Data differences noted from workflow:</p>
+        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+          <p className="font-medium">The order can&apos;t be placed until the workflow team corrects:</p>
           <ul className="mt-1 list-disc pl-5">{blockers.map((b) => <li key={b}>{b}</li>)}</ul>
+        </div>
+      )}
+      {unresolved.length > 0 && !blockers.length && (
+        <div className="flex flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          <p className="font-medium">
+            These values don&apos;t exist in OrnaVerse — choose the correct one for each before ordering
+            {pendingChoices ? ` (${pendingChoices} left)` : ''}:
+          </p>
+          {unresolved.map((u) => (
+            <div key={u.key} className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                Stone {u.name} <strong>&quot;{u.raw || 'not given'}&quot;</strong>
+                <span className="text-xs"> · {u.stones} stone{u.stones > 1 ? 's' : ''}</span>
+              </span>
+              <Select value={overrides[u.key] != null ? String(overrides[u.key]) : ''} onValueChange={(v) => chooseOverride(u.key, v)}>
+                <SelectTrigger className="h-10 w-full bg-background sm:w-56" aria-label={`OrnaVerse ${u.name} for "${u.raw || 'not given'}"`}>
+                  <SelectValue placeholder={`Choose ${u.name}`} />
+                </SelectTrigger>
+                <SelectContent>
+                  {u.options.map((o) => <SelectItem key={o.value} value={String(o.value)}>{o.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          ))}
+        </div>
+      )}
+      {review.length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          <p className="font-medium">These values didn&apos;t match OrnaVerse exactly and were mapped as below — for information:</p>
+          <ul className="mt-1 list-disc pl-5">{review.map((r) => <li key={r}>{r}</li>)}</ul>
         </div>
       )}
       {warnings.length > 0 && (
@@ -250,7 +291,7 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
         <div className="flex flex-col gap-2">
           <p className={`text-sm font-medium ${mismatches.length ? 'text-amber-800 dark:text-amber-200' : 'text-emerald-700 dark:text-emerald-300'}`}>
             {mismatches.length
-              ? `${mismatches.length} figure${mismatches.length > 1 ? 's' : ''} from the workflow team differ from OrnaVerse reference — proceeding will place the order using the workflow figures.`
+              ? `${mismatches.length} figure${mismatches.length > 1 ? 's' : ''} differ from today's OrnaVerse reference (the rate was locked when the ticket was created) — for information only; the order uses the workflow figures.`
               : 'All figures match OrnaVerse.'}
           </p>
           <ChecksList checks={checks} />
@@ -276,13 +317,9 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
         </dl>
       )}
 
-      {mismatches.length > 0 && (
+      {hasNotes && !blockers.length && (
         <div className="flex flex-col gap-2 rounded-lg border border-amber-300 bg-background p-3 dark:border-amber-800">
-          <label className="flex items-start gap-2 text-sm">
-            <input type="checkbox" className="mt-1" checked={acknowledged} onChange={(e) => setAcknowledged(e.target.checked)} />
-            <span>I have checked the highlighted differences and want to place the order with the workflow team&apos;s figures.</span>
-          </label>
-          <Label htmlFor="ack-note" className="text-xs text-muted-foreground">Note (optional, saved in the ticket history)</Label>
+          <Label htmlFor="ack-note" className="text-xs text-muted-foreground">Note (optional, saved in the ticket history with the differences above)</Label>
           <Textarea id="ack-note" rows={2} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
       )}

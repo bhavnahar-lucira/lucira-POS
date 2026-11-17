@@ -66,12 +66,17 @@ function HelperBalanceRow({ label, amount, modeCode, rows, isApplied, onToggle, 
  *   lineItems?: object[], bare?: boolean,
  *   hideHelpers?: boolean, partyId?: number|null,
  *   partyMobile?: string|null, storeId?: number|null,
+ *   customModes?: object[]|null,
+ *   isPayout?: boolean,        // money leaves the store (Refund): no bank picker, no cash-limit check, "Paid out" labels
  * }} props
  */
 export default function CheckoutPaymentSection({
   onChange, amountDue = 0, allowPartial = false, lineItems = [], bare = false,
   hideHelpers = false, partyId, partyMobile, storeId, customModes = null,
+  isPayout = false,
 }) {
+  const collectBank = !isPayout;
+  const checkCashLimit = !isPayout;
   const total = amountDue;
   const { paymentModes: defaultModes, isLoading: modesLoading, isError: modesError } = usePaymentModes();
   const paymentModes = customModes ?? defaultModes;
@@ -84,10 +89,11 @@ export default function CheckoutPaymentSection({
   const appliedPromos  = useSelector(selectAppliedPromos);
 
   const helpers = useInvoiceHelpers({
-    partyId:   hideHelpers ? null : customerId,
-    companyId: hideHelpers ? null : activeStoreId,
+    partyId:         customerId,
+    companyId:       checkCashLimit ? activeStoreId : null,
+    includeReceipts: !hideHelpers,
   });
-  const { orderAdvance, isLoading: orderAdvanceLoading } = useOrderAdvance();
+  const { orderAdvance, isLoading: orderAdvanceLoading } = useOrderAdvance({ enabled: !hideHelpers });
   const loyaltyMode = paymentModes.find((m) => m.modeType === LOYALTY_MODE_TYPE) ?? null;
   const {
     promotion: loyaltyPromotion, isEligible: loyaltyEligible,
@@ -237,7 +243,7 @@ export default function CheckoutPaymentSection({
   }
   const emittedPayments = payments.map((p) => {
     const mode = paymentModes.find((m) => m.modeId === p.modeId);
-    const bankAccount = p.bankPosId != null
+    const bankAccount = collectBank && p.bankPosId != null
       ? bankPosAccounts.find((a) => a.id === p.bankPosId)
       : null;
     return {
@@ -347,7 +353,7 @@ export default function CheckoutPaymentSection({
           so no further cash can be accepted (limit{' '}
           {APP_CONFIG.CURRENCY.INR_SYMBOL}
           {APP_CONFIG.COMPLIANCE.CASH_DAILY_LIMIT.toLocaleString('en-IN')}).
-          OrnaVerse will refuse this sale until the cash total resets tomorrow —
+          OrnaVerse may refuse this transaction until the cash total resets tomorrow —
           including when it is paid entirely by another method.
         </p>
       ) : dailyCashTaken > 0 && (
@@ -380,14 +386,16 @@ export default function CheckoutPaymentSection({
               />
               {requiresBank(p) && (
                 <>
-                  <BankPosSelect
-                    value={p.bankPosId}
-                    onChange={(bankPosId) => handleBankChange(p.key, bankPosId)}
-                  />
+                  {collectBank && (
+                    <BankPosSelect
+                      value={p.bankPosId}
+                      onChange={(bankPosId) => handleBankChange(p.key, bankPosId)}
+                    />
+                  )}
                   <Input
                     value={p.refNo ?? ''}
                     onChange={(e) => handleRefNoChange(p.key, e.target.value)}
-                    placeholder="Reference number"
+                    placeholder={collectBank ? 'Reference number' : 'Reference number (optional)'}
                     className="h-10"
                     aria-label={`Reference for ${p.modeName}`}
                   />
@@ -405,14 +413,14 @@ export default function CheckoutPaymentSection({
             )}
             {collectedByMode.map((p) => (
               <div key={p.key} className="flex items-center justify-between text-muted-foreground">
-                <span>{p.isCredit ? `Credit Applied (${p.modeName})` : `Collected (${p.modeName})`}</span>
+                <span>{p.isCredit ? `Credit Applied (${p.modeName})` : `${isPayout ? 'Paid out' : 'Collected'} (${p.modeName})`}</span>
                 <span>{APP_CONFIG.CURRENCY.INR_SYMBOL}{(Number(p.amount) || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
               </div>
             ))}
             {isBalanced ? (
               <p className="flex items-center gap-1.5 text-status-in-stock font-medium">
                 <CheckCircle2 size={14} aria-hidden="true" />
-                Paid in full
+                {isPayout ? 'Fully paid out' : 'Paid in full'}
               </p>
             ) : (
               <div className="flex items-center justify-between font-medium">

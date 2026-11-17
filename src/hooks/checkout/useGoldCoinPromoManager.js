@@ -88,7 +88,7 @@ export function useGoldCoinPromoManager() {
     ...(invoice?.promotionDetails ?? []),
     ...(order?.promotionDetails ?? []),
   ];
-  const { data: activePromotions = [] } = useActivePromotions();
+  const { data: activePromotions = [], isSuccess: promotionsLoaded } = useActivePromotions();
   const breakdown = getPromoBreakdown(appliedPromos, promotionDetails);
 
   useEffect(() => {
@@ -133,6 +133,13 @@ export function useGoldCoinPromoManager() {
     );
     if (!goldCoinApplied) return;
 
+    // The offer was withdrawn in OrnaVerse: a cart saved with it applied must drop it, not keep the old snapshot.
+    if (promotionsLoaded && !activePromotions.some((p) => p.promotion_code === goldCoinApplied.promoCode)) {
+      dispatch(removePromoAction(goldCoinApplied.promoCode));
+      toast.error(TOAST.CART.PROMO_NO_LONGER_APPLIES(goldCoinApplied.promoDetails?.promotion_name ?? goldCoinApplied.promoCode));
+      return;
+    }
+
     // Match the EXACT applied promo by its own code first — matching only by
     // type+free_item_id (as this originally did) can silently pick a
     // DIFFERENT gold-coin promo if more than one is active at once (e.g. a
@@ -167,7 +174,7 @@ export function useGoldCoinPromoManager() {
 
     dispatch(removePromoAction(goldCoinApplied.promoCode));
     toast.error(TOAST.CART.PROMO_NO_LONGER_APPLIES(livePromo?.promotion_name ?? goldCoinApplied.promoCode));
-  }, [isPricing, activeGroup, appliedPromos, activePromotions, dispatch]);
+  }, [isPricing, activeGroup, appliedPromos, activePromotions, promotionsLoaded, dispatch]);
 
   // No auto-apply: the gold coin offer is applied only when the JC picks it from Apply Offer (2026-11-05).
 

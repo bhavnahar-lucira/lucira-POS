@@ -324,6 +324,41 @@ const API = {
   // ─────────────────────────────────────────────────────────────────────────
   // INTERSTORE RETURN (IRR)
   // ─────────────────────────────────────────────────────────────────────────
+  BRANCH_TRANSFER: {
+    DESTINATIONS:        'Services/Master/Party/List',
+    PARTY_RETRIEVE:      'Services/Master/Party/Retrieve',
+    COMPANY_LIST:        'Services/Administration/Company/List',
+    COMPANY_RETRIEVE:    'Services/Administration/Company/Retrieve',
+    COMPANY_LOCATIONS:   'Services/Administration/CompanyWiseLocations/List',
+    FREIGHTS:            'Services/Master/Freight/List',
+    STOCK:               'Services/Inventory/StockJournal/List',
+    PRICE_COST:          'Services/Helpers/SetOutboundItemsWithCostPrice',
+    PRICE_SALES:         'Services/Helpers/SetSalesItems',
+    OUT_CREATE:          'Services/Inventory/BranchOut/Create',
+    OUT_POST:            'Services/Inventory/BranchOut/Post',
+    OUT_CANCEL:          'Services/Inventory/BranchOut/Cancel',
+    OUT_RETRIEVE:        'Services/Inventory/BranchOut/Retrieve',
+    OUT_LIST:            'Services/Inventory/BranchOut/List',
+    IN_LIST:             'Services/Inventory/BranchIn/List',
+    IN_RETRIEVE:         'Services/Inventory/BranchIn/Retrieve',
+    IN_AUTHORIZE:        'Services/Inventory/BranchIn/AuthorizeAndPost',
+  },
+
+  STOCK_ALLOCATION: {
+    CREATE:            'Services/Inventory/StockAllocation/Create',
+    UPDATE:            'Services/Inventory/StockAllocation/Update',
+    POST:              'Services/Inventory/StockAllocation/Post',
+    RETRIEVE:          'Services/Inventory/StockAllocation/Retrieve',
+    LIST:              'Services/Inventory/StockAllocation/List',
+    CANCEL:            'Services/Inventory/StockAllocation/Cancel',
+    POS_ORDER_LINES:   'Services/POS/OrderItems/List',
+    SALES_ORDER_LINES: 'Services/Sales/OrderItems/List',
+    STOCK:             'Services/Inventory/StockJournal/List',
+    SET_ITEMS:         'Services/Helpers/SetReturnItems',
+    DOCUMENT_BY_ID:    'Services/Administration/Documents/GetDocumentById',
+    DOCUMENT_NUMBERING: 'Services/Administration/DocumentNumbering/List',
+  },
+
   INTERSTORE_RETURN: {
     CREATE:               'Services/POS/InterstoreReturn/Create',
     UPDATE:               'Services/POS/InterstoreReturn/Update',

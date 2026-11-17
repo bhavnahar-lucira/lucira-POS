@@ -24,7 +24,9 @@
 // app's `@/` path alias.
 
 import { UPSTREAM } from '@/lib/ornaverse/upstream';
-import { upsertPurchase, unnamedSalesPersonIds, fillSalesPersonNames } from '@/lib/mongo/buyerPurchases';
+import {
+  upsertPurchase, unnamedSalesPersonIds, fillSalesPersonNames, recordsMissingCategory, markCategoriesChecked,
+} from '@/lib/mongo/buyerPurchases';
 import API from '@/constants/apiEndpoints';
 
 const CONCURRENCY = 5; // parallel Retrieve calls — gentle on OrnaVerse + Mongo
@@ -235,8 +237,41 @@ export async function syncStorePurchases({ companyId, session }) {
     STORE_SYNC_KINDS.map((kind, i) => upsertEntities(kind, entitiesByKind[i], session)),
   );
   const [invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced] = syncedByKind;
+  const categoriesFilled = await refreshMissingCategories(companyId, session);
   const namesFilled = await fillMissingSalesPersonNames(companyId, session);
-  return { invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced, namesFilled };
+  return { invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced, categoriesFilled, namesFilled };
+}
+
+// The store-level discovery can't see some documents (e.g. a ₹0 freebie invoice has no receipt for the
+// Receipt-List fallback to find), so records saved before items carried a category are re-read directly.
+export async function refreshMissingCategories(companyId, session) {
+  try {
+    const stale = await recordsMissingCategory(companyId);
+    if (!stale.length) return 0;
+    let refreshed = 0;
+    const checked = [];
+    for (const kind of Object.keys(RETRIEVE_PATH)) {
+      const rows = stale.filter((r) => r.documentType === kind);
+      if (!rows.length) continue;
+      const entities = await runWithConcurrency(rows, async (row) => {
+        try {
+          return (await ornaversePost(RETRIEVE_PATH[kind], { EntityId: row.transactionId }, session))?.Entity ?? null;
+        } catch {
+          return null;
+        }
+      }, CONCURRENCY);
+      const found = entities.filter((e) => e && e.company_id === companyId);
+      refreshed += await upsertEntities(kind, found, session);
+      const foundIds = new Set(found.map((e) => e.transaction_id));
+      checked.push(...rows.filter((r) => foundIds.has(r.transactionId)).map((r) => r._id));
+    }
+    // Only records OrnaVerse actually returned are marked, so a failed fetch is retried next sync.
+    await markCategoriesChecked(checked);
+    return refreshed;
+  } catch (error) {
+    console.warn(`[buyerSync] refreshing item categories for company ${companyId} failed`, error.message);
+    return 0;
+  }
 }
 
 // Older records the sync doesn't re-fetch would otherwise keep a missing sales person name forever.

@@ -158,6 +158,28 @@ export async function unnamedSalesPersonIds(companyId) {
   });
 }
 
+const missingCategory = {
+  items: { $elemMatch: { $or: [{ item_category: { $exists: false } }, { item_category: null }, { item_category: '' }] } },
+  categoriesChecked: { $ne: true },
+};
+
+/** Records of one store with an item that has no category and haven't been re-checked yet (oldest sync first). */
+export async function recordsMissingCategory(companyId, limit = 300) {
+  const db = await getDb();
+  return db.collection(COLLECTION)
+    .find({ ...environmentMatch(), companyId, ...missingCategory }, { projection: { documentType: 1, transactionId: 1 } })
+    .sort({ updatedAt: 1 })
+    .limit(limit)
+    .toArray();
+}
+
+/** Marks records as re-checked so items OrnaVerse itself leaves uncategorised aren't re-fetched on every sync. */
+export async function markCategoriesChecked(ids) {
+  if (!ids.length) return;
+  const db = await getDb();
+  await db.collection(COLLECTION).updateMany({ _id: { $in: ids } }, { $set: { categoriesChecked: true } });
+}
+
 /** Fills in missing sales person names only; never changes a name that is already set. Returns records updated. */
 export async function fillSalesPersonNames(companyId, namesById) {
   const ops = [...namesById].filter(([, name]) => name).map(([salesPersonId, name]) => ({

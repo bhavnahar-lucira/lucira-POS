@@ -32,9 +32,10 @@ function sumBalance(rows) {
 }
 
 /**
- * @param {{ partyId: number|null, companyId: number|null }} params
+ * @param {{ partyId: number|null, companyId: number|null, includeReceipts?: boolean }} params
+ *   includeReceipts — false skips the credit balances and loads only the daily cash position.
  */
-export function useInvoiceHelpers({ partyId, companyId }) {
+export function useInvoiceHelpers({ partyId, companyId, includeReceipts = true }) {
   const enabled = !!partyId && !!companyId;
 
   // Available credit-note/exchange/scheme/advance balances a cashier can
@@ -43,7 +44,7 @@ export function useInvoiceHelpers({ partyId, companyId }) {
   const receiptsQuery = useQuery({
     queryKey:  QUERY_KEYS.INVOICE_HELPERS.RECEIPTS(partyId),
     queryFn:   () => getPartyReceipts({ party_id: partyId }),
-    enabled:   !!partyId,
+    enabled:   !!partyId && includeReceipts,
     staleTime: 0,
 
     gcTime: 0,

@@ -15,11 +15,13 @@ import OrderListItem from '@/components/features/orders/OrderListItem';
 import OrderDetailSheet from '@/components/features/orders/OrderDetailSheet';
 import { useOrders } from '@/hooks/orders/useOrders';
 import { useAllOrders } from '@/hooks/orders/useAllOrders';
+import { useReadyToBillOrders } from '@/hooks/orders/useReadyToBillOrders';
 import APP_CONFIG from '@/constants/appConfig';
 import { todayDateString } from '@/lib/dateUtils';
 
 // document_status feeds order.status — see deriveDocumentStatus in useCustomerOrders.js.
 const STATUS_OPTIONS = [
+  { value: 'ready',     label: 'Ready to bill' },
   { value: 'paid',      label: 'Paid' },
   { value: 'partial',   label: 'Partial' },
   { value: 'due',       label: 'Due' },
@@ -31,13 +33,19 @@ export default function OrdersPage() {
   const [skip, setSkip] = useState(0);
   const [selectedOrder, setSelectedOrder] = useState(null);
 
-  const [inputVal, setInputVal]     = useState('');
-  const [searchQuery, setSearchQuery] = useState(''); // debounced
+  const initialOrderParam = () => (typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('order') ?? '');
+  const [inputVal, setInputVal]     = useState(initialOrderParam);
+  const [searchQuery, setSearchQuery] = useState(initialOrderParam); // debounced
   const [fromDate, setFromDate]     = useState('');
   const [toDate, setToDate]         = useState('');
   const [statusFilter, setStatusFilter] = useState(''); // 'paid' | 'partial' | 'due' | 'cancelled' | 'draft' | ''
 
   const debounceRef = useRef(null);
+  const { byOrder: readyByOrder } = useReadyToBillOrders();
+  // /orders?order=<document no> (e.g. from scanning a reserved piece) searches for that order and opens it.
+  const [deepLinkOrder, setDeepLinkOrder] = useState(() => (
+    typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('order')
+  ));
 
   // ── Paginated browse list (shown when no filter active) ──
   const {
@@ -56,6 +64,10 @@ export default function OrdersPage() {
     isLoading: isAllLoading,
     isFetching: isAllFetching,
   } = useAllOrders();
+
+  const deepLinked = deepLinkOrder ? allOrders.find((o) => o.orderNo === deepLinkOrder) ?? null : null;
+  const openOrder = selectedOrder ?? deepLinked;
+  const closeOrder = () => { setSelectedOrder(null); setDeepLinkOrder(null); };
 
   // ── Debounced search input ───────────────────────────────
   const handleSearchChange = (e) => {
@@ -120,12 +132,14 @@ export default function OrdersPage() {
       );
     }
 
-    if (statusFilter) {
+    if (statusFilter === 'ready') {
+      result = result.filter((order) => readyByOrder.has(order.orderNo));
+    } else if (statusFilter) {
       result = result.filter((order) => order.status === statusFilter);
     }
 
     return result;
-  }, [allOrders, q, fromDate, toDate, statusFilter, isSearchActive]);
+  }, [allOrders, q, fromDate, toDate, statusFilter, isSearchActive, readyByOrder]);
 
   // ── Display resolution ───────────────────────────────────
   const displayOrders = isSearchActive ? filteredOrders : pagedOrders;
@@ -253,6 +267,7 @@ export default function OrdersPage() {
             <OrderListItem
               key={order.orderId ?? idx}
               order={order}
+              readyLines={readyByOrder.get(order.orderNo) ?? null}
               onSelect={() => setSelectedOrder(order)}
             />
           ))
@@ -289,9 +304,10 @@ export default function OrdersPage() {
       )}
 
       <OrderDetailSheet
-        order={selectedOrder}
-        isOpen={!!selectedOrder}
-        onClose={() => setSelectedOrder(null)}
+        order={openOrder}
+        isOpen={!!openOrder}
+        onClose={closeOrder}
+        readyLines={openOrder ? readyByOrder.get(openOrder.orderNo) ?? null : null}
       />
     </div>
   );

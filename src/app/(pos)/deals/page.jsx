@@ -233,7 +233,7 @@ export default function DealsPage() {
   // Filter deals based on active category tab
   const displayedDeals = rawDeals.filter((deal) => {
     if (activeTab === 'store') {
-      return !!deal.storeAssigned && !deal.storeAssigned.toLowerCase().includes('tech');
+      return !!deal.storeAssigned;
     }
     if (activeTab === 'online') {
       return (
@@ -253,9 +253,7 @@ export default function DealsPage() {
     return true; // 'all'
   });
 
-  const storeCount = rawDeals.filter(
-    (d) => !!d.storeAssigned && !d.storeAssigned.toLowerCase().includes('tech')
-  ).length;
+  const storeCount = rawDeals.filter((d) => !!d.storeAssigned).length;
 
   const onlineCount = rawDeals.filter(
     (d) =>
@@ -458,17 +456,32 @@ export default function DealsPage() {
           </Button>
         </div>
       ) : displayedDeals.length === 0 ? (
-        <EmptyState
-          icon={Target}
-          title="No records found in this view"
-          description={
-            search || storeFilter !== 'all' || stageFilter !== 'all'
-              ? 'Try modifying your search query or filters.'
-              : activeTab !== 'all'
-              ? `No records currently match the ${activeTab} category.`
-              : 'No deals recorded in Zoho CRM yet.'
-          }
-        />
+        <div className="flex flex-col gap-3">
+          <EmptyState
+            icon={Target}
+            title="No records found in this view"
+            description={
+              (page > 1 || info.more_records) && (storeFilter !== 'all' || stageFilter !== 'all' || activeTab !== 'all')
+                ? `Nothing on page ${page} matches — store, stage and category filters apply one page of Zoho results at a time, so check the other pages.`
+                : search || storeFilter !== 'all' || stageFilter !== 'all'
+                ? 'Try modifying your search query or filters.'
+                : activeTab !== 'all'
+                ? `No records currently match the ${activeTab} category.`
+                : 'No deals recorded in Zoho CRM yet.'
+            }
+          />
+          {(page > 1 || info.more_records) && (
+            <div className="flex items-center justify-center gap-2 text-xs">
+              <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" disabled={page <= 1 || isFetching} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                <ChevronLeft size={13} /> Previous
+              </Button>
+              <span className="px-2 font-medium text-foreground">Page {page}</span>
+              <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" disabled={!info.more_records || isFetching} onClick={() => setPage((p) => p + 1)}>
+                Next <ChevronRight size={13} />
+              </Button>
+            </div>
+          )}
+        </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <div className="overflow-x-auto">
@@ -564,7 +577,12 @@ export default function DealsPage() {
                           )}
                         </div>
                       ) : (
-                        <span className="text-muted-foreground">—</span>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-muted-foreground">Unassigned</span>
+                          {deal.dealOwner && (
+                            <span className="text-[11px] text-muted-foreground">Owner: {deal.dealOwner}</span>
+                          )}
+                        </div>
                       )}
                     </td>
 

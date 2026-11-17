@@ -45,9 +45,9 @@ import {
 }                                          from '@/hooks/transactions/useTransactionMutations';
 import PaymentStatusBadge                  from '@/components/shared/PaymentStatusBadge';
 import TransactionDetailSheet              from '@/components/features/transactions/TransactionDetailSheet';
-import { usePaymentModes, usePaymentModesForRefund } from '@/hooks/checkout/usePaymentModes';
-import { useBankPosAccounts }              from '@/hooks/checkout/useBankPosAccounts';
-import { paymentRequiresBank }             from '@/lib/checkout/paymentModeRules';
+import { usePaymentModesForRefund }        from '@/hooks/checkout/usePaymentModes';
+import { validatePayments }                from '@/lib/checkout/paymentModeRules';
+import { findReusedPaymentRefs }           from '@/services/advanceReceiptService';
 import { useURDMasterItem }                from '@/hooks/transactions/useURDMasterItem';
 import SalesPersonSelect                   from '@/components/features/checkout/SalesPersonSelect';
 import { useSoldItems }                    from '@/hooks/transactions/useSoldItems';
@@ -639,7 +639,6 @@ function MetalLineItemForm({ type, onDone }) {
   const customerId   = useSelector(selectCartCustomerId);
   const customerName = useSelector(selectCartCustomerName);
   const customerMobile = useSelector(selectCartCustomerMobile);
-  const { paymentModes, isLoading: modesLoading } = usePaymentModes();
   const { item: urdItem, isLoading: urdItemLoading } = useURDMasterItem('GOLD');
   const headerConfig = useOrderHeaderConfig(config.documentTypeId);
 
@@ -925,21 +924,8 @@ function RefundNewForm({ onDone }) {
 
   const onSubmit = async (data) => {
     if (!customerId) return toast.error('Assign a customer to the session before submitting.');
-    if (!payments.length) return toast.error('Select how the refund is being paid out.');
-    const totalPayout = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-    if (Math.abs(totalPayout - total) > 0.01) {
-      return toast.error(`Refund payout (${formatINR(totalPayout)}) must match total credit (${formatINR(total)}).`);
-    }
-    for (const p of payments) {
-      const mode = paymentModes.find((m) => m.modeId === p.modeId);
-      const reqBank = mode && paymentRequiresBank(mode);
-      if (reqBank && !p.bankPosId) {
-        return toast.error(`Select the bank account for ${p.modeName || 'this payment'}.`);
-      }
-      if (reqBank && !p.refNo?.trim()) {
-        return toast.error(`Enter the payment reference number for ${p.modeName || 'this payment'}.`);
-      }
-    }
+    const paymentError = validatePayments(payments, { amountDue: total, requireBank: false, label: 'the total credit' });
+    if (paymentError) return toast.error(paymentError);
     if (!headerConfig.isReady) {
       if (headerConfig.isError) headerConfig.refetch();
       return toast.error(
@@ -958,14 +944,14 @@ function RefundNewForm({ onDone }) {
         financialYearId: headerConfig.financialYearId,
         documentDate: resolveDocumentDateTime(data.document_date).toISOString(),
         credits: selectedCredits.map((credit) => ({ credit, amount: credit.amount })),
+        // OrnaVerse's Refund has no bank account: each payout books to the mode's own ledger.
         payments: payments.map((p) => {
           const mode = paymentModes.find((m) => m.modeId === p.modeId);
           return {
             modeId:   p.modeId,
-            ledgerId: p.ledgerId ?? mode?.ledgerId,
+            ledgerId: mode?.ledgerId ?? null,
             amount:   Number(p.amount),
             refNo:    p.refNo?.trim() || undefined,
-            bankPos:  p.bankPosId || undefined,
             modeName: p.modeName ?? mode?.modeName,
             modeCode: p.modeCode ?? mode?.modeCode,
             modeType: p.modeType ?? mode?.modeType,
@@ -1060,6 +1046,7 @@ function RefundNewForm({ onDone }) {
           partyId={customerId}
           storeId={storeId}
           customModes={paymentModes}
+          isPayout
         />
       </div>
 
@@ -1115,12 +1102,14 @@ function AdvanceReceiptNewForm({ onDone }) {
             : 'Store configuration is still loading — try again in a moment.'
       );
     }
-    const totalPayments = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    if (!payments.length) return toast.error('Select at least one payment method.');
-    if (Math.abs(totalPayments - Number(data.amount)) > 0.01) {
-      return toast.error('Payment amounts must equal the advance amount.');
-    }
+    const paymentError = validatePayments(payments, { amountDue: Number(data.amount), label: 'the advance amount' });
+    if (paymentError) return toast.error(paymentError);
     try {
+      const reused = await findReusedPaymentRefs(customerId, payments);
+      if (reused.length) {
+        const [first] = reused;
+        return toast.error(`Reference ${first.refNo} is already on advance receipt ${first.documentNo} for this customer — this payment is already booked.`);
+      }
       await create.mutateAsync({
         partyId: customerId,
         activeStoreId: storeId,

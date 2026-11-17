@@ -98,44 +98,26 @@ async function fetchWalkinsByConsultant(session, companyIds, fromDate, toDate) {
       postUpstream(session, API.HR.EMPLOYEE_LIST, { Take: 0 }),
     ]);
 
-    const names = new Map((employees?.Entities ?? []).map((e) => [e.employee_id, e.employee_name]));
-    const consultantByCustomer = new Map();
-    for (const c of customers.flatMap((d) => d?.Entities ?? [])) {
-      const id = c.sales_representative_id;
-      if (id != null) {
-        consultantByCustomer.set(c.customer_id, {
-          id,
-          name: names.get(id) ?? `Employee #${id}`,
-        });
-      }
-    }
+    const employeeById = new Map((employees?.Entities ?? []).map((e) => [e.employee_id, e]));
+    const registeredJc = new Map(customers.flatMap((d) => d?.Entities ?? [])
+      .filter((c) => c.sales_representative_id != null)
+      .map((c) => [c.customer_id, c.sales_representative_id]));
 
+    // The visit's own consultant counts; the customer's registered JC only when the visit has none
+    // and that JC belongs to the visited store.
     const byConsultant = new Map();
     for (const row of rows) {
-      let consultant = consultantByCustomer.get(row.customer_id);
-      if (!consultant && row.sales_representative_id != null) {
-        consultant = {
-          id: row.sales_representative_id,
-          name: names.get(row.sales_representative_id) ?? `Employee #${row.sales_representative_id}`,
-        };
+      let consultantId = row.sales_representative_id;
+      if (consultantId == null) {
+        const jc = registeredJc.get(row.customer_id);
+        if (jc != null && employeeById.get(jc)?.company_id === row.company_id) consultantId = jc;
       }
-      if (!consultant) continue;
+      if (consultantId == null) continue;
 
-      const keyId = `${row.company_id}|${consultant.id}`;
-      const keyName = `${row.company_id}|${consultant.name.toLowerCase()}`;
-      const generalKey = consultant.name.toLowerCase();
-      const walkinWithConsultant = { ...row, jewelry_consultant: consultant.name };
-
-      if (!byConsultant.has(keyId)) byConsultant.set(keyId, []);
-      byConsultant.get(keyId).push(walkinWithConsultant);
-
-      if (keyName !== keyId) {
-        if (!byConsultant.has(keyName)) byConsultant.set(keyName, []);
-        byConsultant.get(keyName).push(walkinWithConsultant);
-      }
-
-      if (!byConsultant.has(generalKey)) byConsultant.set(generalKey, []);
-      byConsultant.get(generalKey).push(walkinWithConsultant);
+      const key = `${row.company_id}|${consultantId}`;
+      const name = employeeById.get(consultantId)?.employee_name ?? `Employee #${consultantId}`;
+      if (!byConsultant.has(key)) byConsultant.set(key, []);
+      byConsultant.get(key).push({ ...row, jewelry_consultant: name });
     }
     return byConsultant;
   } catch (err) {
@@ -193,6 +175,10 @@ function summarizeSalesDocs(docs = []) {
 
   const categoryMap = new Map();
   const customerMap = new Map();
+  // An invoice that settles an MTO order in the same range is the same pieces — count them once, on the order.
+  const orderNos = new Set(docs.filter((d) => d.documentType === 'order' && d.documentNo).map((d) => d.documentNo));
+  const settlesListedOrder = (doc) => doc.documentType === 'invoice' && (doc.payments ?? [])
+    .some((p) => String(p?.modeName ?? '').trim().toLowerCase() === 'order advance' && orderNos.has(p.refNo));
 
   for (const doc of docs) {
     const isInv = doc.documentType === 'invoice';
@@ -208,9 +194,11 @@ function summarizeSalesDocs(docs = []) {
     }
 
     const docCategories = new Set();
+    const countPieces = !settlesListedOrder(doc);
     for (const item of (doc.items ?? [])) {
       const cat = resolveItemCategory(item);
       docCategories.add(cat);
+      if (!countPieces) continue;
       const pieces = Number(item.quantity || item.pieces) || 1;
       const val = Number(item.price || item.sub_total) || 0;
       const prev = categoryMap.get(cat) || { category: cat, pieces: 0, total_value: 0 };
@@ -325,6 +313,7 @@ const REPORTS = {
   // every store's sales (refreshed in the background, at most every 15 minutes per store).
   async salesperson(session, { companyIds, fromDate, toDate }, stores) {
     for (const companyId of companyIds) syncStoreInBackground(session, companyId);
+    let documentCountsAvailable = true;
     const [data, salesDocs, walkinsByConsultant] = await Promise.all([
       postUpstream(session, API.REPORTS.SALES_PERSON_WISE_SALES, {
         document_status: 1, company_ids: companyIds, from_date: fromDate, to_date: toDate,
@@ -332,24 +321,25 @@ const REPORTS = {
       }),
       salesPersonSalesDetails({ companyIds, fromDate, toDate }).catch((err) => {
         console.error('[api/reports/sales] salesPersonSalesDetails failed', err?.message);
+        documentCountsAvailable = false;
         return [];
       }),
-      fetchWalkinsByConsultant(session, companyIds, fromDate, toDate).catch((err) => {
-        console.error('[api/reports/sales] fetchWalkinsByConsultant failed', err?.message);
-        return new Map();
-      }),
+      fetchWalkinsByConsultant(session, companyIds, fromDate, toDate),
     ]);
 
+    // One entry per store + consultant id; the name is only an alias to find it.
     const salesDocsByConsultant = new Map();
+    const salesKeyByName = new Map();
     for (const doc of (salesDocs ?? [])) {
-      const keyId = `${doc.companyId}|${doc.salesPersonId}`;
-      const keyName = doc.salesPersonName ? `${doc.companyId}|${doc.salesPersonName.toLowerCase()}` : null;
-      if (!salesDocsByConsultant.has(keyId)) salesDocsByConsultant.set(keyId, []);
-      salesDocsByConsultant.get(keyId).push(doc);
-      if (keyName && keyName !== keyId) {
-        if (!salesDocsByConsultant.has(keyName)) salesDocsByConsultant.set(keyName, []);
-        salesDocsByConsultant.get(keyName).push(doc);
-      }
+      const key = `${doc.companyId}|${doc.salesPersonId}`;
+      if (!salesDocsByConsultant.has(key)) salesDocsByConsultant.set(key, []);
+      salesDocsByConsultant.get(key).push(doc);
+      if (doc.salesPersonName) salesKeyByName.set(`${doc.companyId}|${doc.salesPersonName.toLowerCase()}`, key);
+    }
+    const walkinKeyByName = new Map();
+    for (const [key, walkins] of walkinsByConsultant.entries()) {
+      const name = walkins[0]?.jewelry_consultant;
+      if (name) walkinKeyByName.set(`${key.split('|')[0]}|${name.toLowerCase()}`, key);
     }
 
     const byCode = new Map(stores.map((s) => [s.company_code, s]));
@@ -363,19 +353,25 @@ const REPORTS = {
     };
 
     const rows = [];
-    const salesRowByPerson = new Map();
+    const usedSalesKeys = new Set();
+    const usedWalkinKeys = new Set();
+    const claim = (map, aliases, used, keyId, keyName) => {
+      const key = map.has(keyId) ? keyId : (keyName ? aliases.get(keyName) : null);
+      if (!key || used.has(key)) return [];
+      used.add(key);
+      return map.get(key) ?? [];
+    };
     for (const row of data?.Entities ?? []) {
       const store = byCode.get(row.company_code);
       if (!store) continue;
       const keyId = `${store.company_id}|${row.sales_person_id}`;
-      const keyName = row.employee_name ? `${store.company_id}|${row.employee_name.toLowerCase()}` : keyId;
-      const generalKey = row.employee_name ? row.employee_name.toLowerCase() : null;
+      const keyName = row.employee_name ? `${store.company_id}|${row.employee_name.toLowerCase()}` : null;
+      const returns = isReturnsRow(row);
 
-      const matchedSales = salesDocsByConsultant.get(keyId) ?? salesDocsByConsultant.get(keyName) ?? (generalKey ? salesDocsByConsultant.get(generalKey) : null) ?? [];
-      const salesSummary = isReturnsRow(row) ? {} : summarizeSalesDocs(matchedSales);
-
-      const walkins = isReturnsRow(row) ? [] : (walkinsByConsultant.get(keyId) ?? walkinsByConsultant.get(keyName) ?? (generalKey ? walkinsByConsultant.get(generalKey) : null) ?? []);
-      const namesMeta = isReturnsRow(row) ? {} : extractCustomerNames(walkins, salesSummary.customers_sold ?? []);
+      const matchedSales = returns ? [] : claim(salesDocsByConsultant, salesKeyByName, usedSalesKeys, keyId, keyName);
+      const salesSummary = returns ? {} : summarizeSalesDocs(matchedSales);
+      const walkins = returns ? [] : claim(walkinsByConsultant, walkinKeyByName, usedWalkinKeys, keyId, keyName);
+      const namesMeta = returns ? {} : extractCustomerNames(walkins, salesSummary.customers_sold ?? []);
 
       const out = {
         ...row,
@@ -388,22 +384,21 @@ const REPORTS = {
         employee_name: row.employee_name ?? `Former employee #${row.sales_person_id}`,
       };
       rows.push(out);
-      if (!isReturnsRow(row)) {
-        salesRowByPerson.set(keyId, out);
-        if (keyName !== keyId) salesRowByPerson.set(keyName, out);
-        if (generalKey) salesRowByPerson.set(generalKey, out);
-      }
     }
 
-    // Include consultants who have sales in MongoDB but had no row in OrnaVerse's report
+    // Consultants with sales in the POS DB but no row in OrnaVerse's report.
     for (const [key, docs] of salesDocsByConsultant.entries()) {
-      if (salesRowByPerson.has(key)) continue;
+      if (usedSalesKeys.has(key)) continue;
+      usedSalesKeys.add(key);
       const [compIdStr, personIdStr] = key.split('|');
       const compId = Number(compIdStr);
       const store = stores.find((s) => s.company_id === compId);
       const firstDoc = docs[0];
       const salesSummary = summarizeSalesDocs(docs);
-      const walkins = walkinsByConsultant.get(key) ?? [];
+      const walkinKey = walkinsByConsultant.has(key) ? key
+        : (firstDoc?.salesPersonName ? walkinKeyByName.get(`${compId}|${firstDoc.salesPersonName.toLowerCase()}`) : null);
+      const walkins = walkinKey && !usedWalkinKeys.has(walkinKey) ? walkinsByConsultant.get(walkinKey) : [];
+      if (walkinKey && walkins.length) usedWalkinKeys.add(walkinKey);
       const namesMeta = extractCustomerNames(walkins, salesSummary.customers_sold ?? []);
 
       const out = {
@@ -420,12 +415,12 @@ const REPORTS = {
         walkin_customers: walkins,
       };
       rows.push(out);
-      salesRowByPerson.set(key, out);
     }
 
-    // Include consultants who only attended walk-ins in this period
+    // Consultants who only attended walk-ins in this period.
     for (const [key, walkins] of walkinsByConsultant.entries()) {
-      if (salesRowByPerson.has(key) || !walkins.length) continue;
+      if (usedWalkinKeys.has(key) || !walkins.length) continue;
+      usedWalkinKeys.add(key);
       const [compIdStr, personIdStr] = key.split('|');
       const compId = Number(compIdStr);
       const store = stores.find((s) => s.company_id === compId);
@@ -445,10 +440,9 @@ const REPORTS = {
         walkin_customers: walkins,
       };
       rows.push(out);
-      salesRowByPerson.set(key, out);
     }
 
-    return { rows, documentCountsAvailable: true };
+    return { rows, documentCountsAvailable };
   },
 
   async velocity(session, { companyIds, fromDate, toDate }, stores) {

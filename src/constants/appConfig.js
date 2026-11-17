@@ -67,6 +67,9 @@ const APP_CONFIG = {
     SCHEME_ENROLLMENT: 125, // prefix "HO-SEN"
     ESTIMATION:      52,  // prefix "QTN" — same constant pricingService.js
     INTERSTORE_RETURN: 128,
+    BRANCH_OUT:      32,  // prefix "BOT"
+    BRANCH_IN:       33,  // prefix "BIT"
+    STOCK_ALLOCATION: 37, // prefix "SAL"
   },
 
   // ── INTERSTORE RETURN ──────────────────────────────────────────────────────

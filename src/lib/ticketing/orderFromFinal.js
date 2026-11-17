@@ -1,7 +1,8 @@
 import { calculateItemRates } from '@/services/pricingService';
-import { getItemSizesByType, getStoneRate, getStoneTypeDetails } from '@/services/customEstimateService';
+import { getItemSizesByType, getStoneRate } from '@/services/customEstimateService';
 import { uploadTemporaryFile } from '@/services/fileUploadService';
-import { matchCustomItem, DIAMOND_ITEM_GROUP_ID, STONE_COSTING_DEFAULTS } from '@/lib/estimation/prefillFromTicket';
+import { matchCustomItem } from '@/lib/estimation/prefillFromTicket';
+import { DIAMOND_ITEM_GROUP_ID, norm, matchLabel, resolveStone } from '@/lib/ticketing/attributeMatch';
 import APP_CONFIG from '@/constants/appConfig';
 
 // OrnaVerse's "Making Charges" operation (per gram), used when its labour rule returns nothing for a
@@ -11,37 +12,9 @@ const MAKING_CHARGES_OP = {
   parts: 1, markup: 1, wastage_percent: 0, wastage_weight: 0, discount_percent: 0, discount: 0,
 };
 
-const norm = (v) => String(v ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const karatNumber = (v) => String(v ?? '').match(/\d+/)?.[0] ?? null;
-const findByLabel = (options, label) => (label ? options.find((o) => norm(o.label) === norm(label)) ?? null : null);
 const round2 = (n) => +(Number(n) || 0).toFixed(2);
 const num = (v) => (v == null || v === '' ? null : Number(v));
-
-const matchOption = (options, label) => {
-  if (!options || !options.length) return null;
-  if (!label) return options[0];
-  const target = norm(label);
-  const segments = String(label).split(/[|/,-]+/).map(norm).filter(Boolean);
-  return options.find((o) => norm(o.label) === target)
-    ?? options.find((o) => segments.some((seg) => norm(o.label) === seg))
-    ?? options.find((o) => segments.some((seg) => norm(o.label).includes(seg) || seg.includes(norm(o.label))))
-    ?? options.find((o) => norm(o.label).includes(target) || target.includes(norm(o.label)))
-    ?? options[0];
-};
-
-const matchStoneType = (types, rawType, rawGroup) => {
-  if (!types || !types.length) return null;
-  const normType = norm(rawType);
-  const segments = String(rawType ?? '').split(/[|/,-]+/).map(norm).filter(Boolean);
-  return types.find((t) => norm(t.type_name) === normType)
-    ?? types.find((t) => segments.some((seg) => norm(t.type_name) === seg))
-    ?? types.find((t) => segments.some((seg) => norm(t.type_name).includes(seg) || seg.includes(norm(t.type_name))))
-    ?? types.find((t) => norm(t.type_name).includes(normType) || normType.includes(norm(t.type_name)))
-    ?? (String(rawType || rawGroup || '').toLowerCase().match(/diamond|lgd|lab/i)
-        ? types.find((t) => /diamond|lgd|lab/i.test(t.type_name))
-        : null)
-    ?? types[0];
-};
 
 async function uploadRemoteImage(url) {
   const res = await fetch(url);
@@ -69,32 +42,32 @@ function check(label, workflow, reference, { unit = '₹', note } = {}) {
 /**
  * Builds the order line from the workflow team's final details — their weights, rates, labour and amounts
  * are what the order carries — and checks each figure against OrnaVerse's own pricing and arithmetic.
- * Mismatches are reported, never corrected. Blockers are data the order cannot be built without.
+ * Mismatches are reported, never corrected. Blockers are data the order cannot be built without;
+ * `review` lists values that had to be mapped or defaulted, which staff must confirm before ordering.
  */
-export async function buildOrderFromFinal(final, ticket, lookups) {
+export async function buildOrderFromFinal(final, ticket, lookups, overrides = {}) {
   const { items, karatOptions, metalColorOptions, stoneItemGroups, shapeOptions, colorOptions, qualityOptions } = lookups;
   const warnings = [];
   const blockers = [];
+  const review = [];
+  const unresolved = [];
   const lineItem = final.lineItem ?? {};
   const metal = final.metal ?? {};
 
-  const selectedItem = matchCustomItem(items, lineItem.category ?? lineItem.item_name) ?? items[0];
+  const selectedItem = matchCustomItem(items, lineItem.category ?? lineItem.item_name);
   if (!selectedItem) {
-    return { blockers: [`No OrnaVerse custom order item matches "${lineItem.category ?? lineItem.item_name}".`], warnings, checks: [] };
+    return { blockers: [`No OrnaVerse custom order item matches "${lineItem.category ?? lineItem.item_name}".`], warnings, review, checks: [] };
   }
 
   const weight = num(metal.weight) ?? num(lineItem.weight) ?? 0;
-  if (!(weight > 0)) warnings.push('The final details have no metal weight.');
+  if (!(weight > 0)) blockers.push('The final details have no metal weight.');
 
-  let karatOpt = karatOptions.find((o) => karatNumber(o.label) === karatNumber(metal.karat));
-  if (!karatOpt) {
-    karatOpt = karatOptions[0] ?? { value: 0, label: metal.karat || '14K', purity: 0.585 };
-    if (metal.karat) warnings.push(`Karat "${metal.karat}" was not found in OrnaVerse — default ${karatOpt.label} used.`);
-  }
-  const colorOpt = matchOption(metalColorOptions, metal.color);
-  if (metal.color && (!colorOpt || norm(colorOpt.label) !== norm(metal.color))) {
-    warnings.push(`Metal colour "${metal.color}" mapped to "${colorOpt?.label ?? 'default'}".`);
-  }
+  const karatOpt = karatOptions.find((o) => karatNumber(o.label) === karatNumber(metal.karat));
+  if (!karatOpt) blockers.push(`Karat "${metal.karat ?? '—'}" was not found in OrnaVerse.`);
+
+  const { match: colorOpt, exact: colorExact } = matchLabel(metalColorOptions, metal.color);
+  if (colorOpt && !colorExact) review.push(`Metal colour "${metal.color}" mapped to "${colorOpt.label}".`);
+  if (!colorOpt && metal.color) review.push(`Metal colour "${metal.color}" was not found — the item's default colour is used.`);
 
   let sizeId = null;
   let sizeName = null;
@@ -104,7 +77,7 @@ export async function buildOrderFromFinal(final, ticket, lookups) {
     if (size) ({ item_size_id: sizeId, item_size_name: sizeName } = size);
     else warnings.push(`Size "${wantedSize}" was not found in OrnaVerse — the order goes without a size.`);
   }
-  if (blockers.length) return { blockers, warnings, checks: [] };
+  if (blockers.length) return { blockers, warnings, review, checks: [] };
 
   // OrnaVerse's own price for the same metal, karat and weight — the reference the workflow rate is checked against.
   const [defaultRow] = await calculateItemRates([selectedItem], APP_CONFIG.DOCUMENT_TYPES.POS_ORDER);
@@ -150,45 +123,41 @@ export async function buildOrderFromFinal(final, ticket, lookups) {
     const stoneWeight = num(s.weight) ?? 0;
     const stoneAmount = num(s.amount) ?? 0;
     const desc = `${s.type ?? s.group ?? 'Stone'} · ${s.color ?? '—'} · ${s.quality ?? '—'} (${s.pieces ?? 0} pcs / ${stoneWeight} ct)`;
-    const group = (s.groupId && stoneItemGroups.find((g) => g.item_group_id === s.groupId))
-      ?? stoneItemGroups.find((g) => norm(g.item_group_name) === norm(s.group))
-      ?? stoneItemGroups.find((g) => {
-        const gNorm = norm(g.item_group_name);
-        const sNorm = norm(s.group);
-        return gNorm && sNorm && (gNorm.includes(sNorm) || sNorm.includes(gNorm));
-      })
-      ?? (String(s.type || s.group || '').toLowerCase().match(/diamond|lgd|lab/i)
-        ? stoneItemGroups.find((g) => g.item_group_id === DIAMOND_ITEM_GROUP_ID || /diamond/i.test(g.item_group_name))
-        : null)
-      ?? stoneItemGroups[0];
-
-    const shape = matchOption(shapeOptions, s.shape) ?? { value: 0, label: s.shape || 'NA' };
-    const color = matchOption(colorOptions, s.color) ?? { value: 0, label: s.color || 'NA' };
-    const quality = matchOption(qualityOptions, s.quality) ?? { value: 0, label: s.quality || 'NA' };
-    const defaults = (group && STONE_COSTING_DEFAULTS[group.item_group_id])
-      || STONE_COSTING_DEFAULTS[DIAMOND_ITEM_GROUP_ID]
-      || { baseItemId: 13, salesCostingId: 10, purchaseCostingId: 10 };
-
-    const types = group ? (await getStoneTypeDetails(group.item_group_id).catch(() => [])) : [];
-    const type = matchStoneType(types, s.type, s.group) ?? { type_id: 0, type_name: s.type || 'Stone' };
-
-    if (s.type && type.type_name && norm(type.type_name) !== norm(s.type)) {
-      warnings.push(`Stone type "${s.type}" mapped to "${type.type_name}" in OrnaVerse.`);
+    // One staff choice per distinct workflow value (e.g. every "DF" colour), not per stone.
+    // Stone types are listed per stone group, so a type choice is also keyed by the group.
+    const overrideKey = (field) => (field === 'type' ? `type:${norm(s.group)}:${norm(s.type)}` : `${field}:${norm(s[field])}`);
+    const stoneOverrides = Object.fromEntries(
+      ['shape', 'color', 'quality', 'type'].map((f) => [f, overrides[overrideKey(f)]]).filter(([, v]) => v != null),
+    );
+    const { group, costing: defaults, shape, color, quality, type, notes, unresolved: open, complete } = await resolveStone(s, {
+      stoneItemGroups, shapeOptions, colorOptions, qualityOptions,
+    }, stoneOverrides);
+    if (!group) {
+      blockers.push(`${desc}: stone group "${s.group ?? '—'}" was not found in OrnaVerse.`);
+      continue;
+    }
+    review.push(...notes);
+    for (const u of open) {
+      const key = overrideKey(u.field);
+      const existing = unresolved.find((x) => x.key === key);
+      if (existing) existing.stones += 1;
+      else unresolved.push({ ...u, key, stones: 1 });
     }
 
     const rate = num(s.rate) ?? 0;
+    if (!(rate > 0)) review.push(`${desc}: the workflow team sent no rate — the stone is ordered at ₹0.`);
     let ovStoneRate = 0;
-    try {
-      if (group && type.type_id && shape.value && color.value && quality.value) {
+    if (complete) {
+      try {
         const res = await getStoneRate({
           baseItemId: defaults.baseItemId, itemGroupId: group.item_group_id, typeId: type.type_id, shapeId: shape.value,
           stoneColorId: color.value, qualityId: quality.value, weight: stoneWeight,
           salesCostingId: defaults.salesCostingId, purchaseCostingId: defaults.purchaseCostingId,
         });
         ovStoneRate = res?.rate ?? 0;
+      } catch {
+        ovStoneRate = 0;
       }
-    } catch {
-      // Ignore reference rate query error
     }
 
     checks.push(check(`${desc} rate ₹/ct vs OrnaVerse`, rate, ovStoneRate > 0 ? ovStoneRate : null, {
@@ -204,13 +173,15 @@ export async function buildOrderFromFinal(final, ticket, lookups) {
       markup: 0, pointer_weight: 0, parts: 0, discount: 0, discount_percent: 0,
       is_center_stone: false, base_item_id: defaults.baseItemId,
       metal_id: 0, metal_name: 'NA', metal_code: 'NA', karat_id: 0,
-      item_group_id: group?.item_group_id ?? DIAMOND_ITEM_GROUP_ID,
+      item_group_id: group.item_group_id,
       type_id: type.type_id, sub_type_id: 0, metal_color_id: 0,
       attribute: '', item_code: '', is_customer_item: false,
       sales_costing_id: defaults.salesCostingId, purchase_costing_id: defaults.purchaseCostingId,
       is_configurable: false, shape_id: shape.value, stone_color_id: color.value, quality_id: quality.value,
     });
   }
+
+  if (blockers.length) return { blockers, warnings, review, unresolved, checks: [] };
 
   const labour = final.labour ?? null;
   const labourAmount = round2(labour?.amount ?? 0);
@@ -250,8 +221,7 @@ export async function buildOrderFromFinal(final, ticket, lookups) {
     try {
       imagePath = await uploadRemoteImage(lineItem.image);
     } catch {
-      imagePath = lineItem.image;
-      warnings.push('The final design image could not be re-uploaded to OrnaVerse — original image URL is used.');
+      warnings.push('The final design image could not be attached to the order.');
     }
   }
 
@@ -279,6 +249,8 @@ export async function buildOrderFromFinal(final, ticket, lookups) {
   return {
     blockers,
     warnings,
+    review,
+    unresolved,
     checks,
     line,
     item: selectedItem,

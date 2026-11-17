@@ -40,7 +40,8 @@ export async function getCategoryWiseSales(params) {
 
 /** @returns {Promise<object[]>} per-salesperson totals */
 export async function getSalesPersonWiseSales(params) {
-  return (await runSalesReport('salesperson', params)).rows ?? [];
+  const res = await runSalesReport('salesperson', params);
+  return { rows: res.rows ?? [], countsAvailable: res.documentCountsAvailable !== false };
 }
 
 /** @returns {Promise<object[]>} merchandising velocity per SKU */

@@ -12,8 +12,9 @@ import EVENTS from '@/lib/analytics/events';
  *   mode: { modeId, modeCode, modeName, ledgerId, raw? },
  *   amount: number, refNo?: string, bankPos?: number,
  * }} params
+ * @param {{ notify?: boolean }} [options] notify=false leaves the success/failure toasts to the caller.
  */
-export function useAddInvoiceReceipt() {
+export function useAddInvoiceReceipt({ notify = true } = {}) {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -42,7 +43,7 @@ export function useAddInvoiceReceipt() {
     },
 
     onSuccess: (_data, { transactionId, partyId, companyId, amount, mode, refNo }) => {
-      toast.success(TOAST.INVOICES.RECEIPT_ADDED);
+      if (notify) toast.success(TOAST.INVOICES.RECEIPT_ADDED);
       tracker.track(EVENTS.INVOICE_RECEIPT_ADDED, {
         transactionId,
         customer_id: partyId ?? 'guest',
@@ -55,7 +56,7 @@ export function useAddInvoiceReceipt() {
     },
 
     onError: (error, { transactionId, partyId, companyId, amount }) => {
-      toast.error(TOAST.INVOICES.RECEIPT_FAILED);
+      if (notify) toast.error(TOAST.INVOICES.RECEIPT_FAILED);
       tracker.track(EVENTS.INVOICE_RECEIPT_FAILED, {
         transactionId,
         error: error?.message ?? 'unknown',

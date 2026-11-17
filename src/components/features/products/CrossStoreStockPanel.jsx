@@ -17,10 +17,17 @@ const STATUS_TEXT_CLASSES = {
   in_stock:  'text-status-in-stock',
 };
 
-function StockQty({ qty }) {
-  const n = parseFloat(qty ?? 0);
-  const status = deriveStockStatus({ stock_qty: qty }) ?? 'out_stock';
-  const label = status === 'out_stock' ? 'Out of Stock' : `${n} in stock`;
+function StockQty({ qty, sellable = null }) {
+  const n = Math.max(parseFloat(qty ?? 0) || 0, sellable ?? 0);
+  const reserved = sellable != null ? Math.max(0, n - sellable) : 0;
+  const status = sellable != null
+    ? (sellable > 0 ? 'in_stock' : 'out_stock')
+    : (deriveStockStatus({ stock_qty: qty }) ?? 'out_stock');
+  const label = n <= 0
+    ? 'Out of Stock'
+    : reserved > 0
+      ? (sellable > 0 ? `${sellable} in stock · ${reserved} reserved` : `${reserved} reserved · none to sell`)
+      : `${n} in stock`;
 
   return (
     <span className={`flex shrink-0 items-center gap-1.5 text-xs font-semibold text-nowrap ${STATUS_TEXT_CLASSES[status]}`}>
@@ -44,10 +51,12 @@ function StockQty({ qty }) {
  *   collapsible?: boolean,
  *   itemId?:     number, — tapping a store row opens its full spec/price
  *     detail sheet; omit to disable tapping (row stays a plain display row).
+ *   currentStoreSellable?: number|null, — unreserved pieces at the active store (what checkout can sell);
+ *     when lower than the store's count, the rest are shown as reserved.
  * }} props
  */
 export default function CrossStoreStockPanel({
-  storeStocks = [], isLoading, isError = false, onRetry, collapsible = true, itemId,
+  storeStocks = [], isLoading, isError = false, onRetry, collapsible = true, itemId, currentStoreSellable = null,
 }) {
   const activeStoreId = useSelector(selectActiveStoreId);
   const [selectedStore, setSelectedStore] = useState(null);
@@ -130,7 +139,7 @@ export default function CrossStoreStockPanel({
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
-                  <StockQty qty={store.pieces} />
+                  <StockQty qty={store.pieces} sellable={isActive ? currentStoreSellable : null} />
                   {tappable && <ChevronRight size={14} className="text-muted-foreground" aria-hidden="true" />}
                 </div>
               </button>

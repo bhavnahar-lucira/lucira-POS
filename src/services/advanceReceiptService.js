@@ -105,6 +105,56 @@ export async function createAdvanceReceipt({
   return response.data;
 }
 
+const isOpenAdvance = (row) => row.document_id === APP_CONFIG.DOCUMENT_TYPES.POS_RECEIPT
+  && Number(row.balance_amount) > 0;
+
+async function openAdvanceRows(partyId) {
+  if (!partyId) return [];
+  const response = await axiosInstance.post(API.REFUNDS.CUSTOMER_CREDITS, { party_id: partyId });
+  return (response.data?.Entities ?? []).filter(isOpenAdvance);
+}
+
+/**
+ * The customer's advance receipts that are still completely unused (balance = amount), with their
+ * payment lines — so an advance already booked in OrnaVerse can be linked instead of booked twice.
+ * @param {number} partyId
+ */
+export async function listUnusedAdvanceReceipts(partyId) {
+  const rows = (await openAdvanceRows(partyId))
+    .filter((r) => Math.abs(Number(r.balance_amount) - Number(r.amount)) < 0.01);
+  return Promise.all(rows.map(async (r) => {
+    const entity = (await getAdvanceReceiptDetail(r.transaction_id))?.Entity ?? {};
+    return {
+      id: r.transaction_id,
+      documentNo: r.document_no,
+      documentDate: r.document_date,
+      amount: Number(r.amount) || 0,
+      details: (entity.details ?? []).map((d) => ({
+        modeId: d.mode_id, modeName: d.mode_name || `Mode ${d.mode_id}`, modeCode: d.mode_code ?? '',
+        amount: Number(d.amount) || 0, bankPosId: d.bank_pos ? Number(d.bank_pos) : null, refNo: d.ref_no ?? '',
+      })),
+    };
+  }));
+}
+
+/**
+ * Reference numbers in `payments` that already appear on one of the customer's open advance receipts —
+ * the same UPI/card payment being booked a second time.
+ * @returns {Promise<{ refNo: string, documentNo: string }[]>}
+ */
+export async function findReusedPaymentRefs(partyId, payments) {
+  const refs = new Set((payments ?? []).map((p) => p.refNo?.trim()).filter(Boolean));
+  if (!refs.size) return [];
+  const rows = (await openAdvanceRows(partyId)).slice(0, 25);
+  const hits = await Promise.all(rows.map(async (r) => {
+    const entity = (await getAdvanceReceiptDetail(r.transaction_id))?.Entity ?? {};
+    return (entity.details ?? [])
+      .filter((d) => d.ref_no && refs.has(String(d.ref_no).trim()))
+      .map((d) => ({ refNo: String(d.ref_no).trim(), documentNo: r.document_no }));
+  }));
+  return hits.flat();
+}
+
 /**
  * Cancel an advance receipt.
  * @param {number} transactionId

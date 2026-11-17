@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TICKET_MAX_FILES, advanceModeFields } from '@/lib/ticketing/constants';
+import { TICKET_MAX_FILES } from '@/lib/ticketing/constants';
 
 const text = (max = 100) => z.string().trim().max(max);
 const optionalText = (max = 100) => z.preprocess((v) => v ?? undefined, text(max).optional()).transform((v) => v || null);
@@ -24,18 +24,26 @@ const isoDate = (message) => z.string().regex(/^\d{4}-\d{2}-\d{2}$/, message);
 
 const optionalId = z.preprocess((v) => (v === '' || v == null ? null : v), z.coerce.number().int().positive().nullable());
 
+const advancePaymentSchema = z.object({
+  modeId:    z.number().int().positive(),
+  modeCode:  text(50).default(''),
+  modeName:  text(100).min(1),
+  amount:    z.number().positive(),
+  bankPosId: z.number().int().positive().nullable().default(null),
+  refNo:     text(100).default(''),
+});
+
 export const confirmOrderSchema = z.object({
   order_date:             isoDate('Select the order date'),
   order_amount:           z.coerce.number().positive('Enter the order amount'),
   amount_received:        optionalAmount,
   advance_received_on:    z.preprocess((v) => v || null, isoDate('Select the advance received date').nullable()),
   payment_mode_id:        optionalId,
-  payment_mode:           optionalText(),
+  payment_mode:           optionalText(500),
   bank_pos_id:            optionalId,
-  reference_no:           optionalText(100),
-  payment_details:        z.record(z.string(), z.string().trim().max(100)).default({}),
+  reference_no:           optionalText(500),
   advance_receipt_id:     optionalId,
-  payments:               z.array(z.any()).optional(),
+  payments:               z.array(advancePaymentSchema).max(10).default([]),
   expected_delivery_date: isoDate('Select the expected delivery date'),
   karat:                  text().min(1, 'Select the karat'),
   metal:                  optionalText(),
@@ -45,24 +53,21 @@ export const confirmOrderSchema = z.object({
 }).superRefine((o, ctx) => {
   if (!o.amount_received) return;
   if (!o.advance_received_on) ctx.addIssue({ code: 'custom', message: 'Select the advance received date', path: ['advance_received_on'] });
-  if (!o.payment_mode_id && (!o.payments || o.payments.length === 0)) ctx.addIssue({ code: 'custom', message: 'Select the payment mode', path: ['payment_mode_id'] });
+  if (!o.payments.length) {
+    ctx.addIssue({ code: 'custom', message: 'Select the payment mode', path: ['payments'] });
+  } else {
+    const paid = o.payments.reduce((s, p) => s + p.amount, 0);
+    if (Math.abs(paid - o.amount_received) > 0.01) {
+      ctx.addIssue({ code: 'custom', message: 'Payment amounts must equal the amount received', path: ['payments'] });
+    }
+  }
   if (!o.advance_receipt_id) ctx.addIssue({ code: 'custom', message: 'The advance receipt was not created', path: ['advance_receipt_id'] });
-  for (const field of advanceModeFields(o.payment_mode)) {
-    const value = o.payment_details[field.key];
-    if (field.required && !value) ctx.addIssue({ code: 'custom', message: `Enter the ${field.label.toLowerCase()}`, path: ['payment_details', field.key] });
-    else if (value && field.type === 'last4' && !/^\d{4}$/.test(value)) ctx.addIssue({ code: 'custom', message: 'Enter the last 4 digits of the card', path: ['payment_details', field.key] });
-  }
 }).transform((o) => {
-  // Payment details only travel with an advance, and only the fields of the chosen mode.
+  // Payment details only travel with an advance.
   if (!o.amount_received) {
-    return { ...o, payment_mode_id: null, payment_mode: null, bank_pos_id: null, reference_no: null, payment_details: {}, advance_receipt_id: null, payments: [] };
+    return { ...o, payment_mode_id: null, payment_mode: null, bank_pos_id: null, reference_no: null, advance_receipt_id: null, payments: [] };
   }
-  const fields = advanceModeFields(o.payment_mode);
-  return {
-    ...o,
-    payments: o.payments || [],
-    payment_details: Object.fromEntries(fields.filter((f) => o.payment_details[f.key]).map((f) => [f.key, o.payment_details[f.key]]))
-  };
+  return o;
 });
 
 export const createTicketSchema = z.object({

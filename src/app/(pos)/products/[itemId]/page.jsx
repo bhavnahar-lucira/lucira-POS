@@ -88,14 +88,16 @@ function ProductDetailScreen() {
     () => storeStocks.find((s) => s.company_id === activeStoreId) ?? null,
     [storeStocks, activeStoreId]
   );
-  const availableStock = currentStoreStock?.pieces > 0 ? currentStoreStock.pieces : 0;
-  const { claimablePieces } = useClaimableStock(
+  const summaryStock = currentStoreStock?.pieces > 0 ? currentStoreStock.pieces : 0;
+  const { claimablePieces, isLoading: claimableLoading } = useClaimableStock(
     selectedVariant?.item_id ?? product?.item_id,
     activeStoreId,
-    { enabled: availableStock > 0 }
   );
-  const hasUnclaimableStock = availableStock > 0 && claimablePieces != null && claimablePieces < availableStock;
-  const unclaimablePieces = hasUnclaimableStock ? availableStock - claimablePieces : 0;
+  // Checkout sells only unreserved stock-journal pieces, so that count — not the stock summary, which also
+  // counts reserved pieces and can lag — decides what this page promises.
+  const availableStock = claimablePieces ?? summaryStock;
+  const hasUnclaimableStock = claimablePieces != null && claimablePieces < summaryStock;
+  const unclaimablePieces = hasUnclaimableStock ? summaryStock - claimablePieces : 0;
 
   // ── Variants ──────────────────────────────────────────────────────────────
   const {
@@ -122,9 +124,9 @@ function ProductDetailScreen() {
     if (detailError) toast.error(TOAST.GENERIC.SOMETHING_WRONG);
   }, [detailError]);
   
-  const baseStockStatus = storeStocksLoading
+  const baseStockStatus = storeStocksLoading || claimableLoading
     ? null
-    : storeStocksError
+    : storeStocksError && claimablePieces == null
       ? 'error'
       : availableStock > 0 ? 'in_stock' : 'out_stock';
       
@@ -138,9 +140,8 @@ function ProductDetailScreen() {
   const isSelectedVariantMTO = !!selectedVariant &&
     (selectedVariant._isMTO || (selectedVariant.pieces ?? 0) === 0);
     
-  const stockStatus = selectedVariant
-    ? (isSelectedVariantMTO ? 'out_stock' : 'in_stock')
-    : baseStockStatus;
+  // A selected variant's stock is checked by its own item_id above; only a combination with no item at all is MTO outright.
+  const stockStatus = selectedVariant?._isMTO ? 'out_stock' : baseStockStatus;
     
   const na = (v) => (v && v !== 'NA' ? v : null);
   const activeKarat = na(activeItem?.karat_name);
@@ -359,12 +360,12 @@ function ProductDetailScreen() {
                   <p className="text-sm font-medium text-status-made-order">
                     {claimablePieces === 0
                       ? `Not actually billable today`
-                      : `${unclaimablePieces} of ${availableStock} shown here ${unclaimablePieces === 1 ? "isn't" : "aren't"} billable today`}
+                      : `${unclaimablePieces} of ${summaryStock} shown here ${unclaimablePieces === 1 ? "isn't" : "aren't"} billable today`}
                   </p>
                   <p className="text-xs text-status-made-order/70">
                     {claimablePieces === 0
                       ? `This piece can't be billed today — it may already be reserved by another sale, or not yet tagged for sale. It will book as Made to Order until that clears.`
-                      : `Only ${claimablePieces} of ${availableStock} can actually be billed today — the rest will book as Made to Order.`}
+                      : `Only ${claimablePieces} of ${summaryStock} can actually be billed today — the rest will book as Made to Order.`}
                   </p>
                 </div>
               </div>
@@ -456,6 +457,7 @@ function ProductDetailScreen() {
                 isError={storeStocksError}
                 onRetry={refetchStoreStocks}
                 itemId={activeItem?.item_id}
+                currentStoreSellable={claimablePieces}
               />
             )}
             

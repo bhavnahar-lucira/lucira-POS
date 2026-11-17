@@ -3,6 +3,28 @@ import API from '@/constants/apiEndpoints';
 import { DATE_RE, isValidCompanyIds, getAuthorizedStores, postUpstream } from '@/lib/reports/serverAccess';
 import { fetchVisits } from '@/lib/nonBuyers/server';
 import { normalizeMobileKey } from '@/lib/mongo/normalizeMobile';
+import { listWalkinVisits } from '@/lib/mongo/walkinVisits';
+
+const last4 = (mobile) => String(mobile ?? '').replace(/\D/g, '').slice(-4);
+
+// The purpose staff picked lives in the POS DB; OrnaVerse visit mobiles are masked, so match on last 4 digits + day.
+async function purposesByVisit(session, companyIds, fromDate, toDate) {
+  try {
+    const lists = await Promise.all(companyIds.map((companyId) => listWalkinVisits({
+      env: session.env, companyId,
+      from: new Date(`${fromDate}T00:00:00+05:30`), to: new Date(`${toDate}T23:59:59.999+05:30`),
+    })));
+    const out = new Map();
+    for (const r of lists.flat()) {
+      const key = `${r.companyId}|${last4(r.mobileKey)}|${istDay.format(new Date(r.recordedAt))}`;
+      if (!out.has(key)) out.set(key, r.purpose);
+    }
+    return out;
+  } catch (err) {
+    console.error('[api/reports/walkins] purpose lookup failed', err?.message);
+    return new Map();
+  }
+}
 
 const istDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' });
 const istTime = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
@@ -86,9 +108,15 @@ export async function POST(request) {
     }));
 
     const rows = perStore.flat();
-    const consultants = await consultantsByCustomer(session, rows.map((r) => r.customer_id));
+    const [consultants, purposes] = await Promise.all([
+      consultantsByCustomer(session, rows.map((r) => r.customer_id)),
+      purposesByVisit(session, companyIds, fromDate, toDate),
+    ]);
     for (const row of rows) {
       row.jewelry_consultant = consultants.get(row.customer_id) ?? null;
+      row.purpose = /walk/i.test(row.source ?? '')
+        ? purposes.get(`${row.company_id}|${last4(row.mobile)}|${row.visited_on}`) ?? null
+        : null;
       delete row.customer_id;
     }
     // How many times this person came in during the selected period, at that store.

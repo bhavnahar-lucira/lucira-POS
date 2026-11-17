@@ -4,6 +4,7 @@ import { useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { getStockPieceBySku, createItemEnquiry } from '@/services/inventoryService';
+import { getStoreReadyToInvoiceLines } from '@/services/orderFulfillmentService';
 import tracker from '@/lib/analytics/tracker';
 import EVENTS from '@/lib/analytics/events';
 
@@ -34,6 +35,23 @@ export function useBarcodeLookup({ storeId, partyId = null }) {
         }).catch((err) => {
           console.warn('[BarcodeScanner] item enquiry log failed (non-blocking)', { sku: trimmed, err });
         });
+
+        // A reserved piece belongs to a customer's order — point staff at that order instead of a fresh sale.
+        if (skuMatch.is_allocated) {
+          const ready = await getStoreReadyToInvoiceLines({ companyId: skuMatch.company_id ?? storeId }).catch(() => []);
+          const line = ready.find((l) => l.sku && l.sku === skuMatch.sku);
+          toast.warning(
+            line
+              ? `${skuMatch.sku} is reserved for order ${line.document_no} (${line.party_name ?? 'customer'}).`
+              : `${skuMatch.sku} is reserved for a customer order and can't be sold separately.`,
+            {
+              duration: 15000,
+              ...(line && { action: { label: 'Bill that order', onClick: () => router.push(`/orders?order=${encodeURIComponent(line.document_no)}`) } }),
+              cancel: { label: 'View product', onClick: () => router.push(`/products/${skuMatch.item_id}`) },
+            },
+          );
+          return;
+        }
 
         router.push(`/products/${skuMatch.item_id}`);
         return;

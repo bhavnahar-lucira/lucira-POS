@@ -87,8 +87,7 @@ export async function getZohoAccessToken() {
     );
   }
 
-  cache.inFlightPromise = (async () => {
-    try {
+  const request = (async () => {
       const { accountsUrl, apiUrl, clientId, clientSecret, refreshToken } = getCredentials();
 
       if (!clientId || !clientSecret || !refreshToken) {
@@ -141,12 +140,42 @@ export async function getZohoAccessToken() {
       }
 
       return cache.token;
-    } finally {
-      cache.inFlightPromise = null;
-    }
   })();
-
+  cache.inFlightPromise = request.finally(() => { cache.inFlightPromise = null; });
   return cache.inFlightPromise;
+}
+
+/** Drops the cached token so the next call refreshes it (e.g. after Zoho rejects it with 401). */
+function invalidateZohoToken() {
+  const cache = globalThis.__zohoCache;
+  cache.token = null;
+  cache.expiresAt = 0;
+}
+
+async function zohoGet(url) {
+  let res = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${await getZohoAccessToken()}` } });
+  if (res.status === 401) {
+    invalidateZohoToken();
+    res = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${await getZohoAccessToken()}` } });
+  }
+  return res;
+}
+
+export const UNASSIGNED_STORE = 'Unassigned';
+
+/** A Zoho field as plain text — lookup fields arrive as { name, id }. */
+function fieldText(v) {
+  if (v == null) return '';
+  if (typeof v === 'object') return String(v.name ?? '').trim();
+  return String(v).trim();
+}
+
+/**
+ * Zoho search criteria treat ( ) , and \ as syntax, so they're escaped in user text.
+ * Name fields only support starts_with (matches the start of any word), not contains.
+ */
+function criteriaValue(text) {
+  return text.replace(/([\\(),])/g, '\\$1');
 }
 
 /**
@@ -169,11 +198,8 @@ export function formatDealRow(d) {
     d.Full_Name ||
     (contactName ? `${contactName}'s Opportunity` : 'Untitled Deal');
 
-  const storeAssigned =
-    d.Store_Assigned ||
-    d.Store_Name ||
-    (d.Owner?.name && !d.Owner.name.toLowerCase().includes('lucira tech') ? d.Owner.name : '') ||
-    '';
+  // Only the deal's own store fields — the record owner is a person, not a store.
+  const storeAssigned = fieldText(d.Store_Assigned) || fieldText(d.Store_Name);
 
   return {
     id:                     String(d.id || ''),
@@ -209,7 +235,7 @@ export function formatDealRow(d) {
     leadConversionTime:     d.Lead_Conversion_Time || null,
     salesCycleDuration:     d.Sales_Cycle_Duration || null,
     overallSalesDuration:   d.Overall_Sales_Duration || null,
-    tag:                    Array.isArray(d.Tag) ? d.Tag.join(', ') : (d.Tag || ''),
+    tag:                    Array.isArray(d.Tag) ? d.Tag.map((t) => t?.name ?? t).filter(Boolean).join(', ') : (d.Tag || ''),
     description:            d.Description || '',
     reasonForLoss:          d.Reason_For_Loss__s || '',
     connectedTo:            d.Account_Name?.name || (typeof d.Account_Name === 'string' ? d.Account_Name : '') || d.Company || '',
@@ -230,7 +256,7 @@ export function formatDealRow(d) {
     fullAddress:            d.full_Address || d.Full_Address || d.Address || '',
     // Jewelry specific clienteling & scheme fields
     purchaseReason:         d.Purchase_Reason || '',
-    storeExecutive:         d.Store_Executive || '',
+    storeExecutive:         fieldText(d.Store_Executive),
     appointmentDateTime:    d.Appointment_Date_Time || null,
     birthday:               d.Birthday || null,
     anniversary:            d.Anniversary || null,
@@ -276,11 +302,13 @@ export async function getZohoDeals({
   fromDate = '',
   toDate = '',
 } = {}) {
-  const token = await getZohoAccessToken();
+  await getZohoAccessToken();
   const cache = globalThis.__zohoCache || {};
   const baseUrl = cache.resolvedApiUrl || clean(process.env.ZOHO_CRM_API_URL, 'https://www.zohoapis.in');
 
-  const headers = { Authorization: `Zoho-oauthtoken ${token}` };
+
+  // Zoho rejects a word search shorter than 2 characters.
+  search = search?.trim().length >= 2 ? search.trim() : '';
 
   // Construct date criteria if date filter is active
   let dateCriteria = '';
@@ -296,7 +324,7 @@ export async function getZohoDeals({
   let primaryUrl;
   if (dateCriteria) {
     const criteria = search?.trim()
-      ? `(${dateCriteria}and(Deal_Name:contains:${search.trim()}))`
+      ? `(${dateCriteria}and(Deal_Name:starts_with:${criteriaValue(search)}))`
       : dateCriteria;
     primaryUrl = `${baseUrl}/crm/v8/Deals/search?criteria=${encodeURIComponent(criteria)}&per_page=${perPage}&page=${page}`;
   } else if (search?.trim()) {
@@ -306,7 +334,7 @@ export async function getZohoDeals({
     primaryUrl = `${baseUrl}/crm/v8/Deals?per_page=${perPage}&page=${page}`;
   }
 
-  let res = await fetch(primaryUrl, { headers });
+  let res = await zohoGet(primaryUrl);
 
   // 2. If Deals returns OAUTH_SCOPE_MISMATCH (e.g. token only has leads scope), fetch from Leads module!
   if (!res.ok) {
@@ -315,7 +343,7 @@ export async function getZohoDeals({
       let leadsUrl;
       if (dateCriteria) {
         const criteria = search?.trim()
-          ? `(${dateCriteria}and(Full_Name:contains:${search.trim()}))`
+          ? `(${dateCriteria}and(Full_Name:starts_with:${criteriaValue(search)}))`
           : dateCriteria;
         leadsUrl = `${baseUrl}/crm/v8/Leads/search?criteria=${encodeURIComponent(criteria)}&fields=${LEAD_FIELDS}&per_page=${perPage}&page=${page}`;
       } else if (search?.trim()) {
@@ -324,7 +352,7 @@ export async function getZohoDeals({
       } else {
         leadsUrl = `${baseUrl}/crm/v8/Leads?fields=${LEAD_FIELDS}&per_page=${perPage}&page=${page}`;
       }
-      res = await fetch(leadsUrl, { headers });
+      res = await zohoGet(leadsUrl);
     } else if (res.status !== 204) {
       throw new Error(`Zoho API Deals fetch failed (${res.status}): ${errText}`);
     }
@@ -345,12 +373,13 @@ export async function getZohoDeals({
 
   const json = await res.json();
   const rawList = Array.isArray(json.data) ? json.data : [];
-  let formattedList = rawList.map(formatDealRow);
+  const pageRows = rawList.map(formatDealRow);
+  let formattedList = pageRows;
 
-  // Apply in-memory store and stage filtering
+  // Store and stage filter the page Zoho returned; the dropdown options always come from the whole page.
   if (store && store !== 'all') {
     formattedList = formattedList.filter((d) =>
-      d.storeAssigned?.toLowerCase() === store.toLowerCase()
+      (d.storeAssigned || UNASSIGNED_STORE).toLowerCase() === store.toLowerCase()
     );
   }
   if (stage && stage !== 'all') {
@@ -377,13 +406,14 @@ export async function getZohoDeals({
   const stageMap = {};
   const utmMap   = {};
 
-  for (const d of formattedList) {
-    if (d.storeAssigned) {
-      storeMap[d.storeAssigned] = (storeMap[d.storeAssigned] || 0) + 1;
-    }
+  for (const d of pageRows) {
+    const storeKey = d.storeAssigned || UNASSIGNED_STORE;
+    storeMap[storeKey] = (storeMap[storeKey] || 0) + 1;
     if (d.stage) {
       stageMap[d.stage] = (stageMap[d.stage] || 0) + 1;
     }
+  }
+  for (const d of formattedList) {
     if (d.utmSource) {
       utmMap[d.utmSource] = (utmMap[d.utmSource] || 0) + 1;
     }
@@ -411,17 +441,16 @@ export async function getZohoDeals({
  */
 export async function getSingleZohoDeal(recordId) {
   if (!recordId) return null;
-  const token = await getZohoAccessToken();
+  await getZohoAccessToken();
   const cache = globalThis.__zohoCache || {};
   const baseUrl = cache.resolvedApiUrl || clean(process.env.ZOHO_CRM_API_URL, 'https://www.zohoapis.in');
-  const headers = { Authorization: `Zoho-oauthtoken ${token}` };
 
   // Try Deals first
-  let res = await fetch(`${baseUrl}/crm/v8/Deals/${recordId}`, { headers });
+  let res = await zohoGet(`${baseUrl}/crm/v8/Deals/${recordId}`);
 
   if (!res.ok) {
     // If scope mismatch or 404, try Leads
-    res = await fetch(`${baseUrl}/crm/v8/Leads/${recordId}`, { headers });
+    res = await zohoGet(`${baseUrl}/crm/v8/Leads/${recordId}`);
   }
 
   if (res.status === 404 || res.status === 204) return null;

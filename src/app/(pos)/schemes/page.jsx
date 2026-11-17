@@ -19,7 +19,7 @@ import { usePaymentModes }       from '@/hooks/checkout/usePaymentModes';
 import { useOrderHeaderConfig }  from '@/hooks/checkout/useOrderHeaderConfig';
 import { useSchemeMonthlyDetails } from '@/hooks/schemes/useSchemeMonthlyDetails';
 import { buildSchemeReceiptPayload } from '@/services/schemeService';
-import { paymentRequiresBank } from '@/lib/checkout/paymentModeRules';
+import { validatePayments } from '@/lib/checkout/paymentModeRules';
 import { selectActiveStoreId }   from '@/store/slices/storeSlice';
 import { selectCartCustomerId, selectCartCustomerName } from '@/store/slices/cartSlice';
 import APP_CONFIG from '@/constants/appConfig';
@@ -104,21 +104,8 @@ function ReceiptSheet({ enrollment, isOpen, onClose }) {
 
   const prepareSubmit = (data) => {
     const amount = Number(data.amount);
-    if (!payments.length) return toast.error('Select how the customer is paying.');
-    const totalPaid = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-    if (Math.abs(totalPaid - amount) > 0.01) {
-      return toast.error(`Payment total (${formatCurrency(totalPaid)}) must match installment amount (${formatCurrency(amount)}).`);
-    }
-    for (const p of payments) {
-      const m = paymentModes.find((x) => x.modeId === p.modeId);
-      const reqBank = m && paymentRequiresBank(m);
-      if (reqBank && !p.bankPosId) {
-        return toast.error(`Select the bank account for ${p.modeName || 'this payment'}.`);
-      }
-      if (reqBank && !p.refNo?.trim()) {
-        return toast.error(`Enter the payment reference number for ${p.modeName || 'this payment'}.`);
-      }
-    }
+    const paymentError = validatePayments(payments, { amountDue: amount, label: 'the instalment amount' });
+    if (paymentError) return toast.error(paymentError);
     if (!headerConfig.isReady) {
       if (headerConfig.isError) headerConfig.refetch();
       toast.error(

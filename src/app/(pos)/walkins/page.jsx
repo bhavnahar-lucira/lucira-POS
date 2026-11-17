@@ -59,13 +59,15 @@ function VisitCard({ visit }) {
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-foreground truncate">{visit.customerName ?? 'Unknown customer'}</p>
-          <p className="text-xs text-muted-foreground mt-0.5"><PhoneLink phone={visit.mobile} /></p>
+          <p className="text-xs text-muted-foreground mt-0.5">{visit.mobile ? <PhoneLink phone={visit.mobile} /> : '—'}</p>
         </div>
         <p className="text-xs text-muted-foreground text-right shrink-0">{fmtVisitedAt(visit.visitedAt)}</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        {record?.purpose && <Badge>{record.purpose}</Badge>}
+        {record?.purpose
+          ? <Badge>Purpose: {record.purpose}</Badge>
+          : visit.hasWalkin && <Badge variant="outline">Purpose not recorded</Badge>}
         {visit.visitNumber && <Badge variant="secondary">{visit.visitNumber === 1 ? 'First visit' : `${ordinal(visit.visitNumber)} visit`}</Badge>}
         {detail && <Badge variant="outline">{detail.isCustomer ? 'Registered customer' : 'Not yet a customer'}</Badge>}
         {visit.converted && <Badge className="bg-status-in-stock text-white">Converted</Badge>}
@@ -80,7 +82,8 @@ function VisitCard({ visit }) {
       )}
 
       <Line icon={UserRound}>{detail?.jc ? `JC: ${detail.jc}` : null}</Line>
-      <Line icon={Megaphone}>{visit.sourceName ? `Source: ${visit.sourceName}` : null}</Line>
+      {/* OrnaVerse copies the customer's registration source onto every visit — it is not this visit's purpose. */}
+      <Line icon={Megaphone}>{visit.sourceName ? `Lead source (at registration): ${visit.sourceName}` : null}</Line>
       <Line icon={Gem}>{visit.interests ? `Interest: ${visit.interests}` : null}</Line>
       <Line icon={Wallet}>{formatAmountOrNull(detail?.budget) ? `Budget: ${formatAmountOrNull(detail.budget)}` : null}</Line>
       <Line icon={StickyNote}>{visit.notes || detail?.notes}</Line>
@@ -122,6 +125,9 @@ export default function WalkInsPage() {
   const [showSystemVisits, setShowSystemVisits] = useState(false);
   const [activityFilter, setActivityFilter] = useState(ALL);
   const [outcomeFilter, setOutcomeFilter] = useState(ALL);
+  const [visitTypeFilter, setVisitTypeFilter] = useState(ALL);
+  const [customerFilter, setCustomerFilter] = useState(ALL);
+  const [recordedByFilter, setRecordedByFilter] = useState(ALL);
 
   const { visits, isLoading, isError, refetch } = useCrmVisits(companyId);
   const { sources } = useSources();
@@ -197,6 +203,7 @@ export default function WalkInsPage() {
   const jcOptions = useMemo(() => [...new Set(enriched.map((v) => v.detail?.jc).filter(Boolean))].sort(), [enriched]);
   const activityOptions = useMemo(() => [...new Set(enriched.flatMap((v) => v.activities))].sort(), [enriched]);
   const sourceOptions = useMemo(() => [...new Set(enriched.map((v) => v.sourceName).filter(Boolean))].sort(), [enriched]);
+  const recordedByOptions = useMemo(() => [...new Set(enriched.map((v) => v.record?.recordedBy).filter(Boolean))].sort(), [enriched]);
 
   const term = search.trim().toLowerCase();
   const filtered = enriched.filter((v) => {
@@ -208,15 +215,20 @@ export default function WalkInsPage() {
     if (sourceFilter !== ALL && v.sourceName !== sourceFilter) return false;
     if (activityFilter !== ALL && !v.activities.includes(activityFilter)) return false;
     if (outcomeFilter !== ALL && (outcomeFilter === 'converted') !== v.converted) return false;
+    if (visitTypeFilter !== ALL && (visitTypeFilter === 'first') !== (v.visitNumber === 1)) return false;
+    if (customerFilter !== ALL && (customerFilter === 'customer') !== !!v.detail?.isCustomer) return false;
+    if (recordedByFilter !== ALL && v.record?.recordedBy !== recordedByFilter) return false;
     if (term && !(v.customerName?.toLowerCase().includes(term) || String(v.mobile ?? '').includes(term))) return false;
     return true;
   });
 
   const hasFilters = !!fromDate || !!toDate || purposeFilter !== ALL || jcFilter !== ALL || sourceFilter !== ALL
-    || activityFilter !== ALL || outcomeFilter !== ALL || showSystemVisits;
+    || activityFilter !== ALL || outcomeFilter !== ALL || showSystemVisits
+    || visitTypeFilter !== ALL || customerFilter !== ALL || recordedByFilter !== ALL;
   const clearFilters = () => {
     setFromDate(''); setToDate(''); setPurposeFilter(ALL); setJcFilter(ALL); setSourceFilter(ALL);
     setActivityFilter(ALL); setOutcomeFilter(ALL); setShowSystemVisits(false);
+    setVisitTypeFilter(ALL); setCustomerFilter(ALL); setRecordedByFilter(ALL);
   };
 
   const firstVisits = filtered.filter((v) => v.visitNumber === 1).length;
@@ -332,10 +344,28 @@ export default function WalkInsPage() {
             options={[{ value: ALL, label: 'All consultants' }, ...jcOptions.map((n) => ({ value: n, label: n }))]}
           />
           <FilterSelect
-            label="Source"
+            label="Visit type"
+            value={visitTypeFilter}
+            onChange={setVisitTypeFilter}
+            options={[{ value: ALL, label: 'All visits' }, { value: 'first', label: 'First visit' }, { value: 'repeat', label: 'Repeat visit' }]}
+          />
+          <FilterSelect
+            label="Customer status"
+            value={customerFilter}
+            onChange={setCustomerFilter}
+            options={[{ value: ALL, label: 'All' }, { value: 'customer', label: 'Registered customer' }, { value: 'lead', label: 'Not yet a customer' }]}
+          />
+          <FilterSelect
+            label="Lead source (at registration)"
             value={sourceFilter}
             onChange={setSourceFilter}
             options={[{ value: ALL, label: 'All sources' }, ...sourceOptions.map((n) => ({ value: n, label: n }))]}
+          />
+          <FilterSelect
+            label="Recorded by"
+            value={recordedByFilter}
+            onChange={setRecordedByFilter}
+            options={[{ value: ALL, label: 'Anyone' }, ...recordedByOptions.map((n) => ({ value: n, label: n }))]}
           />
           <FilterSelect
             label="Activity that day"

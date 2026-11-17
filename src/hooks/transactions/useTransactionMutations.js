@@ -114,8 +114,8 @@ export function useCreateRefund({ onSuccess } = {}) {
         ...sessionCtx,
         party_id:        payload?.partyId,
         payout_amount:   payload?.payout?.amount ?? (Array.isArray(payload?.payments) ? payload.payments.reduce((s, p) => s + (Number(p.amount) || 0), 0) : undefined),
-        payout_mode_code: payload?.payout?.modeCode ?? payload?.payments?.[0]?.modeCode,
-        payment_reference: payload?.payout?.refNo || payload?.payments?.[0]?.refNo || null,
+        payout_mode_code: payload?.payout?.modeCode ?? payload?.payments?.map((p) => p.modeCode).filter(Boolean).join(','),
+        payment_reference: payload?.payout?.refNo || payload?.payments?.map((p) => p.refNo).filter(Boolean).join(',') || null,
         credits_settled_count: Array.isArray(payload?.credits) ? payload.credits.length : undefined,
         credits_settled_total: Array.isArray(payload?.credits)
           ? +payload.credits.reduce((s, c) => s + (c.amount ?? 0), 0).toFixed(2)

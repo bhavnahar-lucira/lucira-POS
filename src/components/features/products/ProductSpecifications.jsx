@@ -66,7 +66,8 @@ function buildShapeNameMap(components) {
 
 function parseAttribute(attribute) {
   const parts = typeof attribute === 'string' ? attribute.split('/') : [];
-  return { shapeCode: parts[0], colorCode: parts[1], sizeCode: parts[3] };
+  // e.g. "RD/EF/1.2 mm/1.5-2.0/VVS-VS" — shape / colour / size / sieve / quality
+  return { shapeCode: parts[0], colorCode: parts[1], sizeCode: parts[3], qualityCode: parts[4] };
 }
 
 const SPEC_INFO_CONTENT = {
@@ -379,13 +380,34 @@ export function deriveSpecFields({ product, pricedItem = null }) {
 
   const liveDiamonds   = getDiamondComponents(pricedItem?.item_components);
   const masterDiamonds = getDiamondComponents(masterComponents);
-  const diamondRows    = liveDiamonds.length ? liveDiamonds : masterDiamonds;
+  // Live-priced rows can come back without names (e.g. quality) the master carries — fill those from the master row.
+  const filled = (row) => Object.fromEntries(Object.entries(row).filter(([, v]) => v != null && v !== '' && v !== 'NA'));
+  const diamondRows    = liveDiamonds.length
+    ? liveDiamonds.map((c, i) => ({ ...(masterDiamonds[i] ?? {}), ...filled(c) }))
+    : masterDiamonds;
 
   const diamondShape = uniqueJoined(diamondRows.map((c) => {
     const { shapeCode } = parseAttribute(c.attribute);
     return (c.shape_id && shapeNameById.get(c.shape_id)) || val(c.shape_name) || val(shapeCode);
   }));
-  const diamondQuality = uniqueJoined(diamondRows.map((c) => val(c.quality_name) || val(c.quality_code)));
+  const diamondQuality = uniqueJoined(diamondRows.map((c) => val(c.quality_name) || val(c.quality_code) || val(parseAttribute(c.attribute).qualityCode)));
+  const diamondColor   = uniqueJoined(diamondRows.map((c) => val(c.stone_color_name) || val(parseAttribute(c.attribute).colorCode)));
+  const diamondSize    = uniqueJoined(diamondRows.map((c) => val(c.sieve_name)));
+  // One line per diamond row, so a piece set with different diamonds shows each lot, not just the totals.
+  const diamondBreakdown = diamondRows.length > 1
+    ? diamondRows.map((c) => {
+      const { shapeCode, colorCode, qualityCode } = parseAttribute(c.attribute);
+      const pieces = Number(c.pieces) || 0;
+      return [
+        pieces ? `${pieces} pc${pieces === 1 ? '' : 's'}` : null,
+        formatCarats(c.weight),
+        (c.shape_id && shapeNameById.get(c.shape_id)) || val(c.shape_name) || val(shapeCode),
+        val(c.stone_color_name) || val(colorCode),
+        val(c.quality_name) || val(c.quality_code) || val(qualityCode),
+        val(c.sieve_name) ? `Sieve ${val(c.sieve_name)}` : null,
+      ].filter(Boolean).join(' · ') || null;
+    })
+    : [];
 
   const gemstonePieces = (pricedItem?.color_stone_pieces ?? product.color_stone_pieces) > 0
     ? String(pricedItem?.color_stone_pieces ?? product.color_stone_pieces)
@@ -420,7 +442,7 @@ export function deriveSpecFields({ product, pricedItem = null }) {
     metalPurity, metalColor, metalType, netWeight,
     height, width, depth, length, grossWeight, stoneWeight, diamondWeight, pointerCt,
     diamondPieces, diamondCarats, stonePieces, otherPieces, otherWeight,
-    diamondShape, diamondQuality,
+    diamondShape, diamondQuality, diamondColor, diamondSize, diamondBreakdown,
     gemstonePieces, gemstoneWeight, gemstoneType, gemstoneName, gemstoneShape, gemstoneColor, gemstoneSize,
     itemGroup, category, subCategory, collection, brand, hsn, itemCode, sku,
   };
@@ -435,7 +457,7 @@ export default function ProductSpecifications({ product, pricedItem = null }) {
     metalPurity, metalColor, metalType, netWeight,
     height, width, depth, length, grossWeight, stoneWeight, diamondWeight, pointerCt,
     diamondPieces, diamondCarats, stonePieces, otherPieces, otherWeight,
-    diamondShape, diamondQuality,
+    diamondShape, diamondQuality, diamondColor, diamondSize, diamondBreakdown,
     gemstonePieces, gemstoneWeight, gemstoneType, gemstoneName, gemstoneShape, gemstoneColor, gemstoneSize,
     itemGroup, category, subCategory, collection, brand, hsn, itemCode, sku,
   } = deriveSpecFields({ product, pricedItem });
@@ -480,7 +502,10 @@ export default function ProductSpecifications({ product, pricedItem = null }) {
             { label: 'Quantity',     value: diamondPieces },
             { label: 'Carat',        value: diamondCarats },
             { label: 'Shape',        value: diamondShape },
+            { label: 'Color',        value: diamondColor },
             { label: 'Quality',      value: diamondQuality },
+            { label: 'Sieve Size',   value: diamondSize },
+            ...diamondBreakdown.map((value, i) => ({ label: `Diamond ${i + 1}`, value })),
             { label: 'Stone Pieces', value: stonePieces },
             { label: 'Other Pieces', value: otherPieces },
             { label: 'Other Weight', value: otherWeight },
