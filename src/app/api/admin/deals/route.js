@@ -1,5 +1,6 @@
 import { getSessionFromRequest } from '@/lib/ornaverse/session';
 import { getZohoDeals } from '@/lib/zoho/zohoCrmService';
+import { getCrmScope, publicScope } from '@/lib/zoho/crmAccess';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,14 +8,6 @@ export async function GET(request) {
   const session = await getSessionFromRequest(request);
   if (!session) {
     return Response.json({ error: 'Unauthenticated' }, { status: 401 });
-  }
-
-  // Super Admin gating: only accounts with isSuperAdmin are permitted
-  if (!session.isSuperAdmin) {
-    return Response.json(
-      { error: 'Forbidden: This module is restricted to Super Admin only.' },
-      { status: 403 }
-    );
   }
 
   const { searchParams } = new URL(request.url);
@@ -27,16 +20,25 @@ export async function GET(request) {
   const toDate   = searchParams.get('toDate') || '';
 
   try {
+    const scope = await getCrmScope(session);
+    if (!scope.all && !scope.ownerIds.length) {
+      return Response.json({
+        ok: true, scope: publicScope(scope), deals: [],
+        info: { page, per_page: perPage, count: 0, more_records: false },
+        summary: { total: 0, totalValue: 0, wonCount: 0, lostCount: 0, stores: [], stages: [], utmSources: [] },
+      });
+    }
     const data = await getZohoDeals({
       page,
       perPage,
-      store,
+      store: scope.all ? store : 'all',
       stage,
       search,
       fromDate,
       toDate,
+      ownerIds: scope.all ? null : scope.ownerIds,
     });
-    return Response.json({ ok: true, ...data });
+    return Response.json({ ok: true, scope: publicScope(scope), ...data });
   } catch (err) {
     console.error('[API /api/admin/deals] Error:', err);
     return Response.json(

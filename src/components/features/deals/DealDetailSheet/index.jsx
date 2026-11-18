@@ -143,7 +143,7 @@ export default function DealDetailSheet({ deal, isOpen, onClose }) {
 
         {/* Tab-Wise Detail View */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-5 h-10 p-1 bg-muted/80 rounded-xl">
+          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 h-auto gap-1 p-1 bg-muted/80 rounded-xl">
             <TabsTrigger value="clienteling" className="text-xs font-medium py-1.5 px-2">
               Customer
             </TabsTrigger>

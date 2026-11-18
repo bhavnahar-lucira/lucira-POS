@@ -40,6 +40,7 @@ export function groupPurchasesByBuyer(purchases) {
         lastPurchaseDateMs: 0,
         lastPurchaseDate:   null,
         latestRecordMs:     -1,
+        latestMobileMs:     -1,
       };
       byCustomer.set(key, entry);
     }
@@ -65,16 +66,20 @@ export function groupPurchasesByBuyer(purchases) {
       entry.lastPurchaseDateMs = dateMs;
       entry.lastPurchaseDate = p.documentDate;
     }
-    // Newest record wins for display name/mobile — a customer's name can be corrected over time.
+    // Newest record wins for the display name — a customer's name can be corrected over time.
     if (dateMs >= entry.latestRecordMs) {
       entry.latestRecordMs = dateMs;
       entry.customerName   = p.customerName ?? entry.customerName;
-      entry.customerMobile = p.customerMobile ?? entry.customerMobile;
+    }
+    // Mobile comes from the newest record that has one: OrnaVerse returns, exchanges and buybacks carry none.
+    if (p.customerMobile && dateMs >= entry.latestMobileMs) {
+      entry.latestMobileMs = dateMs;
+      entry.customerMobile = p.customerMobile;
     }
   }
 
   return [...byCustomer.values()]
-    .map(({ stores, lastPurchaseDateMs, latestRecordMs, ...rest }) => ({
+    .map(({ stores, lastPurchaseDateMs, latestRecordMs, latestMobileMs, ...rest }) => ({
       ...rest,
       stores: [...stores],
       hasOutcomes: rest.returnCount + rest.exchangeCount + rest.buybackCount + rest.cancelledCount > 0,

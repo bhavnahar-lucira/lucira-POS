@@ -14,7 +14,7 @@ export default function BuyerDetailPage() {
 
   const first = purchases[0];
   const displayName = first?.customerName || 'Customer';
-  const displayMobile = first?.customerMobile;
+  const displayMobile = purchases.find((p) => p.customerMobile)?.customerMobile;
 
   return (
     <div className="flex flex-col gap-4 w-full p-4 md:p-6">

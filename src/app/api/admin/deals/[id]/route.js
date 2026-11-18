@@ -1,5 +1,6 @@
 import { getSessionFromRequest } from '@/lib/ornaverse/session';
 import { getSingleZohoDeal } from '@/lib/zoho/zohoCrmService';
+import { getCrmScope } from '@/lib/zoho/crmAccess';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,21 +10,14 @@ export async function GET(request, { params }) {
     return Response.json({ error: 'Unauthenticated' }, { status: 401 });
   }
 
-  // Super Admin gating: only accounts with isSuperAdmin are permitted
-  if (!session.isSuperAdmin) {
-    return Response.json(
-      { error: 'Forbidden: This module is restricted to Super Admin only.' },
-      { status: 403 }
-    );
-  }
-
   const { id } = await params;
   if (!id) {
     return Response.json({ error: 'Deal ID is required' }, { status: 400 });
   }
 
   try {
-    const deal = await getSingleZohoDeal(id);
+    const scope = await getCrmScope(session);
+    const deal = await getSingleZohoDeal(id, { ownerIds: scope.all ? null : scope.ownerIds });
     if (!deal) {
       return Response.json({ ok: false, error: 'Deal not found in Zoho CRM' }, { status: 404 });
     }

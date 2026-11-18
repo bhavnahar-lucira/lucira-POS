@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
-import { selectIsSuperAdmin } from '@/store/slices/authSlice';
+import { selectActiveStoreId } from '@/store/slices/storeSlice';
 
 /**
  * Hook to fetch paginated Zoho CRM deals with filters.
- * Gated strictly to isSuperAdmin.
+ * Store logins get only their own store's records (enforced by the API).
  *
  * @param {{
  *   page?: number,
@@ -16,7 +16,7 @@ import { selectIsSuperAdmin } from '@/store/slices/authSlice';
  * @param {object} options
  */
 export function useZohoDeals(params = {}, options = {}) {
-  const isSuperAdmin = useSelector(selectIsSuperAdmin);
+  const activeStoreId = useSelector(selectActiveStoreId);
   const {
     page = 1,
     perPage = 50,
@@ -28,7 +28,7 @@ export function useZohoDeals(params = {}, options = {}) {
   } = params;
 
   return useQuery({
-    queryKey: ['admin', 'zoho-deals', { page, perPage, store, stage, search, fromDate, toDate }],
+    queryKey: ['admin', 'zoho-deals', activeStoreId, { page, perPage, store, stage, search, fromDate, toDate }],
     queryFn: async () => {
       const q = new URLSearchParams({
         page:     String(page),
@@ -46,7 +46,7 @@ export function useZohoDeals(params = {}, options = {}) {
       }
       return res.json();
     },
-    enabled: isSuperAdmin && (options.enabled ?? true),
+    enabled: options.enabled ?? true,
     staleTime: 60 * 1000, // 1 minute
     retry: false,
     refetchOnWindowFocus: false,
@@ -59,10 +59,10 @@ export function useZohoDeals(params = {}, options = {}) {
  * @param {object} options
  */
 export function useZohoDealDetail(dealId, options = {}) {
-  const isSuperAdmin = useSelector(selectIsSuperAdmin);
+  const activeStoreId = useSelector(selectActiveStoreId);
 
   return useQuery({
-    queryKey: ['admin', 'zoho-deal', dealId],
+    queryKey: ['admin', 'zoho-deal', activeStoreId, dealId],
     queryFn: async () => {
       const res = await fetch(`/api/admin/deals/${dealId}`);
       if (!res.ok) {
@@ -72,7 +72,7 @@ export function useZohoDealDetail(dealId, options = {}) {
       const data = await res.json();
       return data?.deal ?? null;
     },
-    enabled: isSuperAdmin && !!dealId && (options.enabled ?? true),
+    enabled: !!dealId && (options.enabled ?? true),
     staleTime: 2 * 60 * 1000,
     retry: false,
     refetchOnWindowFocus: false,

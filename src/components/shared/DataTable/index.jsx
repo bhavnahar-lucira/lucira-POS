@@ -83,8 +83,9 @@ function FacetFilter({ column }) {
  * rows and the visible columns, for exports that should match the screen.
  * onRowClick(row) makes each row open something (keep a real link in a cell for keyboard users).
  * `toolbar` (leading) and `actions` (trailing) put the caller's own controls in the table's toolbar row.
+ * searchable={false} hides the built-in search, for callers that search server-side in their toolbar.
  */
-export default function DataTable({ columns, rows, isLoading, isError, onRetry, emptyMessage, onViewChange, onRowClick, toolbar, actions }) {
+export default function DataTable({ columns, rows, isLoading, isError, onRetry, emptyMessage, onViewChange, onRowClick, toolbar, actions, searchable = true }) {
   const [sorting, setSorting] = useState([]);
   const [globalFilter, setGlobalFilter] = useState('');
   const [columnFilters, setColumnFilters] = useState([]);
@@ -181,17 +182,19 @@ export default function DataTable({ columns, rows, isLoading, isError, onRetry, 
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center">
         {toolbar}
-        <div className="relative w-full md:w-64">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-          <Input
-            type="search"
-            placeholder="Search all columns"
-            value={globalFilter}
-            onChange={(e) => setGlobalFilter(e.target.value)}
-            aria-label="Search report"
-            className="h-10 pl-8 md:h-9"
-          />
-        </div>
+        {searchable && (
+          <div className="relative w-full md:w-64">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <Input
+              type="search"
+              placeholder="Search all columns"
+              value={globalFilter}
+              onChange={(e) => setGlobalFilter(e.target.value)}
+              aria-label="Search report"
+              className="h-10 pl-8 md:h-9"
+            />
+          </div>
+        )}
 
         {facetColumns.length > 0 && (
           <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap">

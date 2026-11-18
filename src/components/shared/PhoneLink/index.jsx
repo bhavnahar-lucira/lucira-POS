@@ -19,7 +19,7 @@ export default function PhoneLink({
 
   if (!href) {
     return (
-      <span className={className} {...props}>
+      <span className={cn('whitespace-nowrap', className)} {...props}>
         {displayText}
       </span>
     );
@@ -40,7 +40,7 @@ export default function PhoneLink({
       href={href}
       onClick={handleClick}
       className={cn(
-        'underline-offset-2 hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-ring text-inherit hover:text-primary transition-colors cursor-pointer',
+        'whitespace-nowrap underline-offset-2 hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-ring text-inherit hover:text-primary transition-colors cursor-pointer',
         className
       )}
       title={accessibleTitle}

@@ -86,15 +86,15 @@ export default function LapsedBuyersCard() {
                 {getInitials(buyer.customerName)}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">{buyer.customerName || 'Customer'}</p>
-                <p className="truncate text-xs text-muted-foreground">
+                <p className="wrap-break-word text-sm font-medium text-foreground">{buyer.customerName || 'Customer'}</p>
+                <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
                   {buyer.customerMobile && (
                     <>
                       <PhoneLink phone={buyer.customerMobile} />
-                      <span> · </span>
+                      <span aria-hidden="true">·</span>
                     </>
                   )}
-                  Last purchase {buyer.daysSince} days ago
+                  <span className="whitespace-nowrap">Last purchase {buyer.daysSince} days ago</span>
                 </p>
               </div>
               <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">{formatAmountOrDash(buyer.totalSpend)}</span>

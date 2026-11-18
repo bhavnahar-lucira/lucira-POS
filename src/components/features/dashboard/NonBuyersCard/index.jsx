@@ -95,15 +95,15 @@ export default function NonBuyersCard() {
                 {getInitials(nb.name)}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">{nb.name || 'Unknown visitor'}</p>
-                <p className="truncate text-xs text-muted-foreground">
+                <p className="wrap-break-word text-sm font-medium text-foreground">{nb.name || 'Unknown visitor'}</p>
+                <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
                   {nb.mobile && (
                     <>
                       <PhoneLink phone={nb.mobile} />
-                      <span> · </span>
+                      <span aria-hidden="true">·</span>
                     </>
                   )}
-                  Last visit {daysAgoLabel(nb.daysSinceLastVisit) ?? '—'}
+                  <span className="whitespace-nowrap">Last visit {daysAgoLabel(nb.daysSinceLastVisit) ?? '—'}</span>
                 </p>
               </div>
               <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">

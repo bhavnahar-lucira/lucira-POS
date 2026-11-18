@@ -41,7 +41,7 @@ export const NAV_ITEMS = [
   { label: 'Non-Buyers',   href: '/non-buyers',   icon: UserX           },
   { label: 'Voice of Lucira', href: '/voc',     icon: MessageSquareHeart },
   { label: 'Reports',      href: '/reports',      icon: BarChart3       },
-  { label: 'CRM Deals',    href: '/deals',        icon: Target, superAdminOnly: true },
+  { label: 'CRM Deals',    href: '/deals',        icon: Target },
 ];
 
 export const BOTTOM_ITEMS = [

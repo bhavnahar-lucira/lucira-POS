@@ -193,6 +193,18 @@ function criteriaValue(text) {
   return text.replace(/([\\(),])/g, '\\$1');
 }
 
+/** Zoho criteria limiting records to these owners (user ids), or '' for every owner. */
+function ownerCriteria(ownerIds) {
+  if (!ownerIds?.length) return '';
+  const parts = ownerIds.map((id) => `(Owner:equals:${id})`);
+  return parts.length > 1 ? `(${parts.join('or')})` : parts[0];
+}
+
+const allOf = (parts) => {
+  const list = parts.filter(Boolean);
+  return list.length > 1 ? `(${list.join('and')})` : list[0] ?? '';
+};
+
 /**
  * Normalizes a raw Zoho CRM Deal or Lead object into a clean, flat structure.
  * Supports both Deals and Leads modules seamlessly.
@@ -220,6 +232,7 @@ export function formatDealRow(d) {
     id:                     String(d.id || ''),
     dealName,
     dealOwner:              d.Owner?.name || '',
+    ownerId:                d.Owner?.id ? String(d.Owner.id) : null,
     dealOwnerEmail:         d.Owner?.email || '',
     contactName,
     contactId:              d.Contact_Name?.id || String(d.id || ''),
@@ -316,6 +329,7 @@ export async function getZohoDeals({
   search = '',
   fromDate = '',
   toDate = '',
+  ownerIds = null,
 } = {}) {
   await getZohoAccessToken();
   const cache = globalThis.__zohoCache || {};
@@ -335,39 +349,20 @@ export async function getZohoDeals({
     dateCriteria = `(Created_Time:less_equal:${toDate}T23:59:59+05:30)`;
   }
 
-  // 1. Attempt Deals module first
-  let primaryUrl;
-  if (dateCriteria) {
-    const criteria = search?.trim()
-      ? `(${dateCriteria}and(Deal_Name:starts_with:${criteriaValue(search)}))`
-      : dateCriteria;
-    primaryUrl = `${baseUrl}/crm/v8/Deals/search?criteria=${encodeURIComponent(criteria)}&per_page=${perPage}&page=${page}`;
-  } else if (search?.trim()) {
-    const term = encodeURIComponent(search.trim());
-    primaryUrl = `${baseUrl}/crm/v8/Deals/search?word=${term}&per_page=${perPage}&page=${page}`;
-  } else {
-    primaryUrl = `${baseUrl}/crm/v8/Deals?per_page=${perPage}&page=${page}`;
-  }
+  const owners = ownerCriteria(ownerIds);
+  const urlFor = (module, nameField, fields = '') => {
+    const criteria = allOf([dateCriteria, owners, (dateCriteria || owners) && search ? `(${nameField}:starts_with:${criteriaValue(search)})` : '']);
+    if (criteria) return `${baseUrl}/crm/v8/${module}/search?criteria=${encodeURIComponent(criteria)}${fields}&per_page=${perPage}&page=${page}`;
+    if (search) return `${baseUrl}/crm/v8/${module}/search?word=${encodeURIComponent(search)}${fields}&per_page=${perPage}&page=${page}`;
+    return `${baseUrl}/crm/v8/${module}?${fields ? `${fields.slice(1)}&` : ''}per_page=${perPage}&page=${page}`;
+  };
 
-  let res = await zohoGet(primaryUrl);
-
-  // 2. If Deals returns OAUTH_SCOPE_MISMATCH (e.g. token only has leads scope), fetch from Leads module!
+  // Deals first; a token with only the Leads scope falls back to Leads.
+  let res = await zohoGet(urlFor('Deals', 'Deal_Name'));
   if (!res.ok) {
     const errText = await res.text();
     if (errText.includes('OAUTH_SCOPE_MISMATCH') || errText.includes('invalid oauth scope')) {
-      let leadsUrl;
-      if (dateCriteria) {
-        const criteria = search?.trim()
-          ? `(${dateCriteria}and(Full_Name:starts_with:${criteriaValue(search)}))`
-          : dateCriteria;
-        leadsUrl = `${baseUrl}/crm/v8/Leads/search?criteria=${encodeURIComponent(criteria)}&fields=${LEAD_FIELDS}&per_page=${perPage}&page=${page}`;
-      } else if (search?.trim()) {
-        const term = encodeURIComponent(search.trim());
-        leadsUrl = `${baseUrl}/crm/v8/Leads/search?word=${term}&fields=${LEAD_FIELDS}&per_page=${perPage}&page=${page}`;
-      } else {
-        leadsUrl = `${baseUrl}/crm/v8/Leads?fields=${LEAD_FIELDS}&per_page=${perPage}&page=${page}`;
-      }
-      res = await zohoGet(leadsUrl);
+      res = await zohoGet(urlFor('Leads', 'Full_Name', `&fields=${LEAD_FIELDS}`));
     } else if (res.status !== 204) {
       throw new Error(`Zoho API Deals fetch failed (${res.status}): ${errText}`);
     }
@@ -404,7 +399,7 @@ export async function getZohoDeals({
     );
   }
 
-  // Calculate high-level summary KPIs for Super Admin
+  // Summary KPIs for the page
   const totalValue = formattedList.reduce((acc, d) => acc + (d.amount || 0), 0);
   const wonCount   = formattedList.filter((d) =>
     d.stage?.toLowerCase().includes('won') ||
@@ -455,7 +450,7 @@ export async function getZohoDeals({
  * @param {string} recordId
  * @returns {Promise<object|null>}
  */
-export async function getSingleZohoDeal(recordId) {
+export async function getSingleZohoDeal(recordId, { ownerIds = null } = {}) {
   if (!recordId) return null;
   await getZohoAccessToken();
   const cache = globalThis.__zohoCache || {};
@@ -478,7 +473,9 @@ export async function getSingleZohoDeal(recordId) {
 
   const json = await res.json();
   const item = json?.data?.[0];
-  return item ? formatDealRow(item) : null;
+  if (!item) return null;
+  if (ownerIds && !ownerIds.includes(String(item.Owner?.id))) return null;
+  return formatDealRow(item);
 }
 
 function zohoApiBase() {
@@ -493,37 +490,150 @@ async function zohoJson(url) {
   return res.json();
 }
 
-const EVENT_FIELDS = 'Event_Title,Start_DateTime,End_DateTime,Owner,Who_Id,What_Id,Venue,Description,Created_Time';
+const EVENT_FIELDS = 'Event_Title,Start_DateTime,End_DateTime,Owner,Who_Id,What_Id,$se_module,Venue,Description,Created_Time,Store_Name,Store_Executive';
+const PHONE_TTL_MS = 30 * 60 * 1000;
+globalThis.__zohoPhoneCache = globalThis.__zohoPhoneCache || { map: new Map(), contactsDenied: false };
+
+const leadPhone = (l) => fieldText(l?.Mobile) || fieldText(l?.Phone) || null;
+const chunks = (list, size) => Array.from({ length: Math.ceil(list.length / size) }, (_, i) => list.slice(i * size, i * size + size));
+
+function cachedPhone(key) {
+  const hit = globalThis.__zohoPhoneCache.map.get(key);
+  return hit && hit.until > Date.now() ? hit : null;
+}
+
+function rememberPhone(key, phone) {
+  globalThis.__zohoPhoneCache.map.set(key, { phone, until: Date.now() + PHONE_TTL_MS });
+}
+
+async function leadsByIds(base, ids) {
+  const out = new Map();
+  for (const part of chunks(ids, 100)) {
+    const json = await zohoJson(`${base}/crm/v8/Leads?ids=${part.join(',')}&fields=Mobile,Phone`);
+    for (const l of json.data ?? []) out.set(String(l.id), leadPhone(l));
+  }
+  return out;
+}
+
+async function contactsByIds(base, ids) {
+  const out = new Map();
+  if (globalThis.__zohoPhoneCache.contactsDenied) return out;
+  for (const part of chunks(ids, 100)) {
+    const res = await zohoGet(`${base}/crm/v8/Contacts?ids=${part.join(',')}&fields=Mobile,Phone`);
+    if (res.status === 204) continue;
+    if (!res.ok) {
+      if (/OAUTH_SCOPE_MISMATCH|invalid oauth scope/i.test(await res.text())) globalThis.__zohoPhoneCache.contactsDenied = true;
+      return out;
+    }
+    for (const c of (await res.json()).data ?? []) out.set(String(c.id), leadPhone(c));
+  }
+  return out;
+}
+
+// Without Contacts/Deals access, a deal's customer is found through the lead it was converted from.
+async function convertedLeadsByNames(base, names) {
+  const byContact = new Map();
+  const byDeal = new Map();
+  const collect = (rows) => {
+    for (const l of rows) {
+      const c = l.$converted_detail ?? {};
+      if (c.contact) byContact.set(String(c.contact), leadPhone(l));
+      if (c.deal) byDeal.set(String(c.deal), leadPhone(l));
+    }
+  };
+  const search = async (group) => {
+    const parts = group.map((n) => `(Full_Name:equals:${criteriaValue(n)})`);
+    const criteria = encodeURIComponent(parts.length > 1 ? `(${parts.join('or')})` : parts[0]);
+    const res = await zohoGet(`${base}/crm/v8/Leads/search?criteria=${criteria}&converted=both&fields=Mobile,Phone,$converted_detail&per_page=200`);
+    if (res.status === 204) return true;
+    if (!res.ok) return false;
+    collect((await res.json()).data ?? []);
+    return true;
+  };
+  const searchable = names.filter((n) => !/[()]/.test(n));
+  for (const group of chunks(searchable, 10)) {
+    if (!(await search(group)) && group.length > 1) {
+      for (const n of group) await search([n]);
+    }
+  }
+  return { byContact, byDeal };
+}
+
+/** Adds each meeting's customer mobile from the lead or contact it is linked to. */
+async function attachMeetingPhones(base, raw, meetings) {
+  const keys = raw.map((e) => {
+    const what = e.What_Id?.id ? String(e.What_Id.id) : null;
+    const who = e.Who_Id?.id ? String(e.Who_Id.id) : null;
+    if (e.$se_module === 'Leads' && what) return { lead: what };
+    return { contact: who, deal: e.$se_module === 'Deals' ? what : null, name: fieldText(e.Who_Id) || fieldText(e.What_Id).replace(/_\d+$/, '') };
+  });
+  const keyOf = (k) => (k.lead ? `lead:${k.lead}` : k.contact ? `contact:${k.contact}` : k.deal ? `deal:${k.deal}` : null);
+  const pending = keys.filter((k) => keyOf(k) && !cachedPhone(keyOf(k)));
+
+  try {
+    const leadIds = [...new Set(pending.map((k) => k.lead).filter(Boolean))];
+    if (leadIds.length) {
+      const found = await leadsByIds(base, leadIds);
+      for (const id of leadIds) rememberPhone(`lead:${id}`, found.get(id) ?? null);
+    }
+    let rest = pending.filter((k) => !k.lead);
+    const contactIds = [...new Set(rest.map((k) => k.contact).filter(Boolean))];
+    if (contactIds.length) {
+      const found = await contactsByIds(base, contactIds);
+      for (const [id, phone] of found) rememberPhone(`contact:${id}`, phone);
+      rest = rest.filter((k) => !found.has(k.contact));
+    }
+    const names = [...new Set(rest.map((k) => k.name).filter(Boolean))];
+    if (names.length) {
+      const { byContact, byDeal } = await convertedLeadsByNames(base, names);
+      for (const k of rest) {
+        const phone = (k.contact && byContact.get(k.contact)) || (k.deal && byDeal.get(k.deal)) || null;
+        rememberPhone(keyOf(k), phone);
+      }
+    }
+  } catch (err) {
+    console.warn('[Zoho CRM] meeting phone lookup failed:', err.message);
+  }
+
+  return meetings.map((m, i) => {
+    const key = keyOf(keys[i]);
+    return { ...m, mobile: (key && cachedPhone(key)?.phone) || null };
+  });
+}
 
 /**
  * Zoho "Meetings" (the Events module), read-only. Dates filter on the meeting's start (IST);
  * owner (the store / team that owns it in Zoho) filters the page Zoho returned.
  * @param {{ page?: number, perPage?: number, fromDate?: string, toDate?: string, owner?: string, search?: string }} params
  */
-export async function getZohoMeetings({ page = 1, perPage = 100, fromDate = '', toDate = '', owner = 'all', search = '' } = {}) {
+export async function getZohoMeetings({ page = 1, perPage = 100, fromDate = '', toDate = '', owner = 'all', search = '', zohoStore = null } = {}) {
   await getZohoAccessToken();
   const base = zohoApiBase();
   const term = search?.trim().length >= 2 ? search.trim() : '';
   const range = fromDate || toDate
     ? `(Start_DateTime:between:${fromDate || '2000-01-01'}T00:00:00+05:30,${toDate || '2100-12-31'}T23:59:59+05:30)`
     : '';
-  const criteria = [range, term ? `(Event_Title:starts_with:${criteriaValue(term)})` : ''].filter(Boolean);
-  const url = criteria.length
-    ? `${base}/crm/v8/Events/search?criteria=${encodeURIComponent(criteria.length > 1 ? `(${criteria.join('and')})` : criteria[0])}&fields=${EVENT_FIELDS}&per_page=${perPage}&page=${page}`
+  const criteria = allOf([range, zohoStore ? `(Store_Name:equals:${criteriaValue(zohoStore)})` : '', term ? `(Event_Title:starts_with:${criteriaValue(term)})` : '']);
+  const url = criteria
+    ? `${base}/crm/v8/Events/search?criteria=${encodeURIComponent(criteria)}&fields=${EVENT_FIELDS}&per_page=${perPage}&page=${page}`
     : `${base}/crm/v8/Events?fields=${EVENT_FIELDS}&per_page=${perPage}&page=${page}&sort_by=Created_Time&sort_order=desc`;
   const json = await zohoJson(url);
-  const all = (json.data ?? []).map((e) => ({
+  const raw = json.data ?? [];
+  const mapped = raw.map((e) => ({
     id: String(e.id),
     title: fieldText(e.Event_Title) || 'Meeting',
     start: e.Start_DateTime ?? null,
     end: e.End_DateTime ?? null,
     owner: fieldText(e.Owner) || 'Unassigned',
+    store: fieldText(e.Store_Name) || null,
+    jc: fieldText(e.Store_Executive) || null,
     customer: fieldText(e.Who_Id) || null,
     relatedTo: fieldText(e.What_Id) || null,
     venue: fieldText(e.Venue) || null,
     description: fieldText(e.Description) || null,
     createdTime: e.Created_Time ?? null,
   }));
+  const all = await attachMeetingPhones(base, raw, mapped);
   const owners = [...new Set(all.map((m) => m.owner))].sort();
   const meetings = (owner && owner !== 'all' ? all.filter((m) => m.owner === owner) : all)
     .sort((a, b) => new Date(a.start ?? 0) - new Date(b.start ?? 0));
@@ -535,7 +645,7 @@ export async function getZohoMeetings({ page = 1, perPage = 100, fromDate = '', 
  * @param {{ type?: 'all'|'birthday'|'anniversary', month?: string|number, owner?: string }} params
  *   month — 1–12 to keep only that month, or 'all'.
  */
-export async function getZohoBirthdays({ type = 'all', month = 'all', owner = 'all' } = {}) {
+export async function getZohoBirthdays({ type = 'all', month = 'all', owner = 'all', ownerIds = null } = {}) {
   await getZohoAccessToken();
   const base = zohoApiBase();
   const fields = 'Full_Name,First_Name,Last_Name,Mobile,Phone,Email,Birthday,Anniversary,Owner,City,Lead_Status';
@@ -543,7 +653,8 @@ export async function getZohoBirthdays({ type = 'all', month = 'all', owner = 'a
   const rows = [];
   for (const field of kinds) {
     for (let page = 1; page <= 10; page += 1) {
-      const json = await zohoJson(`${base}/crm/v8/Leads/search?criteria=${encodeURIComponent(`(${field}:not_equal:null)`)}&fields=${fields}&per_page=200&page=${page}`);
+      const criteria = allOf([`(${field}:not_equal:null)`, ownerCriteria(ownerIds)]);
+      const json = await zohoJson(`${base}/crm/v8/Leads/search?criteria=${encodeURIComponent(criteria)}&fields=${fields}&per_page=200&page=${page}`);
       for (const l of json.data ?? []) {
         if (!l[field]) continue;
         rows.push({

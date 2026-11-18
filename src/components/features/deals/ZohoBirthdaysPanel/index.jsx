@@ -1,30 +1,36 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Cake, Printer, RefreshCw } from 'lucide-react';
+import { useSelector } from 'react-redux';
+import { Printer, RefreshCw } from 'lucide-react';
+
+import { selectIsSuperAdmin } from '@/store/slices/authSlice';
+import { selectActiveStoreId } from '@/store/slices/storeSlice';
+import DataTable from '@/components/shared/DataTable';
+import PhoneLink from '@/components/shared/PhoneLink';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import EmptyState from '@/components/shared/EmptyState';
-import ListRowsSkeleton from '@/components/shared/ListRowsSkeleton';
-import PhoneLink from '@/components/shared/PhoneLink';
+import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
 import { printZohoTable } from '../printZohoTable';
 
 const ALL = 'all';
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const fmtDay = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—');
+const fmtDay = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—');
 const currentMonth = () => String(Number(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', month: 'numeric' }).format(new Date())));
 
-/** Zoho leads with a birthday or anniversary, read-only, soonest upcoming first. */
+/** Zoho leads with a birthday or anniversary, soonest first. Store logins get only their store's (enforced by the API). */
 export default function ZohoBirthdaysPanel() {
-  const [type, setType] = useState(ALL);
+  const isSuperAdmin = useSelector(selectIsSuperAdmin);
+  const activeStoreId = useSelector(selectActiveStoreId);
   const [month, setMonth] = useState(currentMonth());
   const [owner, setOwner] = useState(ALL);
+  const [view, setView] = useState({ rows: [] });
 
   const query = useQuery({
-    queryKey: ['admin', 'zoho-birthdays', { type, month, owner }],
+    queryKey: ['admin', 'zoho-birthdays', activeStoreId, { month, owner }],
     queryFn: async () => {
-      const res = await fetch(`/api/admin/deals/birthdays?${new URLSearchParams({ type, month, owner })}`);
+      const res = await fetch(`/api/admin/deals/birthdays?${new URLSearchParams({ type: ALL, month, owner })}`);
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `Failed to load birthdays (${res.status})`);
       return json;
@@ -33,106 +39,87 @@ export default function ZohoBirthdaysPanel() {
     refetchOnWindowFocus: false,
   });
 
-  const rows = query.data?.rows ?? [];
+  const rows = useMemo(() => query.data?.rows ?? [], [query.data]);
   const owners = query.data?.owners ?? [];
+  const onViewChange = useCallback((v) => setView(v), []);
   const monthLabel = month === ALL ? 'All months' : MONTHS[Number(month) - 1];
 
+  const columns = useMemo(() => [
+    { key: 'next', label: 'Upcoming', mobile: true, format: (v) => <span className="whitespace-nowrap tabular-nums">{fmtDay(v)}</span> },
+    {
+      key: 'name', label: 'Name', mobile: true,
+      format: (v, row) => (
+        <span className="flex flex-col">
+          <span className="wrap-break-word font-medium text-foreground">{v}</span>
+          {row?.mobile && <PhoneLink phone={row.mobile} className="text-primary md:hidden" />}
+        </span>
+      ),
+    },
+    { key: 'mobile', label: 'Mobile', format: (v) => (v ? <PhoneLink phone={v} className="text-primary" /> : '—') },
+    { key: 'kind', label: 'Occasion', filter: true, filterAlways: true },
+    ...(isSuperAdmin ? [{ key: 'owner', label: 'Owner (store / team)', filter: true }] : []),
+    { key: 'city', label: 'City', filter: true },
+    { key: 'status', label: 'Lead status', hidden: true },
+  ], [isSuperAdmin]);
+
   const print = () => printZohoTable({
-    title: `Zoho ${type === ALL ? 'birthdays & anniversaries' : `${type}s`}`,
+    title: 'Zoho birthdays & anniversaries',
     subtitle: `${monthLabel}${owner !== ALL ? ` · ${owner}` : ''}`,
     columns: [
       { label: 'Upcoming', value: (r) => fmtDay(r.next) },
       { label: 'Occasion', value: (r) => r.kind },
       { label: 'Name', value: (r) => r.name },
-      { label: 'Mobile', value: (r) => r.mobile },
+      { label: 'Mobile', value: (r) => (r.mobile ? formatMobileWithCountryCode(r.mobile) : '') },
       { label: 'Owner (store / team)', value: (r) => r.owner },
       { label: 'City', value: (r) => r.city },
     ],
-    rows,
+    rows: view.rows,
   });
 
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-          Occasion
-          <Select value={type} onValueChange={setType}>
-            <SelectTrigger className="h-10" aria-label="Occasion"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>Birthdays & anniversaries</SelectItem>
-              <SelectItem value="birthday">Birthdays</SelectItem>
-              <SelectItem value="anniversary">Anniversaries</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-          Month
-          <Select value={month} onValueChange={setMonth}>
-            <SelectTrigger className="h-10" aria-label="Month"><SelectValue /></SelectTrigger>
-            <SelectContent className="max-h-72">
-              <SelectItem value={ALL}>All months</SelectItem>
-              {MONTHS.map((m, i) => <SelectItem key={m} value={String(i + 1)}>{m}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-          Owner (store / team)
-          <Select value={owner} onValueChange={setOwner}>
-            <SelectTrigger className="h-10" aria-label="Owner"><SelectValue /></SelectTrigger>
-            <SelectContent className="max-h-72">
-              <SelectItem value={ALL}>All owners</SelectItem>
-              {owners.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex items-end gap-2">
-          <Button type="button" variant="outline" className="h-10 flex-1 gap-1.5" onClick={() => query.refetch()} disabled={query.isFetching}>
-            <RefreshCw size={14} className={query.isFetching ? 'animate-spin' : ''} /> Refresh
-          </Button>
-          <Button type="button" className="h-10 flex-1 gap-1.5" onClick={print} disabled={!rows.length}>
-            <Printer size={14} /> Print
-          </Button>
-        </div>
-      </div>
-
-      <p className="text-xs text-muted-foreground">
-        {query.isLoading ? 'Loading from Zoho…' : `${rows.length} record${rows.length === 1 ? '' : 's'} from Zoho leads, soonest upcoming first`}
-      </p>
-
-      {query.isLoading ? (
-        <ListRowsSkeleton />
-      ) : query.isError ? (
-        <EmptyState icon={Cake} title="Couldn't load birthdays from Zoho" description={query.error?.message} />
-      ) : !rows.length ? (
-        <EmptyState icon={Cake} title="Nothing for this filter" description="Zoho has no matching birthdays or anniversaries — try another month or owner." />
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-border bg-card">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-border bg-muted/60 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              <tr>
-                <th className="px-4 py-3">Upcoming</th>
-                <th className="px-3 py-3">Occasion</th>
-                <th className="px-3 py-3">Name</th>
-                <th className="px-3 py-3">Mobile</th>
-                <th className="px-3 py-3">Owner (store / team)</th>
-                <th className="px-3 py-3">City</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {rows.map((r) => (
-                <tr key={r.id}>
-                  <td className="px-4 py-3 whitespace-nowrap tabular-nums">{fmtDay(r.next)}</td>
-                  <td className="px-3 py-3">{r.kind}</td>
-                  <td className="px-3 py-3 font-medium text-foreground">{r.name}</td>
-                  <td className="px-3 py-3">{r.mobile ? <PhoneLink phone={r.mobile} /> : '—'}</td>
-                  <td className="px-3 py-3">{r.owner}</td>
-                  <td className="px-3 py-3">{r.city ?? '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+  const toolbar = (
+    <>
+      <Select value={month} onValueChange={setMonth}>
+        <SelectTrigger className="h-10 w-full md:h-9 md:w-40" aria-label="Month"><SelectValue /></SelectTrigger>
+        <SelectContent className="max-h-72">
+          <SelectItem value={ALL}>All months</SelectItem>
+          {MONTHS.map((m, i) => <SelectItem key={m} value={String(i + 1)}>{m}</SelectItem>)}
+        </SelectContent>
+      </Select>
+      {isSuperAdmin && (
+        <Select value={owner} onValueChange={setOwner}>
+          <SelectTrigger className="h-10 w-full md:h-9 md:w-52" aria-label="Owner"><SelectValue /></SelectTrigger>
+          <SelectContent className="max-h-72">
+            <SelectItem value={ALL}>All owners (store / team)</SelectItem>
+            {owner !== ALL && !owners.includes(owner) && <SelectItem value={owner}>{owner}</SelectItem>}
+            {owners.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+          </SelectContent>
+        </Select>
       )}
-    </div>
+    </>
+  );
+
+  const actions = (
+    <>
+      <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => query.refetch()} disabled={query.isFetching}>
+        <RefreshCw size={14} className={query.isFetching ? 'animate-spin' : ''} aria-hidden="true" /> Refresh
+      </Button>
+      <Button type="button" size="sm" className="gap-1.5" onClick={print} disabled={!view.rows.length}>
+        <Printer size={14} aria-hidden="true" /> Print
+      </Button>
+    </>
+  );
+
+  return (
+    <DataTable
+      columns={columns}
+      rows={rows}
+      isLoading={query.isLoading}
+      isError={query.isError}
+      onRetry={query.refetch}
+      toolbar={toolbar}
+      actions={actions}
+      onViewChange={onViewChange}
+      emptyMessage={query.data?.scope?.mapped === false ? "This store isn't linked to a Zoho CRM owner yet — ask the admin team to link it." : `No birthdays or anniversaries in ${monthLabel.toLowerCase()}.`}
+    />
   );
 }
