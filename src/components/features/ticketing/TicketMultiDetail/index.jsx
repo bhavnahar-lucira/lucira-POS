@@ -765,7 +765,7 @@ export default function TicketMultiDetail({ ticket, partyId }) {
         {canChange && (
           <div className="flex flex-wrap gap-2">
             {active.length < TICKET_MAX_ITEMS && (
-              <Button type="button" variant="outline" className="h-11 gap-1.5" onClick={() => setDialog('add')}>
+              <Button type="button" className="h-11 gap-1.5" onClick={() => setDialog('add')}>
                 <Plus size={16} aria-hidden="true" /> Add product
               </Button>
             )}

@@ -173,7 +173,7 @@ export default function TicketMultiForm({ onCreated }) {
           maxFiles={TICKET_ITEM_MAX_FILES}
           requireFiles
         />
-        <Button type="button" variant="outline" className="h-11 gap-1.5 sm:self-end" onClick={saveProduct}>
+        <Button type="button" className="h-11 gap-1.5 sm:self-end" onClick={saveProduct}>
           {editingKey ? <><Pencil size={16} aria-hidden="true" /> Save product</> : <><Plus size={16} aria-hidden="true" /> Add product</>}
         </Button>
       </Section>
