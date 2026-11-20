@@ -296,6 +296,33 @@ const REPORTS = {
     return { data: await countBills(session, params, orderCompanyIds) };
   },
 
+  // New orders use the same source and value as the POS Dashboard's New MTO: open POS orders, net amount incl. GST.
+  async atv(session, { companyIds, fromDate, toDate }) {
+    const orderCompanyIds = (await getUserStoresCached(session)).map((s) => s.company_id);
+    const [bills, orders] = await Promise.all([
+      countBills(session, { companyIds, fromDate, toDate }, orderCompanyIds),
+      postUpstream(session, API.REPORTS.OPEN_POS_ORDERS, {
+        document_status: 1, company_ids: companyIds, from_date: fromDate, to_date: toDate,
+        IncludeColumns: ['document_no', 'company_id', 'net_amount'],
+      }),
+    ]);
+    const orderTotals = new Map(companyIds.map((id) => [id, { docs: new Set(), value: 0 }]));
+    for (const row of orders?.Entities ?? []) {
+      const store = orderTotals.get(row.company_id);
+      if (!store) continue;
+      store.docs.add(row.document_no);
+      store.value += Number(row.net_amount) || 0;
+    }
+    return {
+      rows: companyIds.map((companyId) => ({
+        company_id: companyId,
+        ...bills.byStore[companyId],
+        new_order_count: orderTotals.get(companyId).docs.size,
+        order_value: orderTotals.get(companyId).value,
+      })),
+    };
+  },
+
   // OrnaVerse merges categories across company_ids and applies Take before grouping,
   // so: one call per store, no Take (both confirmed live 2026-10-27).
   async category(session, { companyIds, fromDate, toDate }) {

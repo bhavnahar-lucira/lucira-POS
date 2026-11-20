@@ -7,8 +7,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import PillTabs from '@/components/shared/PillTabs';
 
 const TABS = [
-  { key: 'birthday',    label: 'Birthdays',     icon: Cake,  emptyLabel: 'No birthdays in the next 15 days.' },
-  { key: 'anniversary', label: 'Anniversaries', icon: Heart, emptyLabel: 'No anniversaries in the next 15 days.' },
+  { key: 'birthday',    label: 'Birthdays',     icon: Cake,  emptyLabel: 'No birthdays this month or in the next 15 days.' },
+  { key: 'anniversary', label: 'Anniversaries', icon: Heart, emptyLabel: 'No anniversaries this month or in the next 15 days.' },
 ];
 
 function getInitials(name) {
@@ -51,6 +51,10 @@ export function EventRow({ event, onSelect }) {
       {event.isToday ? (
         <span className="flex shrink-0 items-center gap-1 rounded-full bg-status-in-stock/10 px-2 py-1 text-xs font-medium text-status-in-stock">
           Today
+        </span>
+      ) : event.daysUntil < 0 ? (
+        <span className="shrink-0 rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
+          {-event.daysUntil} {event.daysUntil === -1 ? 'day' : 'days'} ago
         </span>
       ) : (
         <span className="shrink-0 text-xs text-muted-foreground">

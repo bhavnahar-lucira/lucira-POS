@@ -5,6 +5,7 @@ import { after } from 'next/server';
 
 import { postUpstream, getUserStoresCached } from '@/lib/reports/serverAccess';
 import { listStoreSales } from '@/lib/mongo/buyerPurchases';
+import { rememberLeadMobiles, unmaskVisitMobiles } from '@/lib/mongo/leadMobiles';
 import { syncStorePurchases } from '@/lib/ornaverse/buyerSync';
 import { normalizeCrmVisit } from '@/lib/normalizers/customer';
 import { deriveNonBuyers } from './deriveNonBuyers';
@@ -84,7 +85,7 @@ export function syncStoreInBackground(session, companyId) {
 export async function getNonBuyers({ session, companyId, fromDate = '', toDate = '', minVisits = 2, refresh = false }) {
   syncStoreInBackground(session, companyId);
 
-  const key = `${session.env}|${companyId}|${fromDate}|${toDate}|${minVisits}`;
+  const key = `${session.env}|${companyId}|${fromDate}|${toDate}|${minVisits}|${session.isSuperAdmin ? 'admin' : 'store'}`;
   const cached = results.get(key);
   if (!refresh && cached && Date.now() - cached.at < RESULT_TTL_MS) return cached.rows;
 
@@ -92,8 +93,14 @@ export async function getNonBuyers({ session, companyId, fromDate = '', toDate =
     fetchVisits(session, companyId, fromDate),
     listStoreSales(companyId),
   ]);
+  const normalized = visits.map(normalizeCrmVisit).filter(Boolean);
+  await rememberLeadMobiles(session.env, normalized).catch((err) => console.error('[nonBuyers] remember mobiles', err?.message));
+  const unmasked = await unmaskVisitMobiles(session.env, normalized).catch((err) => {
+    console.error('[nonBuyers] unmask mobiles', err?.message);
+    return normalized;
+  });
   const rows = deriveNonBuyers({
-    visits: visits.map(normalizeCrmVisit).filter(Boolean),
+    visits: unmasked,
     documents: sales.map(toMatchingDocument),
     fromDate,
     toDate,

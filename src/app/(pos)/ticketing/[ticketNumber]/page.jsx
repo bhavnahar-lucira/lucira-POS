@@ -6,6 +6,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 
 import TicketDetail from '@/components/features/ticketing/TicketDetail';
+import TicketMultiDetail from '@/components/features/ticketing/TicketMultiDetail';
 import InlineLoader from '@/components/shared/InlineLoader';
 import ErrorState from '@/components/shared/ErrorState';
 import { Button } from '@/components/ui/button';
@@ -35,7 +36,9 @@ function TicketScreen() {
       {isError && !isLoading && (
         <ErrorState title={error?.message ?? 'Failed to load this ticket.'} onRetry={refetch} />
       )}
-      {ticket && <TicketDetail key={ticket.ticket_number} ticket={ticket} partyId={partyId} />}
+      {ticket && (ticket.items
+        ? <TicketMultiDetail key={ticket.ticket_number} ticket={ticket} partyId={partyId} />
+        : <TicketDetail key={ticket.ticket_number} ticket={ticket} partyId={partyId} />)}
       {!ticket && !isLoading && !isError && (
         <Button asChild variant="outline"><Link href="/ticketing">Back to tickets</Link></Button>
       )}

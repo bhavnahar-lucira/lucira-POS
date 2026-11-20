@@ -2,7 +2,7 @@
 // lucirajewelry.cloud workflow panel reads and writes the same collection. The POS DB only
 // receives the original files and a write-only raw copy of each ticket; it is never read for status.
 // Every ticket carries `env` (UAT/LIVE, from the session) and is only ever read back within that env.
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { GridFSBucket } from 'mongodb';
 import jwt from 'jsonwebtoken';
 
@@ -187,6 +187,19 @@ export function historyEntry(session, store, action, changes = null) {
     store_id: session.companyId ?? null,
     store_code: store?.company_code ?? null,
     changes,
+  };
+}
+
+/** A store comment in the shared format the workflow panel also writes (team 'cad' / 'workflow' on their side). */
+export function commentEntry(session, store, itemId, text) {
+  return {
+    id: randomUUID(),
+    item_id: itemId ?? null,
+    text,
+    author: session.username,
+    team: 'store',
+    store_code: store?.company_code ?? null,
+    at: new Date(),
   };
 }
 

@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSelector } from 'react-redux';
-import { ChevronRight, UserRoundSearch } from 'lucide-react';
+import { ChevronRight, Coins, UserRoundSearch } from 'lucide-react';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import { useBuyerPurchases } from '@/hooks/buyers/useBuyerPurchases';
@@ -14,6 +14,7 @@ import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import { selectIsSuperAdmin } from '@/store/slices/authSlice';
 import { formatAmountOrDash } from '@/lib/priceUtils';
 import PhoneLink from '@/components/shared/PhoneLink';
+import { useLuciraPoints } from '@/hooks/customers/useLuciraPoints';
 
 const LAPSED_DAYS = 90;
 
@@ -21,6 +22,27 @@ function getInitials(name) {
   if (!name) return '?';
   const parts = name.trim().split(/\s+/);
   return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+
+/** The buyer's Lucira points, fetched once the row scrolls into view. */
+function BuyerPoints({ companyId, partyId, mobile }) {
+  const ref = useRef(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || visible) return undefined;
+    const observer = new IntersectionObserver(([entry]) => entry.isIntersecting && setVisible(true));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [visible]);
+  const { points, isLoading, isAvailable } = useLuciraPoints({ companyId, partyId, mobile }, { enabled: visible });
+
+  return (
+    <span ref={ref} className="mt-1 inline-flex w-fit items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+      <Coins size={12} className="shrink-0 text-amber-500" aria-hidden="true" />
+      {!visible || isLoading ? 'Lucira points …' : isAvailable ? `${points.toLocaleString('en-IN')} Lucira points` : 'Lucira points —'}
+    </span>
+  );
 }
 
 /** Every buyer of the active store with no purchase in the last 90 days, most valuable first. */
@@ -96,6 +118,7 @@ export default function LapsedBuyersCard() {
                   )}
                   <span className="whitespace-nowrap">Last purchase {buyer.daysSince} days ago</span>
                 </p>
+                {activeStoreId && <BuyerPoints companyId={activeStoreId} partyId={Number(buyer._id)} mobile={buyer.customerMobile} />}
               </div>
               <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">{formatAmountOrDash(buyer.totalSpend)}</span>
             </div>

@@ -33,6 +33,20 @@ export async function getSummaryBillCounts(params) {
   return (await runSalesReport('summaryBills', params)).data ?? null;
 }
 
+/**
+ * Day-to-day store reports (collections, order status, balance due, credits, scheme dues, repairs,
+ * stock aging, stock movement, discounts). @returns {Promise<{rows: object[], sessionStoreOnly?: boolean}>}
+ */
+export async function getStoreReport(report, params) {
+  const data = await postReport('/api/reports/store', { report, ...params });
+  return { rows: data.rows ?? [], sessionStoreOnly: !!data.sessionStoreOnly };
+}
+
+/** @returns {Promise<object[]>} one row per store: bill counts and values (RTS / MTO / all) plus new orders */
+export async function getAtvReport(params) {
+  return (await runSalesReport('atv', params)).rows ?? [];
+}
+
 /** @returns {Promise<object[]>} category totals, one row per store × category */
 export async function getCategoryWiseSales(params) {
   return (await runSalesReport('category', params)).rows ?? [];

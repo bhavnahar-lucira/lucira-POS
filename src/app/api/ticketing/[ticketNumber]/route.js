@@ -1,13 +1,14 @@
 import { after } from 'next/server';
 
 import { getSessionFromRequest } from '@/lib/ornaverse/session';
-import { ticketActionSchema } from '@/validators/ticketSchema';
+import { ticketActionSchema, multiTicketActionSchema } from '@/validators/ticketSchema';
 import { TICKET_STATUS, PANEL_STATE } from '@/lib/ticketing/constants';
 import {
   getTicketsCollection, getSessionStore, canAccessTicket, claimFiles,
-  historyEntry, toPublicTicket, saveRawCopy, notifyCloud, getTodayGoldRate,
+  historyEntry, toPublicTicket, saveRawCopy, notifyCloud, getTodayGoldRate, commentEntry,
 } from '@/lib/ticketing/server';
-import { ticketDesigns, g2dEstimates, effectiveStatus, requestedSpecs } from '@/lib/ticketing/normalize';
+import { ticketDesigns, g2dEstimates, effectiveStatus, requestedSpecs, isMultiTicket } from '@/lib/ticketing/normalize';
+import { buildMultiAction } from '@/lib/ticketing/multiActions';
 import { postUpstream } from '@/lib/reports/serverAccess';
 
 
@@ -48,18 +49,25 @@ export async function POST(request, { params }) {
   } catch {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
-  const parsed = ticketActionSchema.safeParse(body);
-  if (!parsed.success) {
-    return Response.json({ error: parsed.error.issues[0]?.message ?? 'Invalid action' }, { status: 400 });
-  }
-  const input = parsed.data;
 
   try {
     const { error, session, col, ticket } = await loadAccessibleTicket(request, params);
     if (error) return error;
 
+    const parsed = (isMultiTicket(ticket) ? multiTicketActionSchema : ticketActionSchema).safeParse(body);
+    if (!parsed.success) {
+      return Response.json({ error: parsed.error.issues[0]?.message ?? 'Invalid action' }, { status: 400 });
+    }
+    const input = parsed.data;
     const store = await getSessionStore(session).catch(() => null);
     const now = new Date();
+
+    if (isMultiTicket(ticket)) {
+      const built = await buildMultiAction({ input, ticket, session, store, request, now });
+      if (built.error) return Response.json({ error: built.error }, { status: built.status });
+      return applyUpdate(col, ticket, input, built);
+    }
+
     const designs = ticketDesigns(ticket);
     const g2d = g2dEstimates(ticket);
     const status = effectiveStatus(ticket, designs, g2d);
@@ -293,10 +301,19 @@ export async function POST(request, { params }) {
         $set: { pos_order: posOrder, updated_at: now },
         $push: { history: historyEntry(session, store, 'pos_order_placed', { document_no: posOrder.document_no, net_amount: posOrder.net_amount }) },
       };
+    } else if (input.action === 'add_comment') {
+      return applyUpdate(col, ticket, input, {
+        filter: { env: ticket.env, ticket_number: ticket.ticket_number },
+        update: { $set: { updated_at: now }, $push: { comments: commentEntry(session, store, null, input.text) } },
+      });
     } else {
       if (status === TICKET_STATUS.CANCELLED) {
         return Response.json({ error: 'This ticket is already cancelled.' }, { status: 409 });
       }
+      if (ticket.pos_order?.transaction_id) {
+        return Response.json({ error: `Order ${ticket.pos_order.document_no} is already placed — cancel it from Orders instead.` }, { status: 409 });
+      }
+      filter.pos_order = null;
       update = {
         $set: {
           ...PANEL_STATE.CANCELLED,
@@ -309,19 +326,23 @@ export async function POST(request, { params }) {
       };
     }
 
-    const result = await col.updateOne(filter, update, arrayFilters ? { arrayFilters } : undefined);
-    if (!result.matchedCount) {
-      return Response.json({ error: 'This ticket was just updated elsewhere. Refresh and try again.' }, { status: 409 });
-    }
-
-    const updated = await col.findOne({ env: ticket.env, ticket_number: ticket.ticket_number });
-    after(async () => {
-      await saveRawCopy(updated);
-      await notifyCloud(input.action, updated);
-    });
-    return Response.json({ ticket: toPublicTicket(updated) });
+    return applyUpdate(col, ticket, input, { filter, update, arrayFilters });
   } catch (err) {
     console.error('[api/ticketing/:ticketNumber] POST', err);
     return Response.json({ error: 'Failed to update ticket' }, { status: 500 });
   }
+}
+
+async function applyUpdate(col, ticket, input, { filter, update, arrayFilters }) {
+  const result = await col.updateOne(filter, update, arrayFilters ? { arrayFilters } : undefined);
+  if (!result.matchedCount) {
+    return Response.json({ error: 'This ticket was just updated elsewhere. Refresh and try again.' }, { status: 409 });
+  }
+
+  const updated = await col.findOne({ env: ticket.env, ticket_number: ticket.ticket_number });
+  after(async () => {
+    await saveRawCopy(updated);
+    await notifyCloud(input.action, updated);
+  });
+  return Response.json({ ticket: toPublicTicket(updated) });
 }

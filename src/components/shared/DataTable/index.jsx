@@ -76,6 +76,7 @@ function FacetFilter({ column }) {
 /**
  * Searchable, sortable, paginated report table with per-column filters and a
  * Columns menu. `columns`: { key, label, align?, format?, total?, filter?, filterAlways?, mobile?, hidden? }.
+ * `total: true` sums the column; `total: (rows) => value` computes it (e.g. a ratio of two summed columns).
  * A `filter` dropdown appears once the column has 2+ values, or 1+ with `filterAlways`.
  * `hidden` columns start unticked in the Columns menu, so they show only when chosen there.
  * Below md only `mobile` columns are shown (default: first two); the rest open
@@ -134,7 +135,9 @@ export default function DataTable({ columns, rows, isLoading, isError, onRetry, 
   const viewRows = table.getPrePaginationRowModel().rows;
   const totalColumns = useMemo(() => visibleColumns.filter((c) => c.columnDef.meta.total), [visibleColumns]);
   const totals = useMemo(() => Object.fromEntries(totalColumns.map((c) => [
-    c.id, viewRows.reduce((sum, row) => sum + (Number(row.getValue(c.id)) || 0), 0),
+    c.id, typeof c.columnDef.meta.total === 'function'
+      ? c.columnDef.meta.total(viewRows.map((row) => row.original))
+      : viewRows.reduce((sum, row) => sum + (Number(row.getValue(c.id)) || 0), 0),
   ])), [totalColumns, viewRows]);
 
   useEffect(() => {

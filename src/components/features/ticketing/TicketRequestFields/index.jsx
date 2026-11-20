@@ -62,7 +62,9 @@ const uniqueNames = (items, key) => [...new Set(items.map((i) => i[key]).filter(
  * Customer requirement + reference files, shared by the new-ticket form and the
  * "update request" dialog. `files` holds newly uploaded files ({ id, url, file_name, type }).
  */
-export default function TicketRequestFields({ specs, onSpecsChange, files, onFilesChange, existingFileCount = 0, requireFiles }) {
+export default function TicketRequestFields({
+  specs, onSpecsChange, files, onFilesChange, existingFileCount = 0, requireFiles, maxFiles = TICKET_MAX_FILES, idPrefix = 'ticket',
+}) {
   const fileInputRef = useRef(null);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -76,7 +78,7 @@ export default function TicketRequestFields({ specs, onSpecsChange, files, onFil
   const handleFilesSelected = async (event) => {
     const selected = [...event.target.files];
     event.target.value = '';
-    const room = TICKET_MAX_FILES - files.length - existingFileCount;
+    const room = maxFiles - files.length - existingFileCount;
     if (selected.length > room) toast.error(`You can add ${Math.max(room, 0)} more file(s).`);
 
     const uploaded = [];
@@ -100,41 +102,41 @@ export default function TicketRequestFields({ specs, onSpecsChange, files, onFil
     <div className="flex flex-col gap-5">
       <Group title="Design">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <Field label="Category" required htmlFor="ticket-category">
+          <Field label="Category" required htmlFor={`${idPrefix}-category`}>
             <NameSelect
-              id="ticket-category"
+              id={`${idPrefix}-category`}
               value={specs.category}
               onChange={set('category')}
               options={uniqueNames(categories, 'type_name')}
               placeholder="Select category"
             />
           </Field>
-          <Field label="Size" htmlFor="ticket-size">
-            <Input id="ticket-size" className="h-11" value={specs.size} onChange={setFromInput('size')} placeholder="e.g. 12" maxLength={100} />
+          <Field label="Size" htmlFor={`${idPrefix}-size`}>
+            <Input id={`${idPrefix}-size`} className="h-11" value={specs.size} onChange={setFromInput('size')} placeholder="e.g. 12" maxLength={100} />
           </Field>
-          <Field label="Budget (₹)" htmlFor="ticket-budget">
-            <Input id="ticket-budget" className="h-11" type="number" min="0" inputMode="decimal" value={specs.budget} onChange={setFromInput('budget')} />
+          <Field label="Budget (₹)" htmlFor={`${idPrefix}-budget`}>
+            <Input id={`${idPrefix}-budget`} className="h-11" type="number" min="0" inputMode="decimal" value={specs.budget} onChange={setFromInput('budget')} />
           </Field>
         </div>
       </Group>
 
       <Group title="Metal">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <Field label="Karat" htmlFor="ticket-karat">
-            <NameSelect id="ticket-karat" value={specs.karat} onChange={set('karat')} options={karatOptions.map((o) => o.label)} placeholder="Select karat" />
+          <Field label="Karat" htmlFor={`${idPrefix}-karat`}>
+            <NameSelect id={`${idPrefix}-karat`} value={specs.karat} onChange={set('karat')} options={karatOptions.map((o) => o.label)} placeholder="Select karat" />
           </Field>
-          <Field label="Color" htmlFor="ticket-metal">
-            <NameSelect id="ticket-metal" value={specs.metal} onChange={set('metal')} options={metalOptions.map((o) => o.label)} placeholder="Select color" />
+          <Field label="Color" htmlFor={`${idPrefix}-metal`}>
+            <NameSelect id={`${idPrefix}-metal`} value={specs.metal} onChange={set('metal')} options={metalOptions.map((o) => o.label)} placeholder="Select color" />
           </Field>
-          <Field label="Weight (g)" htmlFor="ticket-gold">
-            <Input id="ticket-gold" className="h-11" type="number" min="0" step="0.001" inputMode="decimal" value={specs.gold_weight} onChange={setFromInput('gold_weight')} />
+          <Field label="Weight (g)" htmlFor={`${idPrefix}-gold`}>
+            <Input id={`${idPrefix}-gold`} className="h-11" type="number" min="0" step="0.001" inputMode="decimal" value={specs.gold_weight} onChange={setFromInput('gold_weight')} />
           </Field>
         </div>
       </Group>
 
-      <Field label="Customer requirement" required htmlFor="ticket-notes">
+      <Field label="Customer requirement" required htmlFor={`${idPrefix}-notes`}>
         <Textarea
-          id="ticket-notes"
+          id={`${idPrefix}-notes`}
           rows={4}
           maxLength={2000}
           value={specs.requirement_notes}
@@ -143,9 +145,9 @@ export default function TicketRequestFields({ specs, onSpecsChange, files, onFil
         />
       </Field>
 
-      <Field label="Description / discount & offer" htmlFor="ticket-description">
+      <Field label="Description / discount & offer" htmlFor={`${idPrefix}-description`}>
         <Textarea
-          id="ticket-description"
+          id={`${idPrefix}-description`}
           rows={3}
           maxLength={2000}
           value={specs.description}
@@ -163,14 +165,14 @@ export default function TicketRequestFields({ specs, onSpecsChange, files, onFil
             type="button"
             variant="outline"
             onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading || files.length + existingFileCount >= TICKET_MAX_FILES}
+            disabled={isUploading || files.length + existingFileCount >= maxFiles}
             className="size-24 flex-col gap-1 text-xs"
           >
             <ImagePlus size={20} aria-hidden="true" />
             {isUploading ? 'Uploading…' : 'Add files'}
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground">JPG, PNG or PDF · up to {TICKET_MAX_FILES} files</p>
+        <p className="text-xs text-muted-foreground">JPG, PNG or PDF · up to {maxFiles} files</p>
         <input
           ref={fileInputRef}
           type="file"

@@ -40,7 +40,7 @@ export default function AppShell({ children }) {
           <div className="flex flex-col flex-1 overflow-hidden">
             <Header />
             <main
-              className="flex-1 overflow-y-auto"
+              className="relative flex-1 overflow-y-auto"
               id="main-content"
               role="main"
               tabIndex={-1}

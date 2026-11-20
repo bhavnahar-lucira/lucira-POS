@@ -25,6 +25,10 @@ import { downloadXlsx } from '@/lib/excelExport';
 import { usePosDashboardReport } from '@/hooks/reports/usePosDashboardReport';
 import { useSummaryBillCounts } from '@/hooks/reports/useSummaryBillCounts';
 import { useSummaryByStore } from '@/hooks/reports/useSummaryByStore';
+import { useAtvReport } from '@/hooks/reports/useAtvReport';
+import { useStoreReport } from '@/hooks/reports/useStoreReport';
+import { ReportNotes, LiveStatus } from '@/components/features/reports/ReportNotes';
+import { STORE_REPORTS } from '@/components/features/reports/storeReports';
 import { useCategoryWiseSalesReport } from '@/hooks/reports/useCategoryWiseSalesReport';
 import { useSalesPersonWiseSalesReport } from '@/hooks/reports/useSalesPersonWiseSalesReport';
 import { useSkuVelocityReport } from '@/hooks/reports/useSkuVelocityReport';
@@ -37,6 +41,8 @@ import JewelryConsultantDetailSheet from '@/components/features/reports/JewelryC
 import { useAdhocReportsList } from '@/hooks/reports/useAdhocReportsList';
 import { useAdhocReportRun } from '@/hooks/reports/useAdhocReportRun';
 
+const ALL_HISTORY_FROM = '2020-01-01';
+
 function firstOfMonthDateString() {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -44,13 +50,24 @@ function firstOfMonthDateString() {
   return `${yyyy}-${mm}-01`;
 }
 
+const storeTab = (key) => ({ key, label: STORE_REPORTS[key].label });
 const BASE_TABS = [
   { key: 'summary', label: 'Sales Summary' },
+  { key: 'atv', label: 'ATV' },
+  storeTab('collections'),
+  storeTab('orderStatus'),
+  storeTab('balanceDue'),
+  storeTab('credits'),
+  storeTab('schemeDues'),
+  storeTab('repairs'),
   { key: 'category', label: 'Category Wise' },
   { key: 'salesperson', label: 'Jewelry Consultant Wise' },
+  storeTab('discounts'),
   { key: 'velocity', label: 'SKU Velocity' },
   { key: 'openOrders', label: 'Open Orders' },
   { key: 'stock', label: 'Stock' },
+  storeTab('stockAging'),
+  storeTab('stockMovement'),
   { key: 'walkins', label: 'Walk-in Visits' },
   { key: 'repeat', label: 'Repeat Customers' },
 ];
@@ -213,6 +230,18 @@ function buildSummaryKpis(data, bills) {
   ];
 }
 
+const SUMMARY_NOTES = [
+  ['Source', 'Amounts come straight from OrnaVerse’s POS Dashboard for the selected stores and dates.'],
+  ['RTS / MTO', 'All posted bills in the range, valued at taxable amount (after discount, before GST).'],
+  ['Closed MTO', 'The part of those bills that fulfilled a customer or website order. Excl. GST.'],
+  ['RTS', 'RTS / MTO minus Closed MTO — items sold from store stock. Excl. GST.'],
+  ['New MTO', 'Customer orders booked in the range. OrnaVerse values these including GST.'],
+  ['Total Sales', 'OrnaVerse’s own figure: RTS / MTO + New MTO − Return/Exchange, so it mixes amounts with and without GST.'],
+  ['Bills', 'Every posted invoice counts as a bill, the same as OrnaVerse — including a ₹0 bill issued only for a free gift. A bill with both order and in-stock items counts under both MTO and RTS, so MTO + RTS bills can exceed Total Bills.'],
+  ['Pending MTO', 'All open orders, not limited to the date range.'],
+  ['Schemes', 'OrnaVerse reports this only for the store you’re logged into.'],
+];
+
 function billCountTrend(k, billsState) {
   if (k.count != null) return { type: 'neutral', text: plural(k.count, k.unit) };
   if (!k.billCount) return undefined;
@@ -267,7 +296,7 @@ function StoreSummaryTable({ rows, isLoading, isError, onRetry, tableKey }) {
   );
 }
 
-function SalesSummaryTab({ data, isLoading, isError, onRetry, billsState, storeTable }) {
+function SalesSummaryTab({ data, isLoading, isError, onRetry, billsState, storeTable, liveStatus }) {
   if (isLoading) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
@@ -284,6 +313,7 @@ function SalesSummaryTab({ data, isLoading, isError, onRetry, billsState, storeT
 
   return (
     <div className="flex flex-col gap-4">
+      <LiveStatus {...liveStatus} />
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
         <TotalBillsCard bills={billsState.data} isLoading={billsState.isLoading} isError={billsState.isError} />
         {kpis.map((k) => (
@@ -292,6 +322,8 @@ function SalesSummaryTab({ data, isLoading, isError, onRetry, billsState, storeT
       </div>
 
       {storeTable && <StoreSummaryTable {...storeTable} />}
+
+      <ReportNotes notes={SUMMARY_NOTES} />
 
       <div className="rounded-xl border border-border p-4">
         <p className="text-sm font-semibold text-foreground mb-3">Payment Collections</p>
@@ -308,6 +340,73 @@ function SalesSummaryTab({ data, isLoading, isError, onRetry, billsState, storeT
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+const ratio = (value, count) => (count > 0 ? Math.round(value / count) : null);
+const sumOf = (rows, key) => rows.reduce((s, r) => s + (Number(r[key]) || 0), 0);
+const atvTotal = (valueKey, countKey) => (rows) => ratio(sumOf(rows, valueKey), sumOf(rows, countKey));
+
+const ATV_COLUMNS = [
+  { key: 'store_code', label: 'Store', mobile: true },
+  { key: 'store_name', label: 'Store Name' },
+  { key: 'total_bill_count', label: 'Bills', align: 'right', total: true },
+  { key: 'overall_atv', label: 'Overall ATV', align: 'right', format: formatAmountOrDash, total: atvTotal('total_value', 'total_bill_count'), mobile: true },
+  { key: 'rts_bill_count', label: 'RTS Bills', align: 'right', total: true },
+  { key: 'rts_atv', label: 'RTS ATV', align: 'right', format: formatAmountOrDash, total: atvTotal('rts_value', 'rts_bill_count') },
+  { key: 'mto_bill_count', label: 'MTO Bills', align: 'right', total: true },
+  { key: 'mto_atv', label: 'MTO ATV', align: 'right', format: formatAmountOrDash, total: atvTotal('mto_value', 'mto_bill_count') },
+  { key: 'new_order_count', label: 'New Orders', align: 'right', total: true },
+  { key: 'order_atv', label: 'New Order ATV (incl. GST)', align: 'right', format: formatAmountOrDash, total: atvTotal('order_value', 'new_order_count') },
+  { key: 'total_value', label: 'Sales Value (excl. GST)', align: 'right', format: formatAmountOrDash, total: true, hidden: true },
+  { key: 'rts_value', label: 'RTS Value (excl. GST)', align: 'right', format: formatAmountOrDash, total: true, hidden: true },
+  { key: 'mto_value', label: 'MTO Value (excl. GST)', align: 'right', format: formatAmountOrDash, total: true, hidden: true },
+  { key: 'order_value', label: 'New Order Value (incl. GST)', align: 'right', format: formatAmountOrDash, total: true, hidden: true },
+];
+
+const withAtv = (row) => ({
+  ...row,
+  overall_atv: ratio(row.total_value, row.total_bill_count),
+  rts_atv: ratio(row.rts_value, row.rts_bill_count),
+  mto_atv: ratio(row.mto_value, row.mto_bill_count),
+  order_atv: ratio(row.order_value, row.new_order_count),
+});
+
+const ATV_NOTES = [
+  ['ATV', 'Average Transaction Value = value ÷ number of bills (or orders), rounded to the rupee.'],
+  ['Bills', 'Every posted invoice dated in the range, the same count as OrnaVerse — including a ₹0 bill issued only for a free gift (counted as RTS). Draft and cancelled bills are not counted.'],
+  ['Value', 'Bill value is the taxable amount — after discount, before GST — the same basis OrnaVerse uses for RTS, Closed MTO and RTS / MTO on its POS Dashboard (and on Sales Summary).'],
+  ['MTO', 'A bill item is MTO when it fulfils a customer order (OrnaVerse’s Order Bifurcation report) or a website order (Stock Allocation). MTO ATV = MTO value ÷ bills with an MTO item. Matches Closed MTO on Sales Summary.'],
+  ['RTS', 'Every other item sold from store stock. RTS ATV = RTS value ÷ bills with an RTS item. Matches RTS on Sales Summary.'],
+  ['Mixed bills', 'A bill with both order and in-stock items counts once under MTO and once under RTS, each with its own share of the value — so MTO Bills + RTS Bills can be more than Bills. Overall ATV uses the true bill count.'],
+  ['New Orders', 'Customer orders booked in the range. Order value includes GST, exactly as OrnaVerse’s New MTO figure on Sales Summary — so New Order ATV is not directly comparable with the bill ATVs.'],
+  ['Total row', 'Recalculated as total value ÷ total bills for the stores shown, not an average of the store ATVs.'],
+  ['Values', 'Use Columns to show the value behind each ATV. Store logins see only their own store; super admins can pick any store or all stores.'],
+];
+
+function ReportTableTab({ columns, rows, notes, banner, emptyMessage, isLoading, isError, onRetry, onViewChange, toolbar, actions, tableKey, liveStatus }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <LiveStatus {...liveStatus} />
+      {banner && (
+        <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          {banner}
+        </p>
+      )}
+      <DataTable
+        key={tableKey}
+        columns={columns}
+        rows={rows}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={onRetry}
+        onViewChange={onViewChange}
+        toolbar={toolbar}
+        actions={actions}
+        emptyMessage={emptyMessage}
+      />
+      <ReportNotes notes={notes} />
     </div>
   );
 }
@@ -603,6 +702,14 @@ export default function ReportsPage() {
   const summaryReport = usePosDashboardReport({ ...range, enabled: activeTab === 'summary' });
   const summaryBills = useSummaryBillCounts({ ...range, enabled: activeTab === 'summary' });
   const summaryStores = useSummaryByStore({ ...range, enabled: activeTab === 'summary' });
+  const atvReport = useAtvReport({ ...range, enabled: activeTab === 'atv' });
+  const storeReportDef = STORE_REPORTS[activeTab] ?? null;
+  const isCurrentPosition = storeReportDef?.dates === 'current';
+  const storeRange = isCurrentPosition
+    ? { companyIds: range.companyIds, fromDate: ALL_HISTORY_FROM, toDate: todayDateString() }
+    : range;
+  const storeReport = useStoreReport(storeReportDef ? activeTab : null, { ...storeRange, enabled: !!storeReportDef });
+  const isLiveRange = isCurrentPosition || toDate >= todayDateString();
   const categoryReport = useCategoryWiseSalesReport({ ...range, enabled: activeTab === 'category' });
   const salesPersonReport = useSalesPersonWiseSalesReport({ ...range, enabled: activeTab === 'salesperson' });
   const velocityReport = useSkuVelocityReport({ ...range, enabled: activeTab === 'velocity' });
@@ -625,7 +732,17 @@ export default function ReportsPage() {
   const TABS = adhocReportsList.isPermissionError ? BASE_TABS : [...BASE_TABS, ADHOC_TAB];
 
   // Memoized so a parent re-render doesn't hand the table new arrays (which would reset its page).
-  const TAB_REPORTS = useMemo(() => {
+  const storeReportRows = storeReport.rows;
+  const storeReportView = useMemo(() => {
+    if (!storeReportDef) return null;
+    const scoped = scopeRowsToStores(storeReportRows, availableStores, companyKey ? companyKey.split(',').map(Number) : []);
+    const view = storeReportDef.pivot
+      ? storeReportDef.pivot(scoped)
+      : { rows: scoped, columns: isAllStores ? [...STORE_COLUMNS, ...storeReportDef.columns] : storeReportDef.columns };
+    return { ...view, filenamePrefix: storeReportDef.filenamePrefix, notes: storeReportDef.notes };
+  }, [storeReportDef, storeReportRows, availableStores, companyKey, isAllStores]);
+
+  const BASE_REPORTS = useMemo(() => {
     const ids = companyKey ? companyKey.split(',').map(Number) : [];
     const scope = (rows) => scopeRowsToStores(rows, availableStores, ids);
     const withStoreColumns = (columns) => (isAllStores ? [...STORE_COLUMNS, ...columns] : columns);
@@ -634,6 +751,7 @@ export default function ReportsPage() {
       return { ...row, first_purchase_store: store ? `${store.company_code} — ${store.mailing_name}` : 'Another Lucira store' };
     };
     return {
+      atv: { columns: ATV_COLUMNS, rows: scope(atvReport.rows).map(withAtv), filenamePrefix: 'atv-store-wise' },
       category: { columns: withStoreColumns(CATEGORY_COLUMNS), rows: scope(categoryReport.rows), filenamePrefix: 'category-wise-sales' },
       salesperson: { columns: withStoreColumns(SALESPERSON_COLUMNS), rows: scope(salesPersonReport.rows), filenamePrefix: 'jewelry-consultant-wise-sales' },
       velocity: { columns: withStoreColumns(VELOCITY_COLUMNS), rows: scope(velocityReport.rows), filenamePrefix: 'sku-velocity' },
@@ -646,7 +764,9 @@ export default function ReportsPage() {
         filenamePrefix: 'repeat-customers',
       },
     };
-  }, [companyKey, availableStores, isAllStores, categoryReport.rows, salesPersonReport.rows, velocityReport.rows, openOrdersReport.rows, stockReport.rows, walkinReport.rows, repeatReport.data]);
+  }, [companyKey, availableStores, isAllStores, atvReport.rows, categoryReport.rows, salesPersonReport.rows, velocityReport.rows, openOrdersReport.rows, stockReport.rows, walkinReport.rows, repeatReport.data]);
+
+  const TAB_REPORTS = storeReportView ? { ...BASE_REPORTS, [activeTab]: storeReportView } : BASE_REPORTS;
 
   const storeSummaryRows = useMemo(() => {
     const byStore = summaryBills.data?.byStore ?? {};
@@ -692,6 +812,19 @@ export default function ReportsPage() {
           name: 'Payment Collections',
           columns: [{ key: 'mode_type', label: 'Payment Mode' }, { key: 'sales', label: 'Amount' }],
           rows: (summaryReport.data.total_collections ?? []).filter((c) => c.sales),
+        },
+      ]);
+      return;
+    }
+    if (activeTab === 'atv') {
+      const view = exportViewRef.current;
+      if (!view?.rows.length) return;
+      downloadXlsx(`atv-store-wise_${fromDate}_to_${toDate}.xlsx`, [
+        { name: 'ATV', columns: ATV_COLUMNS, rows: view.rows },
+        {
+          name: 'How it is calculated',
+          columns: [{ key: 'term', label: 'Term' }, { key: 'text', label: 'Meaning' }],
+          rows: ATV_NOTES.map(([term, text]) => ({ term, text })),
         },
       ]);
       return;
@@ -845,24 +978,37 @@ export default function ReportsPage() {
     }
     const view = exportViewRef.current;
     if (!view?.rows.length) return;
-    const { filenamePrefix } = TAB_REPORTS[activeTab];
+    const { filenamePrefix, notes } = TAB_REPORTS[activeTab];
     const filename = activeTab === 'stock'
       ? `${filenamePrefix}_as_of_${toDate}.xlsx`
-      : `${filenamePrefix}_${fromDate}_to_${toDate}.xlsx`;
-    downloadXlsx(filename, [{ name: 'Report', columns: view.columns, rows: view.rows }]);
+      : isCurrentPosition
+        ? `${filenamePrefix}_as_of_${todayDateString()}.xlsx`
+        : `${filenamePrefix}_${fromDate}_to_${toDate}.xlsx`;
+    downloadXlsx(filename, [
+      { name: 'Report', columns: view.columns, rows: view.rows },
+      ...(notes ? [{
+        name: 'How it is calculated',
+        columns: [{ key: 'term', label: 'Term' }, { key: 'text', label: 'Meaning' }],
+        rows: notes.map(([term, text]) => ({ term, text })),
+      }] : []),
+    ]);
   };
 
   const activeTabLabel = TABS.find((t) => t.key === activeTab)?.label ?? 'Report';
   const rangeSummary = activeTab === 'adhoc'
     ? 'All stores and dates'
-    : activeTab === 'stock'
-      ? `As of ${formatDatePadded(toDate)}`
-      : `${formatDatePadded(fromDate)} – ${formatDatePadded(toDate)}`;
+    : isCurrentPosition
+      ? 'Right now'
+      : activeTab === 'stock'
+        ? `As of ${formatDatePadded(toDate)}`
+        : `${formatDatePadded(fromDate)} – ${formatDatePadded(toDate)}`;
 
   const dateInputs = activeTab === 'adhoc' ? (
     <p className="text-xs text-muted-foreground">
       Ad-hoc reports query live across all stores and dates — not scoped to a range.
     </p>
+  ) : isCurrentPosition ? (
+    <p className="text-xs text-muted-foreground">Shows the position right now — no date range needed.</p>
   ) : (
     <div className="flex items-center gap-2 w-full md:w-auto">
       {activeTab === 'stock' ? (
@@ -953,7 +1099,7 @@ export default function ReportsPage() {
     </Select>
   );
 
-  const rangeButtons = activeTab !== 'adhoc' && (
+  const rangeButtons = activeTab !== 'adhoc' && !isCurrentPosition && (
     <>
       <Button type="button" variant="outline" size="sm" onClick={handleToday} className="flex-1 md:flex-none">
         Today
@@ -1105,6 +1251,7 @@ export default function ReportsPage() {
                 isError={summaryReport.isError}
                 onRetry={summaryReport.refetch}
                 billsState={summaryBills}
+                liveStatus={{ updatedAt: summaryReport.updatedAt, isRefreshing: summaryReport.isRefreshing, isLive: isLiveRange }}
                 storeTable={showStoreSummary ? {
                   rows: storeSummaryRows,
                   isLoading: summaryStores.isLoading,
@@ -1114,6 +1261,43 @@ export default function ReportsPage() {
                 } : null}
               />
             </>
+          )}
+
+          {activeTab === 'atv' && (
+            <ReportTableTab
+              columns={ATV_COLUMNS}
+              rows={TAB_REPORTS.atv.rows}
+              notes={ATV_NOTES}
+              emptyMessage="No bills or orders in this range."
+              isLoading={atvReport.isLoading}
+              isError={atvReport.isError}
+              onRetry={atvReport.refetch}
+              onViewChange={handleViewChange}
+              {...filterBar}
+              tableKey={tableKey}
+              liveStatus={{ updatedAt: atvReport.updatedAt, isRefreshing: atvReport.isRefreshing, isLive: isLiveRange }}
+            />
+          )}
+
+          {storeReportDef && (
+            <ReportTableTab
+              columns={TAB_REPORTS[activeTab].columns}
+              rows={TAB_REPORTS[activeTab].rows}
+              notes={storeReportDef.notes}
+              banner={storeReportDef.sessionStore && showStoreSummary
+                ? `OrnaVerse gives ${storeReportDef.label} only for the store you are logged into (${companyName ?? 'active store'}), so only that store is shown. Switch store in the top bar to see another.`
+                : storeReportDef.sessionStore && companyKey !== String(companyId)
+                  ? `OrnaVerse gives ${storeReportDef.label} only for the store you are logged into. Switch to this store in the top bar to see it.`
+                  : null}
+              emptyMessage={storeReportDef.emptyMessage}
+              isLoading={storeReport.isLoading}
+              isError={storeReport.isError}
+              onRetry={storeReport.refetch}
+              onViewChange={handleViewChange}
+              {...filterBar}
+              tableKey={tableKey}
+              liveStatus={{ updatedAt: storeReport.updatedAt, isRefreshing: storeReport.isRefreshing, isLive: isLiveRange }}
+            />
           )}
 
           {activeTab === 'category' && (

@@ -6,6 +6,7 @@ import { Check, CheckCircle2, MessageSquareWarning, Pencil, XCircle } from 'luci
 
 import TicketFileThumb from '@/components/features/ticketing/TicketFileThumb';
 import TicketOrderPanel from '@/components/features/ticketing/TicketOrderPanel';
+import TicketComments from '@/components/features/ticketing/TicketComments';
 import TicketRequestFields, { NameSelect, specsFromTicket } from '@/components/features/ticketing/TicketRequestFields';
 import ConfirmDialog from '@/components/shared/ConfirmDialog';
 import { Button } from '@/components/ui/button';
@@ -32,11 +33,14 @@ import PhoneLink from '@/components/shared/PhoneLink';
 import { formatAmountOrDash } from '@/lib/priceUtils';
 import CheckoutPaymentSection from '@/components/features/checkout/CheckoutPaymentSection';
 
-const STATUS_TONES = {
+export const STATUS_TONES = {
   awaiting_g2d: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
   g2d_shared: 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200',
   awaiting_cad: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
   awaiting_customer_feedback: 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
+  g2d_approved: 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200',
+  ready_to_confirm: 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200',
+  in_progress: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
   final_received: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
   awaiting_final: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
   order_placed: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
@@ -63,7 +67,7 @@ const STAGE_BY_STATUS = {
   order_placed: 6,
 };
 
-const ACTION_LABELS = {
+export const ACTION_LABELS = {
   ticket_created: 'Ticket created',
   request_updated: 'Request updated',
   share_g2d_estimate: 'G2D estimate shared by CAD team',
@@ -81,39 +85,39 @@ const ACTION_LABELS = {
   pos_order_placed: 'Order placed in OrnaVerse',
 };
 
-const SPEC_LABELS = [
+export const SPEC_LABELS = [
   ['category', 'Category'], ['size', 'Size'], ['budget', 'Budget'],
   ['karat', 'Karat'], ['metal', 'Metal color'], ['gold_weight', 'Metal weight (g)'],
 ];
 
 
-const formatDateTime = (value) => (value
+export const formatDateTime = (value) => (value
   ? new Date(value).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
   : '—');
 
 // OrnaVerse keeps birthdays/anniversaries as day + month with year 0001 when the year isn't known.
-const formatProfileDate = (value) => {
+export const formatProfileDate = (value) => {
   const d = value ? new Date(value) : null;
   if (!d || Number.isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', ...(d.getFullYear() > 1900 && { year: 'numeric' }) });
 };
 
-const formatSpec = (key, value) => {
+export const formatSpec = (key, value) => {
   if (value == null || value === '') return '—';
   return key === 'budget' ? formatAmountOrDash(value) : String(value);
 };
 
-const designFiles = (design) => design.files.map((f) => ({
+export const designFiles = (design) => design.files.map((f) => ({
   ...f,
   type: /\.pdf($|\?)/i.test(f.url) ? 'application/pdf' : 'image/*',
 }));
 
-const versionText = (version) => `V${String(version).replace(/^v/i, '')}`;
+export const versionText = (version) => `V${String(version).replace(/^v/i, '')}`;
 
-export function TicketStatusBadge({ status }) {
+export function TicketStatusBadge({ status, label }) {
   return (
     <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_TONES[status] ?? 'bg-muted text-muted-foreground'}`}>
-      {ticketStatusLabel(status)}
+      {label ?? ticketStatusLabel(status)}
     </span>
   );
 }
@@ -147,7 +151,7 @@ function StageTracker({ status }) {
   );
 }
 
-function Card({ title, action, children, className = '' }) {
+export function Card({ title, action, children, className = '' }) {
   return (
     <section className={`rounded-xl border border-border bg-card p-4 sm:p-5 flex flex-col gap-3 ${className}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -159,7 +163,7 @@ function Card({ title, action, children, className = '' }) {
   );
 }
 
-function InfoGrid({ items, columns = 'sm:grid-cols-2 lg:grid-cols-3' }) {
+export function InfoGrid({ items, columns = 'sm:grid-cols-2 lg:grid-cols-3' }) {
   return (
     <dl className={`grid grid-cols-1 gap-x-6 gap-y-3 text-sm ${columns}`}>
       {items.map(([label, value]) => (
@@ -172,7 +176,7 @@ function InfoGrid({ items, columns = 'sm:grid-cols-2 lg:grid-cols-3' }) {
   );
 }
 
-function TextBlock({ label, children }) {
+export function TextBlock({ label, children }) {
   return (
     <div className="flex flex-col gap-1 text-sm">
       <span className="text-xs text-muted-foreground">{label}</span>
@@ -181,7 +185,7 @@ function TextBlock({ label, children }) {
   );
 }
 
-function ReasonDialog({ isOpen, onOpenChange, title, description, label, confirmLabel, confirmVariant = 'default', isPending, onConfirm }) {
+export function ReasonDialog({ isOpen, onOpenChange, title, description, label, confirmLabel, confirmVariant = 'default', isPending, onConfirm }) {
   const [text, setText] = useState('');
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) setText(''); onOpenChange(open); }}>
@@ -224,18 +228,18 @@ function StepCard({ step, title, isCurrent, prompt, actions, children }) {
   );
 }
 
-function DecisionTag({ decision }) {
+export function DecisionTag({ decision }) {
   if (decision === 'approved') return <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Approved</span>;
   if (decision === 'rejected') return <span className="text-xs font-medium text-destructive">Changes requested</span>;
   return null;
 }
 
-const todayIso = () => {
+export const todayIso = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-function FormField({ label, htmlFor, required, children, className = '' }) {
+export function FormField({ label, htmlFor, required, children, className = '' }) {
   return (
     <div className={`flex flex-col gap-1.5 ${className}`}>
       <Label htmlFor={htmlFor}>{label} {required && <span className="text-destructive">*</span>}</Label>
@@ -244,7 +248,7 @@ function FormField({ label, htmlFor, required, children, className = '' }) {
   );
 }
 
-function FormSection({ title, children }) {
+export function FormSection({ title, children }) {
   return (
     <fieldset className="flex flex-col gap-3 rounded-lg border border-border p-3 sm:p-4">
       <legend className="px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</legend>
@@ -257,7 +261,7 @@ const formatQty = (value, unit) => (value == null || value === '' ? '—' : `${v
 
 const LABOUR_TYPE_LABELS = { per_gram: 'Per gram', percentage: 'Percentage', fixed: 'Fixed' };
 
-function FinalDetails({ details }) {
+export function FinalDetails({ details }) {
   const { lineItem = {}, metal, stones = [], labour } = details;
   return (
     <div className="flex flex-col gap-4">
@@ -593,7 +597,7 @@ const REOPEN_TARGETS = [
   { value: 'final', label: 'Final details only', hint: 'Design stays approved; the workflow team re-sends the final details & SKU.' },
 ];
 
-function ReopenFinalDialog({ isOpen, onOpenChange, isPending, onConfirm }) {
+export function ReopenFinalDialog({ isOpen, onOpenChange, isPending, onConfirm }) {
   const [target, setTarget] = useState('cad');
   const [reason, setReason] = useState('');
   return (
@@ -632,7 +636,7 @@ function ReopenFinalDialog({ isOpen, onOpenChange, isPending, onConfirm }) {
   );
 }
 
-function PreviousFinalDetails({ revisions }) {
+export function PreviousFinalDetails({ revisions }) {
   return (
     <details className="rounded-lg border border-border p-3 text-sm">
       <summary className="cursor-pointer font-medium text-foreground">Previous final details ({revisions.length})</summary>
@@ -652,7 +656,7 @@ function PreviousFinalDetails({ revisions }) {
   );
 }
 
-function EditRequestDialog({ ticket, isOpen, onOpenChange, isPending, onSave }) {
+export function EditRequestDialog({ ticket, isOpen, onOpenChange, isPending, onSave, maxFiles }) {
   const [specs, setSpecs] = useState(() => specsFromTicket(ticket.requested_specs));
   const [files, setFiles] = useState([]);
   return (
@@ -668,6 +672,7 @@ function EditRequestDialog({ ticket, isOpen, onOpenChange, isPending, onSave }) 
           files={files}
           onFilesChange={setFiles}
           existingFileCount={ticket.reference_images?.length ?? 0}
+          maxFiles={maxFiles}
         />
         <DialogFooter>
           <Button type="button" variant="outline" className="h-11" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -730,7 +735,7 @@ export default function TicketDetail({ ticket, partyId }) {
             {ticket.customer_name} · {requested.category ?? '—'} · Raised {formatDateTime(ticket.created_at)}
           </p>
         </div>
-        {!isCancelled && (
+        {!isCancelled && status !== TICKET_STATUS.ORDER_PLACED && (
           <Button type="button" className="h-11 gap-1.5 bg-red-600 text-white hover:bg-red-700 hover:text-white" onClick={() => setDialog('cancel')}>
             <XCircle size={16} aria-hidden="true" /> Cancel ticket
           </Button>
@@ -783,7 +788,7 @@ export default function TicketDetail({ ticket, partyId }) {
           >
             {g2d.length === 0 ? (
               <p className="text-sm text-muted-foreground">The CAD team hasn&apos;t shared the G2D estimate yet.</p>
-            ) : g2d.map((estimate) => (
+            ) : [...g2d].reverse().map((estimate) => (
               <div key={estimate.round} className="flex flex-col gap-3 border-t border-border pt-3 first:border-0 first:pt-0">
                 <div className="flex flex-wrap items-center gap-2 text-sm">
                   <span className="font-semibold">Round {estimate.round}</span>
@@ -854,7 +859,7 @@ export default function TicketDetail({ ticket, partyId }) {
               <p className="text-sm text-muted-foreground">
                 {status === TICKET_STATUS.AWAITING_CAD ? 'The CAD team is working on the design.' : 'The CAD design follows once the G2D estimate is approved.'}
               </p>
-            ) : designs.map((design) => (
+            ) : [...designs].reverse().map((design) => (
               <div key={design.version} className="flex flex-col gap-2 border-t border-border pt-3 first:border-0 first:pt-0">
                 <div className="flex flex-wrap items-center gap-2 text-sm">
                   <span className="font-semibold">{design.label}</span>
@@ -938,6 +943,8 @@ export default function TicketDetail({ ticket, partyId }) {
               ]}
             />
           </Card>
+
+          <TicketComments ticket={ticket} partyId={partyId} />
 
           <Card title="History">
             <ol className="flex flex-col gap-3 border-l border-border pl-4">

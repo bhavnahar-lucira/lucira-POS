@@ -46,7 +46,7 @@ function CheckIcon({ ok }) {
     : <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-label="Mismatch" />;
 }
 
-function ChecksList({ checks }) {
+export function ChecksList({ checks }) {
   return (
     <ul className="flex flex-col gap-2 sm:hidden">
       {checks.map((c) => (
@@ -69,7 +69,7 @@ function ChecksList({ checks }) {
   );
 }
 
-function ChecksTable({ checks }) {
+export function ChecksTable({ checks }) {
   return (
     <div className="hidden overflow-x-auto rounded-lg border border-border sm:block">
       <table className="w-full text-sm">
@@ -101,18 +101,8 @@ function ChecksTable({ checks }) {
   );
 }
 
-/** Builds the order straight from the workflow team's final details, highlighting anything that doesn't match OrnaVerse. */
-export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) {
-  const router = useRouter();
-  const dispatch = useDispatch();
-  const cartCustomerId = useSelector(selectCartCustomerId);
-  const cartItems = useSelector(selectCartItems);
-  const action = useTicketAction(ticket.ticket_number, { partyId });
-  const [note, setNote] = useState('');
-  const [isAttaching, setIsAttaching] = useState(false);
-  const [overrides, setOverrides] = useState({});
-  const chooseOverride = (key, value) => setOverrides((prev) => ({ ...prev, [key]: Number(value) }));
-
+/** OrnaVerse lists the order builder maps the workflow team's values against. */
+export function useOrderLookups() {
   const { items } = useCustomEstimateItems();
   const { data: itemGroupsRaw } = useItemGroups();
   const stoneItemGroups = (itemGroupsRaw ?? []).filter((g) => g.base_item_id === APP_CONFIG.CUSTOM_ESTIMATE_STONE_BASE_ITEM_ID);
@@ -121,61 +111,23 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
   const { options: shapeOptions } = useAttributeOptions(APP_CONFIG.ATTRIBUTE_TYPES.DIAMOND_SHAPE);
   const { options: colorOptions } = useAttributeOptions(APP_CONFIG.ATTRIBUTE_TYPES.STONE_COLOR);
   const { options: qualityOptions } = useAttributeOptions(APP_CONFIG.ATTRIBUTE_TYPES.STONE_QUALITY);
-  const lookupsReady = items.length > 0 && karatOptions.length > 0 && metalColorOptions.length > 0
+  const ready = items.length > 0 && karatOptions.length > 0 && metalColorOptions.length > 0
     && stoneItemGroups.length > 0 && shapeOptions.length > 0 && colorOptions.length > 0 && qualityOptions.length > 0;
+  return {
+    ready,
+    lookups: { items, karatOptions, metalColorOptions, stoneItemGroups, shapeOptions, colorOptions, qualityOptions },
+  };
+}
 
-  const final = ticket.final_details;
-  const query = useQuery({
-    queryKey: ['ticket-order', ticket.ticket_number, ticket.updated_at, overrides],
-    queryFn: () => buildOrderFromFinal(final, ticket, {
-      items, karatOptions, metalColorOptions, stoneItemGroups, shapeOptions, colorOptions, qualityOptions,
-    }, overrides),
-    enabled: !!final && lookupsReady,
-    placeholderData: keepPreviousData,
-    staleTime: 0,
-    gcTime: 0,
-    retry: false,
-    refetchOnWindowFocus: false,
-  });
+/** Puts a ticket's order lines in the cart for its customer and opens checkout. lines: [{ item, line, summary }]. */
+export function useTicketCartHandoff(ticket) {
+  const router = useRouter();
+  const dispatch = useDispatch();
+  const cartCustomerId = useSelector(selectCartCustomerId);
+  const cartItems = useSelector(selectCartItems);
+  const [isAttaching, setIsAttaching] = useState(false);
 
-  if (!lookupsReady || query.isLoading) return <InlineLoader label="Building the order from the workflow team's final details…" />;
-  if (query.isError) {
-    return (
-      <div className="flex flex-col gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-        <p>{query.error?.message ?? 'The order could not be built.'}</p>
-        <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => query.refetch()}>Try again</Button>
-      </div>
-    );
-  }
-
-  const { blockers = [], warnings = [], review = [], unresolved = [], checks = [], line, item, summary } = query.data ?? {};
-  const mismatches = checks.filter((c) => !c.ok);
-  // Rate/figure differences (the rate was locked when the ticket was created) and mapped values are shown
-  // for information and logged to the ticket history; only values with no OrnaVerse match need a choice.
-  const hasNotes = mismatches.length > 0 || review.length > 0;
-  const isRebuilding = query.isFetching && query.isPlaceholderData;
-  const pendingChoices = unresolved.filter((u) => u.chosen == null).length;
-  const canProceed = !!line && !blockers.length && !pendingChoices && !isRebuilding;
-
-  const recordAcknowledgement = () => (hasNotes
-    ? action.mutateAsync({
-      action: 'acknowledge_pricing',
-      mismatches: [
-        ...mismatches.map((c) => ({ label: c.label, workflow: c.workflow ?? null, reference: c.reference ?? null })),
-        ...review.map((r) => ({ label: r.slice(0, 200), workflow: null, reference: null })),
-      ].slice(0, 30),
-      note: note.trim() || null,
-    }).catch(() => {
-      toast.warning('The acknowledgement could not be saved to the ticket history — the order still proceeds.');
-    })
-    : Promise.resolve());
-
-  const handleCheckout = async () => {
-    try {
-      await recordAcknowledgement();
-    } catch (err) {
-      return toast.error(err.message);
-    }
+  const sendToCart = async (lines) => {
     // The order is always for the ticket's customer — re-attached here if they were logged out (e.g. idle timeout)
     // or another customer is on the cart.
     if (cartCustomerId !== ticket.customer_party_id) {
@@ -207,7 +159,7 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
       toast.success(`Customer ${customer.customerName} logged in from ticket ${ticket.ticket_number}.`);
     }
     // A custom line left in the saved cart (an earlier estimate, or an earlier try at this ticket) would be
-    // ordered alongside this one, so only the line built from this ticket's current data goes to checkout.
+    // ordered alongside this one, so only the lines built from this ticket's current data go to checkout.
     const staleLines = (cartCustomerId === ticket.customer_party_id ? cartItems : []).filter((i) => i.customLine);
     for (const stale of staleLines) {
       dispatch(removeItem({
@@ -216,37 +168,38 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
       }));
     }
     if (staleLines.length) toast.info('An earlier custom order line was removed from the cart.');
-    dispatch(addItem({
-      itemId: item.item_id,
-      itemCode: item.item_code,
-      itemName: item.item_name,
-      quantity: 1,
-      unitPrice: summary.subTotal,
-      sizeId: line.item_size_id ?? null,
-      sizeName: summary.sizeName,
-      attributes: { karat: summary.karat, metal_color: summary.color },
-      image: summary.imagePath ? resolveImageSrc(summary.imagePath) : null,
-      productUrl: null,
-      hasStock: false,
-      customLineId: crypto.randomUUID(),
-      customLine: line,
-      ticketNumber: ticket.ticket_number,
-    }));
+    for (const { item, line, summary } of lines) {
+      dispatch(addItem({
+        itemId: item.item_id,
+        itemCode: item.item_code,
+        itemName: item.item_name,
+        quantity: 1,
+        unitPrice: summary.subTotal,
+        sizeId: line.item_size_id ?? null,
+        sizeName: summary.sizeName,
+        attributes: { karat: summary.karat, metal_color: summary.color },
+        image: summary.imagePath ? resolveImageSrc(summary.imagePath) : null,
+        productUrl: null,
+        hasStock: false,
+        customLineId: crypto.randomUUID(),
+        customLine: line,
+        ticketNumber: ticket.ticket_number,
+      }));
+    }
     toast.success(`Order for ${ticket.ticket_number} added to the cart.`);
     router.push('/checkout');
   };
 
-  return (
-    <div className="flex flex-col gap-4 rounded-lg border border-primary/30 bg-primary/5 p-3 sm:p-4">
-      <div className="flex flex-col gap-1">
-        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Order from the workflow team&apos;s final details</span>
-        <p className="text-sm text-foreground">
-          {summary
-            ? <>The order uses the workflow team&apos;s figures exactly: <strong>{summary.itemName}</strong>, {summary.karat}{summary.color ? ` ${summary.color}` : ''}, {summary.weight} g · net <strong>{formatAmountOrDash(summary.netAmount)}</strong>.</>
-            : 'The order cannot be built from these final details.'}
-        </p>
-      </div>
+  return { sendToCart, isAttaching };
+}
 
+/** Blockers, OrnaVerse choices, mapping notes, figure checks and totals for one order line. */
+export function OrderLineReview({ result, overrides, onChoose }) {
+  const { blockers = [], warnings = [], review = [], unresolved = [], checks = [], summary } = result ?? {};
+  const mismatches = checks.filter((c) => !c.ok);
+  const pendingChoices = unresolved.filter((u) => u.chosen == null).length;
+  return (
+    <>
       {blockers.length > 0 && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
           <p className="font-medium">The order can&apos;t be placed until the workflow team corrects:</p>
@@ -265,7 +218,7 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
                 Stone {u.name} <strong>&quot;{u.raw || 'not given'}&quot;</strong>
                 <span className="text-xs"> · {u.stones} stone{u.stones > 1 ? 's' : ''}</span>
               </span>
-              <Select value={overrides[u.key] != null ? String(overrides[u.key]) : ''} onValueChange={(v) => chooseOverride(u.key, v)}>
+              <Select value={overrides[u.key] != null ? String(overrides[u.key]) : ''} onValueChange={(v) => onChoose(u.key, v)}>
                 <SelectTrigger className="h-10 w-full bg-background sm:w-56" aria-label={`OrnaVerse ${u.name} for "${u.raw || 'not given'}"`}>
                   <SelectValue placeholder={`Choose ${u.name}`} />
                 </SelectTrigger>
@@ -316,6 +269,84 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
           ))}
         </dl>
       )}
+    </>
+  );
+}
+
+/** Builds the order straight from the workflow team's final details, highlighting anything that doesn't match OrnaVerse. */
+export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) {
+  const action = useTicketAction(ticket.ticket_number, { partyId });
+  const [note, setNote] = useState('');
+  const [overrides, setOverrides] = useState({});
+  const chooseOverride = (key, value) => setOverrides((prev) => ({ ...prev, [key]: Number(value) }));
+  const { ready: lookupsReady, lookups } = useOrderLookups();
+  const { sendToCart, isAttaching } = useTicketCartHandoff(ticket);
+
+  const final = ticket.final_details;
+  const query = useQuery({
+    queryKey: ['ticket-order', ticket.ticket_number, ticket.updated_at, overrides],
+    queryFn: () => buildOrderFromFinal(final, ticket, lookups, overrides),
+    enabled: !!final && lookupsReady,
+    placeholderData: keepPreviousData,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+
+  if (!lookupsReady || query.isLoading) return <InlineLoader label="Building the order from the workflow team's final details…" />;
+  if (query.isError) {
+    return (
+      <div className="flex flex-col gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+        <p>{query.error?.message ?? 'The order could not be built.'}</p>
+        <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => query.refetch()}>Try again</Button>
+      </div>
+    );
+  }
+
+  const { blockers = [], review = [], unresolved = [], checks = [], line, item, summary } = query.data ?? {};
+  const mismatches = checks.filter((c) => !c.ok);
+  // Rate/figure differences (the rate was locked when the ticket was created) and mapped values are shown
+  // for information and logged to the ticket history; only values with no OrnaVerse match need a choice.
+  const hasNotes = mismatches.length > 0 || review.length > 0;
+  const isRebuilding = query.isFetching && query.isPlaceholderData;
+  const pendingChoices = unresolved.filter((u) => u.chosen == null).length;
+  const canProceed = !!line && !blockers.length && !pendingChoices && !isRebuilding;
+
+  const recordAcknowledgement = () => (hasNotes
+    ? action.mutateAsync({
+      action: 'acknowledge_pricing',
+      mismatches: [
+        ...mismatches.map((c) => ({ label: c.label, workflow: c.workflow ?? null, reference: c.reference ?? null })),
+        ...review.map((r) => ({ label: r.slice(0, 200), workflow: null, reference: null })),
+      ].slice(0, 30),
+      note: note.trim() || null,
+    }).catch(() => {
+      toast.warning('The acknowledgement could not be saved to the ticket history — the order still proceeds.');
+    })
+    : Promise.resolve());
+
+  const handleCheckout = async () => {
+    try {
+      await recordAcknowledgement();
+    } catch (err) {
+      return toast.error(err.message);
+    }
+    await sendToCart([{ item, line, summary }]);
+  };
+
+  return (
+    <div className="flex flex-col gap-4 rounded-lg border border-primary/30 bg-primary/5 p-3 sm:p-4">
+      <div className="flex flex-col gap-1">
+        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Order from the workflow team&apos;s final details</span>
+        <p className="text-sm text-foreground">
+          {summary
+            ? <>The order uses the workflow team&apos;s figures exactly: <strong>{summary.itemName}</strong>, {summary.karat}{summary.color ? ` ${summary.color}` : ''}, {summary.weight} g · net <strong>{formatAmountOrDash(summary.netAmount)}</strong>.</>
+            : 'The order cannot be built from these final details.'}
+        </p>
+      </div>
+
+      <OrderLineReview result={query.data} overrides={overrides} onChoose={chooseOverride} />
 
       {hasNotes && !blockers.length && (
         <div className="flex flex-col gap-2 rounded-lg border border-amber-300 bg-background p-3 dark:border-amber-800">

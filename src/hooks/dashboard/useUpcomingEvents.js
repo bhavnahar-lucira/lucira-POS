@@ -35,9 +35,13 @@ function toUpcomingEvents(customers, field, type, todayMidnight) {
     const d = new Date(raw);
     if (isNaN(d.getTime())) continue;
 
-    const occurrence = nextOccurrence(d.getMonth(), d.getDate(), todayMidnight);
+    // Occasions earlier this month stay listed until the month changes.
+    const thisMonth = d.getMonth() === todayMidnight.getMonth()
+      ? new Date(todayMidnight.getFullYear(), d.getMonth(), d.getDate())
+      : null;
+    const occurrence = thisMonth ?? nextOccurrence(d.getMonth(), d.getDate(), todayMidnight);
     const daysUntil = daysBetween(todayMidnight, occurrence);
-    if (daysUntil > WINDOW_DAYS) continue;
+    if (!thisMonth && daysUntil > WINDOW_DAYS) continue;
 
     events.push({
       partyId:    c.customerId,
@@ -51,7 +55,8 @@ function toUpcomingEvents(customers, field, type, todayMidnight) {
       isToday:    daysUntil === 0,
     });
   }
-  return events.sort((a, b) => a.daysUntil - b.daysUntil);
+  // Upcoming first (soonest on top), then this month's passed ones (most recent first).
+  return events.sort((a, b) => (a.daysUntil < 0) - (b.daysUntil < 0) || (a.daysUntil < 0 ? b.daysUntil - a.daysUntil : a.daysUntil - b.daysUntil));
 }
 
 // Store codes of the other stores each event's customer has walked into.

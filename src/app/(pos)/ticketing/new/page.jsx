@@ -6,6 +6,8 @@ import { useSelector } from 'react-redux';
 import { ArrowLeft } from 'lucide-react';
 
 import TicketForm from '@/components/features/ticketing/TicketForm';
+import TicketMultiForm from '@/components/features/ticketing/TicketMultiForm';
+import { MULTI_PRODUCT_TICKETS_ENABLED } from '@/lib/ticketing/constants';
 import { ticketHref } from '@/components/features/ticketing/TicketList';
 import { Button } from '@/components/ui/button';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
@@ -24,7 +26,9 @@ export default function NewTicketPage() {
       </div>
 
       {storeId ? (
-        <TicketForm onCreated={(ticket) => router.replace(ticketHref(ticket.ticket_number))} />
+        MULTI_PRODUCT_TICKETS_ENABLED
+          ? <TicketMultiForm onCreated={(ticket) => router.replace(ticketHref(ticket.ticket_number))} />
+          : <TicketForm onCreated={(ticket) => router.replace(ticketHref(ticket.ticket_number))} />
       ) : (
         <div className="rounded-xl border border-border p-6 text-center">
           <p className="text-sm text-muted-foreground">No store selected. Please switch to a store to raise a ticket.</p>
