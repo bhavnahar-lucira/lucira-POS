@@ -20,8 +20,7 @@ import { useSelector } from 'react-redux';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import TOAST from '@/constants/toastMessages';
 import APP_CONFIG from '@/constants/appConfig';
-
-const MOBILE_REGEX = /^\d{10}$/;
+import { indianMobileFromQuery } from '@/lib/phoneFormat';
 
 /**
  * @param {{
@@ -38,10 +37,11 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
   const { endVisit } = useEndCustomerVisit();
 
   const trimmed = (searchQuery ?? '').trim();
-  const isMobileSearch = MOBILE_REGEX.test(trimmed);
+  const mobileQuery = indianMobileFromQuery(trimmed);
+  const isMobileSearch = !!mobileQuery;
   const isNameSearch   = !isMobileSearch && trimmed.length >= APP_CONFIG.SEARCH.MIN_QUERY_LENGTH;
 
-  const { customer: mobileMatch, isLoading, isError, notFound } = useCustomerLookup(trimmed, {
+  const { customer: mobileMatch, isLoading, isError, notFound } = useCustomerLookup(mobileQuery ?? '', {
     enabled: isMobileSearch,
   });
   const companyId = useSelector(selectActiveStoreId);
@@ -95,7 +95,7 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
   };
 
   const handleAttachFound = () => {
-    performAttach({ ...customer, customerContactMobile: isMobileSearch ? trimmed : null });
+    performAttach({ ...customer, customerContactMobile: isMobileSearch ? mobileQuery : null });
   };
 
   const handleSelectNameResult = (selected) => {
@@ -174,7 +174,7 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
               <p className="text-sm text-muted-foreground">{TOAST.CUSTOMER.NOT_FOUND}</p>
               <p className="text-sm font-semibold text-foreground/80">Create New Customer</p>
               <NewCustomerForm
-                defaultMobile={trimmed}
+                defaultMobile={mobileQuery}
                 onCreated={handleNewCustomerCreated}
               />
             </div>

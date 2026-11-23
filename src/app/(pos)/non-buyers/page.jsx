@@ -20,7 +20,8 @@ import { selectActiveStoreId, selectActiveStoreName, selectAvailableStores } fro
 import { selectIsSuperAdmin } from '@/store/slices/authSlice';
 import { todayDateString } from '@/lib/dateUtils';
 import { RECENCY_OPTIONS, VISIT_FREQUENCY_OPTIONS } from '@/lib/buyers/buyerFilters';
-import APP_CONFIG from '@/constants/appConfig';
+import APP_CONFIG from '@/constants/appConfig';
+import { indianMobileFromQuery } from '@/lib/phoneFormat';
 
 // Every non-buyer is shown by default; the filters narrow it down.
 const MIN_VISITS = '1';
@@ -83,7 +84,7 @@ export default function NonBuyersPage() {
   const handleSearchChange = (value) => {
     setSearch(value);
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setDebouncedSearch(value.trim()), APP_CONFIG.SEARCH.DEBOUNCE_MS);
+    debounceRef.current = setTimeout(() => setDebouncedSearch(indianMobileFromQuery(value) ?? value.trim()), APP_CONFIG.SEARCH.DEBOUNCE_MS);
   };
   const clearSearch = () => {
     clearTimeout(debounceRef.current);

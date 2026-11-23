@@ -53,7 +53,7 @@ import { buildSkuIndex, matchBySku } from '@/lib/catalog/matchCatalogBySku';
 import { useMasterItemsByCode } from '@/hooks/catalog/useMasterItemsByCode';
 import { useLiveCatalogPrices }   from '@/hooks/catalog/useLiveCatalogPrices';
 import { useCrossStoreStockCodes } from '@/hooks/catalog/useCrossStoreStockCodes';
-import { useCountries, useStates, useCities } from '@/hooks/settings/useLocation';
+import { useCountries, useStates, useCities, useIndiaCountryId } from '@/hooks/settings/useLocation';
 import ProductCard from '@/components/features/catalog/ProductCard';
 import { Badge } from '@/components/ui/badge';
 import Logo from '@/components/shared/Logo';
@@ -325,6 +325,11 @@ function EditTab({ customer, onSaved }) {
   const { countries, isLoading: countriesLoading } = useCountries();
   const { states,    isLoading: statesLoading }    = useStates(countryId);
   const { cities,    isLoading: citiesLoading }    = useCities(stateId);
+
+  const indiaId = useIndiaCountryId();
+  useEffect(() => {
+    if (indiaId && countryId == null && raw?.state_id == null) setValue('country_id', indiaId);
+  }, [indiaId, countryId, raw?.state_id, setValue]);
 
   const onSubmit = async (formChanges) => {
     await updateCustomer.mutateAsync({

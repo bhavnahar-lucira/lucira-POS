@@ -15,8 +15,7 @@ import { useCustomerLookup } from '@/hooks/customer/useCustomerLookup';
 import { useCustomerSearch } from '@/hooks/customer/useCustomerSearch';
 import { useCart } from '@/hooks/cart/useCart';
 import APP_CONFIG from '@/constants/appConfig';
-
-const MOBILE_REGEX = /^\d{10}$/;
+import { indianMobileFromQuery } from '@/lib/phoneFormat';
 
 export default function CustomersPage() {
   const [inputVal, setInputVal] = useState('');
@@ -31,11 +30,12 @@ export default function CustomersPage() {
   const cart = useCart();
 
   const trimmed = searchQuery.trim();
-  const isMobileSearch = MOBILE_REGEX.test(trimmed);
+  const mobileQuery = indianMobileFromQuery(trimmed);
+  const isMobileSearch = !!mobileQuery;
   const isNameSearch = !isMobileSearch && trimmed.length >= APP_CONFIG.SEARCH.MIN_QUERY_LENGTH;
 
   const { customer: lookedUpCustomer, isLoading: isLookingUp, notFound, isError: isLookupError, refetch: refetchLookup } = useCustomerLookup(
-    trimmed,
+    mobileQuery ?? '',
     { enabled: isMobileSearch }
   );
 
@@ -81,7 +81,7 @@ export default function CustomersPage() {
     if (wouldSwitchCustomer(customer.customerId)) {
       cart.detachCustomer();
     }
-    cart.attachCustomer({ ...customer, customerContactMobile: isMobileSearch ? trimmed : null });
+    cart.attachCustomer({ ...customer, customerContactMobile: isMobileSearch ? mobileQuery : null });
     setSelectedCustomer(null);
   };
 
@@ -202,7 +202,7 @@ export default function CustomersPage() {
         title="New Customer"
       >
         <NewCustomerForm
-          defaultMobile={isMobileSearch ? trimmed : ''}
+          defaultMobile={isMobileSearch ? mobileQuery : ''}
           onCreated={(customer) => {
             handleAttach(customer);
             setIsNewCustomerOpen(false);

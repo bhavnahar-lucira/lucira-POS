@@ -25,7 +25,8 @@ import { selectActiveStoreId, selectActiveStoreName } from '@/store/slices/store
 import { todayDateString } from '@/lib/dateUtils';
 import PhoneLink from '@/components/shared/PhoneLink';
 import { formatAmountOrNull } from '@/lib/priceUtils';
-import { WALKIN_PURPOSES } from '@/constants/walkin';
+import { WALKIN_PURPOSES } from '@/constants/walkin';
+import { indianMobileFromQuery } from '@/lib/phoneFormat';
 
 const isStoreWalkin = (visit) => !visit.source || /walk/i.test(visit.source);
 const last4 = (mobile) => String(mobile ?? '').replace(/\D/g, '').slice(-4);
@@ -275,7 +276,7 @@ export default function WalkInsPage() {
     return [...new Set([...WALKIN_PURPOSES.filter((p) => p !== 'Walk-in'), ...recorded])];
   }, [enriched]);
 
-  const term = search.trim().toLowerCase();
+  const term = indianMobileFromQuery(search) ?? search.trim().toLowerCase();
   const filtered = enriched.filter((v) => {
     const day = istDay(v.visitedAt);
     if (fromDate && (!day || day < fromDate)) return false;

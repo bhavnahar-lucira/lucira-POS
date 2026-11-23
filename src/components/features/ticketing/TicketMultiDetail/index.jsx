@@ -8,6 +8,9 @@ import { Check, CheckCircle2, ClipboardCheck, MessageSquareWarning, Pencil, Plus
 
 import TicketFileThumb from '@/components/features/ticketing/TicketFileThumb';
 import TicketComments from '@/components/features/ticketing/TicketComments';
+import {
+  HoldButton, ResponseStatusBar, ResponseTimesCard, ResponseHistoryDetail,
+} from '@/components/features/ticketing/ResponseTimer';
 import TicketRequestFields, { EMPTY_SPECS, NameSelect } from '@/components/features/ticketing/TicketRequestFields';
 import { productProblem } from '@/components/features/ticketing/TicketMultiForm';
 import { OrderLineReview, useOrderLookups, useTicketCartHandoff } from '@/components/features/ticketing/TicketOrderPanel';
@@ -764,6 +767,7 @@ export default function TicketMultiDetail({ ticket, partyId }) {
         </div>
         {canChange && (
           <div className="flex flex-wrap gap-2">
+            <HoldButton ticket={ticket} run={run} isPending={action.isPending} />
             {active.length < TICKET_MAX_ITEMS && (
               <Button type="button" className="h-11 gap-1.5" onClick={() => setDialog('add')}>
                 <Plus size={16} aria-hidden="true" /> Add product
@@ -775,6 +779,8 @@ export default function TicketMultiDetail({ ticket, partyId }) {
           </div>
         )}
       </div>
+
+      {canChange && <ResponseStatusBar ticket={ticket} />}
 
       {isCancelled && (
         <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm flex flex-col gap-1">
@@ -856,6 +862,8 @@ export default function TicketMultiDetail({ ticket, partyId }) {
 
           <TicketComments ticket={ticket} partyId={partyId} items={items} />
 
+          <ResponseTimesCard ticket={ticket} Card={Card} />
+
           <Card title="History">
             <ol className="flex flex-col gap-3 border-l border-border pl-4">
               {history.map((entry, i) => (
@@ -868,6 +876,7 @@ export default function TicketMultiDetail({ ticket, partyId }) {
                     {entry.changes?.round ? ` · Round ${entry.changes.round}` : ''}
                   </p>
                   <p className="text-xs text-muted-foreground">{formatDateTime(entry.at)} · {entry.user}{entry.store_code ? ` (${entry.store_code})` : ''}</p>
+                  <ResponseHistoryDetail entry={entry} />
                   {entry.changes?.item_ids && <p className="text-xs text-muted-foreground">{entry.changes.item_ids.join(', ')}</p>}
                   {entry.changes?.document_no && (
                     <p className="text-xs text-muted-foreground">Order {entry.changes.document_no}{entry.changes.net_amount ? ` · ${formatAmountOrDash(entry.changes.net_amount)}` : ''}</p>

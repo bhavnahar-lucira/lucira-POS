@@ -31,11 +31,12 @@ export async function GET(request) {
 
   try {
     const tickets = await (await getTicketsCollection())
-      .find(filter, { projection: { history: 0 } })
+      .find(filter, { projection: { customer_profile: 0 } })
       .sort({ created_at: -1 })
       .limit(LIST_LIMIT)
       .toArray();
-    return Response.json({ tickets: tickets.map(toPublicTicket) });
+    // History is needed to work out the response timers, but the list doesn't show it.
+    return Response.json({ tickets: tickets.map((t) => ({ ...toPublicTicket(t), history: undefined })) });
   } catch (err) {
     console.error('[api/ticketing] GET', err);
     return Response.json({ error: 'Failed to load tickets' }, { status: 500 });

@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 import DataTable from '@/components/shared/DataTable';
+import { ResponseBadge, useNow } from '@/components/features/ticketing/ResponseTimer';
+import { activeHold, mostUrgentStep } from '@/lib/ticketing/responseTimer';
 import { useTickets } from '@/hooks/ticketing/useTickets';
 import { ticketStatusLabel } from '@/lib/ticketing/constants';
 import { formatDatePadded } from '@/lib/dateUtils';
@@ -35,6 +37,7 @@ function ProductLines({ row, field }) {
 export default function TicketList({ partyId }) {
   const router = useRouter();
   const { data: tickets = [], isFetching, isError, refetch } = useTickets({ partyId });
+  const now = useNow(60 * 1000);
 
   const columns = useMemo(() => [
     {
@@ -55,22 +58,23 @@ export default function TicketList({ partyId }) {
     { key: 'sales_person_name', label: 'Jewelry Consultant' },
     { key: 'latest_design_label', label: 'Design', format: (v, row) => (row?.products ? <ProductLines row={row} field="design" /> : v ?? '—') },
     { key: 'status_label',      label: 'Status', filter: true, mobile: true, format: (v, row) => (row?.products ? <ProductLines row={row} field="status" /> : v) },
+    {
+      key: 'response_text',
+      label: 'Store response',
+      filter: true,
+      format: (v, row) => (row?.response ? <ResponseBadge timing={row.response} /> : row?.on_hold ? <span className="text-xs font-medium text-amber-700 dark:text-amber-300">On hold</span> : '—'),
+    },
   ], [partyId]);
 
-  const rows = useMemo(() => tickets.map((t) => (t.items
-    ? {
-      ...t,
-      products: t.items,
-      category: [...new Set(t.items.map((i) => i.requested_specs?.category).filter(Boolean))].join(', ') || null,
-      budget: t.budget_total ?? null,
-      status_label: ticketStatusLabel(t.status),
-    }
-    : {
-      ...t,
-      category: t.specs?.category ?? null,
-      budget: t.specs?.budget ?? null,
-      status_label: ticketStatusLabel(t.status),
-    })), [tickets]);
+  const rows = useMemo(() => tickets.map((t) => {
+    const timing = mostUrgentStep(t, now)?.timing ?? null;
+    const response = {
+      response: timing,
+      on_hold: !!activeHold(t.holds),
+      response_text: timing ? (timing.state === 'delayed' || timing.delayed_minutes ? 'Delayed' : timing.state === 'on_hold' ? 'On hold' : 'Within time') : activeHold(t.holds) ? 'On hold' : 'Not with store',
+    };
+    return { ...response, ...rowFields(t) };
+  }), [tickets, now]);
 
   return (
     <DataTable
@@ -83,4 +87,21 @@ export default function TicketList({ partyId }) {
       emptyMessage={partyId ? 'No tickets for this customer yet.' : 'No tickets raised from this store yet.'}
     />
   );
+}
+
+function rowFields(t) {
+  return (t.items
+    ? {
+      ...t,
+      products: t.items,
+      category: [...new Set(t.items.map((i) => i.requested_specs?.category).filter(Boolean))].join(', ') || null,
+      budget: t.budget_total ?? null,
+      status_label: ticketStatusLabel(t.status),
+    }
+    : {
+      ...t,
+      category: t.specs?.category ?? null,
+      budget: t.specs?.budget ?? null,
+      status_label: ticketStatusLabel(t.status),
+    });
 }

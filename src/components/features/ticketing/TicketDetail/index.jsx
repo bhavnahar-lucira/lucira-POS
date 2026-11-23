@@ -7,6 +7,9 @@ import { Check, CheckCircle2, MessageSquareWarning, Pencil, XCircle } from 'luci
 import TicketFileThumb from '@/components/features/ticketing/TicketFileThumb';
 import TicketOrderPanel from '@/components/features/ticketing/TicketOrderPanel';
 import TicketComments from '@/components/features/ticketing/TicketComments';
+import {
+  HoldButton, ResponseStatusBar, ResponseTimesCard, ResponseHistoryDetail, RESPONSE_ACTION_LABELS,
+} from '@/components/features/ticketing/ResponseTimer';
 import TicketRequestFields, { NameSelect, specsFromTicket } from '@/components/features/ticketing/TicketRequestFields';
 import ConfirmDialog from '@/components/shared/ConfirmDialog';
 import { Button } from '@/components/ui/button';
@@ -83,6 +86,7 @@ export const ACTION_LABELS = {
   final_reopened_cad: 'Final details sent back – design changes requested from CAD',
   ticket_cancelled: 'Ticket cancelled',
   pos_order_placed: 'Order placed in OrnaVerse',
+  ...RESPONSE_ACTION_LABELS,
 };
 
 export const SPEC_LABELS = [
@@ -270,7 +274,7 @@ export function FinalDetails({ details }) {
           ['Received', `${formatDateTime(details.received_at)}${details.received_by ? ` by ${details.received_by}` : ''}`],
           ['Manufacturing order (panel)', details.manufacturing_order_number ?? '—'],
           ['Panel status', details.panel_status_label ?? '—'],
-          ['SKU', lineItem.sku ?? details.sku ?? 'Not received yet'],
+          ['SKU', lineItem.design_code ?? details.design_code ?? 'Not received yet'],
         ]}
       />
 
@@ -691,15 +695,17 @@ export default function TicketDetail({ ticket, partyId }) {
   const [dialog, setDialog] = useState(null);
   const [advanceReceipt, setAdvanceReceipt] = useState(null);
 
-  const run = (payload, successMessage) => action.mutate(payload, {
+  const run = (payload, successMessage, onDone) => action.mutate(payload, {
     onSuccess: () => {
       toast.success(successMessage);
       setDialog(null);
+      onDone?.();
     },
     onError: (err) => toast.error(err.message),
   });
 
   const { status } = ticket;
+  const isLive = status !== TICKET_STATUS.CANCELLED && status !== TICKET_STATUS.ORDER_PLACED;
   const designs = ticket.designs ?? [];
   const g2d = ticket.g2d_estimates ?? [];
   const requested = ticket.requested_specs ?? ticket.specs ?? {};
@@ -735,12 +741,17 @@ export default function TicketDetail({ ticket, partyId }) {
             {ticket.customer_name} · {requested.category ?? '—'} · Raised {formatDateTime(ticket.created_at)}
           </p>
         </div>
-        {!isCancelled && status !== TICKET_STATUS.ORDER_PLACED && (
-          <Button type="button" className="h-11 gap-1.5 bg-red-600 text-white hover:bg-red-700 hover:text-white" onClick={() => setDialog('cancel')}>
-            <XCircle size={16} aria-hidden="true" /> Cancel ticket
-          </Button>
+        {isLive && (
+          <div className="flex flex-wrap gap-2">
+            <HoldButton ticket={ticket} run={run} isPending={action.isPending} />
+            <Button type="button" className="h-11 gap-1.5 bg-red-600 text-white hover:bg-red-700 hover:text-white" onClick={() => setDialog('cancel')}>
+              <XCircle size={16} aria-hidden="true" /> Cancel ticket
+            </Button>
+          </div>
         )}
       </div>
+
+      {isLive && <ResponseStatusBar ticket={ticket} />}
 
       {isCancelled ? (
         <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm flex flex-col gap-1">
@@ -946,6 +957,8 @@ export default function TicketDetail({ ticket, partyId }) {
 
           <TicketComments ticket={ticket} partyId={partyId} />
 
+          <ResponseTimesCard ticket={ticket} Card={Card} />
+
           <Card title="History">
             <ol className="flex flex-col gap-3 border-l border-border pl-4">
               {history.map((entry, i) => (
@@ -959,6 +972,7 @@ export default function TicketDetail({ ticket, partyId }) {
                   <p className="text-xs text-muted-foreground">
                     {formatDateTime(entry.at)} · {entry.user}{entry.store_code ? ` (${entry.store_code})` : ''}
                   </p>
+                  <ResponseHistoryDetail entry={entry} />
                   {entry.changes?.document_no && (
                     <p className="text-xs text-muted-foreground">
                       Order {entry.changes.document_no}

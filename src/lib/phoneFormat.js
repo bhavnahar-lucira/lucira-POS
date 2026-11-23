@@ -15,6 +15,12 @@ export function formatMobileWithCountryCode(raw) {
   return compact.startsWith('+') ? compact : `+91${compact}`;
 }
 
+/** The 10-digit Indian mobile in a search query typed as 8149639991, +91 81496 39991, 918149639991 or 08149639991; else null. */
+export function indianMobileFromQuery(query) {
+  const compact = String(query ?? '').trim().replace(/[\s\-().]/g, '');
+  return compact.match(/^(?:\+91|91|0)?(\d{10})$/)?.[1] ?? null;
+}
+
 export function toTelHref(raw) {
   if (raw == null) return null;
   const value = String(raw).trim();

@@ -24,6 +24,7 @@ import { useWalkInLookup } from '@/hooks/customer/useWalkInLookup';
 import { useSources } from '@/hooks/customer/useSources';
 import { useCategories } from '@/hooks/catalog/useCategoryFilters';
 import { useCountries, useStates, useCities } from '@/hooks/settings/useLocation';
+import { useAddressDefaults } from '@/hooks/customer/useAddressDefaults';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import { todayDateString } from '@/lib/dateUtils';
 import { GENDER_OPTIONS, MARITAL_STATUS_OPTIONS } from '@/constants/customerOptions';
@@ -31,7 +32,7 @@ import { GENDER_OPTIONS, MARITAL_STATUS_OPTIONS } from '@/constants/customerOpti
 export default function WalkInRegisterForm({ defaultMobile = '', defaultName = '', onRegistered }) {
   const [defaultFirst = '', ...defaultRest] = defaultName.trim().split(/\s+/);
   const {
-    register, handleSubmit, control, watch, setValue,
+    register, handleSubmit, control, watch, setValue, getValues,
     formState: { errors },
   } = useForm({
     resolver: zodResolver(walkInRegisterSchema),
@@ -46,12 +47,8 @@ export default function WalkInRegisterForm({ defaultMobile = '', defaultName = '
     },
   });
 
-  const countryId = watch('country_id');
-  const stateId   = watch('state_id');
+  const { countryId, stateId } = useAddressDefaults({ watch, setValue, getValues });
   const interest  = watch('interest');
-
-  useEffect(() => { setValue('state_id', null); setValue('city_id', null); }, [countryId, setValue]);
-  useEffect(() => { setValue('city_id', null); }, [stateId, setValue]);
 
   const activeStoreId = useSelector(selectActiveStoreId);
   const { countries, isLoading: countriesLoading } = useCountries();

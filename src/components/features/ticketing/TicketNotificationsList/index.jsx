@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
-import { ClipboardCheck, ClipboardList, Clock, MessageSquare, PenTool, Wallet } from 'lucide-react';
+import { ClipboardCheck, ClipboardList, Clock, MessageSquare, PauseCircle, PenTool, PlayCircle, Timer, Wallet } from 'lucide-react';
 
 import { ticketHref } from '@/components/features/ticketing/TicketList';
 import { QUERY_KEYS } from '@/constants/queryKeys';
+import { formatMinutes } from '@/lib/ticketing/responseTimer';
 
 function NoticeRow({ href, icon: Icon, tone, onNavigate, children }) {
   return (
@@ -22,6 +23,7 @@ function NoticeRow({ href, icon: Icon, tone, onNavigate, children }) {
 }
 
 const productText = (t) => (t.item_id ? ` (${t.item_id}${t.item_category ? ` · ${t.item_category}` : ''})` : '');
+const storeText = (t) => (t.store_code ? ` (${t.store_code})` : '');
 const noticeHref = (t) => `${ticketHref(t.ticket_number)}${t.item_id ? `#${t.item_id}` : ''}`;
 
 /** Ticket notices for the store that raised each ticket, until someone acts on it. */
@@ -39,10 +41,47 @@ export default function TicketNotificationsList({ data, onNavigate }) {
   const cadOverdue = data?.cadOverdue ?? [];
   const readyToConfirm = data?.readyToConfirm ?? [];
   const newComments = data?.newComments ?? [];
-  if (!g2dShared.length && !designReady.length && !finalReceived.length && !cadOverdue.length && !readyToConfirm.length && !newComments.length) return null;
+  const hoOnHold = data?.hoOnHold ?? [];
+  const hoResumed = data?.hoResumed ?? [];
+  const hoDelayed = data?.hoDelayed ?? [];
+  if (![g2dShared, designReady, finalReceived, cadOverdue, readyToConfirm, newComments, hoOnHold, hoResumed, hoDelayed].some((l) => l.length)) return null;
 
   return (
     <div className="flex flex-col gap-2">
+      {hoOnHold.map((t) => (
+        <NoticeRow
+          onNavigate={navigate}
+          key={`hold-${t.hold_id}`}
+          href={ticketHref(t.ticket_number)}
+          icon={PauseCircle}
+          tone="border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+        >
+          <strong>{t.ticket_number}</strong>{storeText(t)}{t.customer_name ? ` · ${t.customer_name}` : ''} was put on hold by {t.held_by} at {t.step}. Reason: {t.reason}
+        </NoticeRow>
+      ))}
+      {hoResumed.map((t) => (
+        <NoticeRow
+          onNavigate={navigate}
+          key={`resumed-${t.hold_id}`}
+          href={ticketHref(t.ticket_number)}
+          icon={PlayCircle}
+          tone="border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100"
+        >
+          <strong>{t.ticket_number}</strong>{storeText(t)}{t.customer_name ? ` · ${t.customer_name}` : ''} was resumed by {t.resumed_by}.
+        </NoticeRow>
+      ))}
+      {hoDelayed.map((t) => (
+        <NoticeRow
+          onNavigate={navigate}
+          key={`delayed-${t.ticket_number}-${t.step_key}`}
+          href={ticketHref(t.ticket_number)}
+          icon={Timer}
+          tone="border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-100"
+        >
+          <strong>{t.ticket_number}</strong>{storeText(t)}{t.customer_name ? ` · ${t.customer_name}` : ''}: store response delayed by{' '}
+          {formatMinutes(t.delayed_minutes)} at {t.step}{t.on_hold ? ' (now on hold)' : ''}.
+        </NoticeRow>
+      ))}
       {g2dShared.map((t) => (
         <NoticeRow
           onNavigate={navigate}

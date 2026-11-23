@@ -23,7 +23,8 @@ export default function LocationSelect({
       render={({ field }) => (
         <Select
           value={field.value != null ? String(field.value) : ''}
-          onValueChange={(value) => field.onChange(Number(value))}
+          // Radix sends '' while the chosen value isn't in a still-loading list; that isn't a user choice.
+          onValueChange={(value) => { if (value !== '') field.onChange(Number(value)); }}
           disabled={disabled || isLoading}
         >
           <SelectTrigger className="h-11 w-full">

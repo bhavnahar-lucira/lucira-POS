@@ -19,7 +19,8 @@ import { useSyncStorePurchases } from '@/hooks/buyers/useSyncStorePurchases';
 import { groupPurchasesByBuyer } from '@/lib/buyers/groupPurchasesByBuyer';
 import { selectActiveStoreId, selectAvailableStores } from '@/store/slices/storeSlice';
 import { selectIsSuperAdmin } from '@/store/slices/authSlice';
-import { todayDateString } from '@/lib/dateUtils';
+import { todayDateString } from '@/lib/dateUtils';
+import { indianMobileFromQuery } from '@/lib/phoneFormat';
 
 const PAGE_SIZE = 25;
 const ALL_DOCUMENT_TYPES = ['invoice', 'order'];
@@ -77,7 +78,7 @@ export default function BuyersPage() {
 
   const hasActiveFilters = documentTypes.length !== ALL_DOCUMENT_TYPES.length || !!fromDate || !!toDate
     || salesPerson !== ALL_SALES_PERSONS || recency !== 'all' || frequency !== 'all';
-  const trimmedSearch = search.trim().toLowerCase();
+  const trimmedSearch = indianMobileFromQuery(search) ?? search.trim().toLowerCase();
   const filteredBuyers = useMemo(() => {
     // With a sales person chosen: only the customers they sold to, and only their sales to them
     // (that customer's returns/exchanges/buybacks still count as outcomes).

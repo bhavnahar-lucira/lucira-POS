@@ -9,6 +9,7 @@ import {
 } from '@/lib/ticketing/server';
 import { ticketDesigns, g2dEstimates, effectiveStatus, requestedSpecs, isMultiTicket } from '@/lib/ticketing/normalize';
 import { buildMultiAction } from '@/lib/ticketing/multiActions';
+import { buildHoldAction, responseFollowUp } from '@/lib/ticketing/responseActions';
 import { postUpstream } from '@/lib/reports/serverAccess';
 
 
@@ -61,11 +62,18 @@ export async function POST(request, { params }) {
     const input = parsed.data;
     const store = await getSessionStore(session).catch(() => null);
     const now = new Date();
+    const ctx = { session, store, now };
+
+    if (input.action === 'hold' || input.action === 'resume') {
+      const built = buildHoldAction({ input, ticket, session, store, now });
+      if (built.error) return Response.json({ error: built.error }, { status: built.status });
+      return applyUpdate(col, ticket, input, built);
+    }
 
     if (isMultiTicket(ticket)) {
       const built = await buildMultiAction({ input, ticket, session, store, request, now });
       if (built.error) return Response.json({ error: built.error }, { status: built.status });
-      return applyUpdate(col, ticket, input, built);
+      return applyUpdate(col, ticket, input, built, ctx);
     }
 
     const designs = ticketDesigns(ticket);
@@ -326,20 +334,32 @@ export async function POST(request, { params }) {
       };
     }
 
-    return applyUpdate(col, ticket, input, { filter, update, arrayFilters });
+    return applyUpdate(col, ticket, input, { filter, update, arrayFilters }, ctx);
   } catch (err) {
     console.error('[api/ticketing/:ticketNumber] POST', err);
     return Response.json({ error: 'Failed to update ticket' }, { status: 500 });
   }
 }
 
-async function applyUpdate(col, ticket, input, { filter, update, arrayFilters }) {
+async function applyUpdate(col, ticket, input, { filter, update, arrayFilters }, ctx = null) {
   const result = await col.updateOne(filter, update, arrayFilters ? { arrayFilters } : undefined);
   if (!result.matchedCount) {
     return Response.json({ error: 'This ticket was just updated elsewhere. Refresh and try again.' }, { status: 409 });
   }
 
-  const updated = await col.findOne({ env: ticket.env, ticket_number: ticket.ticket_number });
+  const key = { env: ticket.env, ticket_number: ticket.ticket_number };
+  let updated = await col.findOne(key);
+  if (ctx) {
+    try {
+      const followUp = responseFollowUp(ticket, updated, ctx);
+      if (followUp) {
+        await col.updateOne(key, followUp.update, followUp.arrayFilters ? { arrayFilters: followUp.arrayFilters } : undefined);
+        updated = await col.findOne(key);
+      }
+    } catch (err) {
+      console.error('[api/ticketing/:ticketNumber] response time log failed', ticket.ticket_number, err?.message);
+    }
+  }
   after(async () => {
     await saveRawCopy(updated);
     await notifyCloud(input.action, updated);

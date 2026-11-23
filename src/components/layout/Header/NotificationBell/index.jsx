@@ -29,6 +29,9 @@ function newsKeys(data, todayEvents, transfers) {
     ...(data?.finalReceived ?? []).map((t) => `final:${t.ticket_number}`),
     ...(data?.readyToConfirm ?? []).map((t) => `confirm:${t.ticket_number}`),
     ...(data?.newComments ?? []).map((t) => `comment:${t.ticket_number}:${t.comment_id}`),
+    ...(data?.hoOnHold ?? []).map((t) => `hold:${t.hold_id}`),
+    ...(data?.hoResumed ?? []).map((t) => `resumed:${t.hold_id}`),
+    ...(data?.hoDelayed ?? []).map((t) => `delayed:${t.ticket_number}:${t.step_key}`),
   ];
 }
 

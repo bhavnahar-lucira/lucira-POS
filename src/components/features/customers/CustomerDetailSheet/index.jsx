@@ -22,7 +22,7 @@ import { buildUpdateCustomerSchema } from '@/validators/customerSchema';
 import { storedValueToPhone, isMaskedValue } from '@/lib/normalizers/customer';
 import { useRetrieveCustomer } from '@/hooks/customer/useRetrieveCustomer';
 import { useUpdateCustomer } from '@/hooks/customer/useUpdateCustomer';
-import { useCountries, useStates, useCities } from '@/hooks/settings/useLocation';
+import { useCountries, useStates, useCities, useIndiaCountryId } from '@/hooks/settings/useLocation';
 import { selectIsSuperAdmin } from '@/store/slices/authSlice';
 import { formatMobileWithCountryCode } from '@/lib/phoneFormat';
 import PhoneLink from '@/components/shared/PhoneLink';
@@ -189,6 +189,11 @@ function EditTab({ customer }) {
   const { countries, isLoading: countriesLoading } = useCountries();
   const { states, isLoading: statesLoading } = useStates(countryId);
   const { cities, isLoading: citiesLoading } = useCities(stateId);
+
+  const indiaId = useIndiaCountryId();
+  useEffect(() => {
+    if (indiaId && countryId == null && initialStateId == null) setValue('country_id', indiaId);
+  }, [indiaId, countryId, initialStateId, setValue]);
 
   const onSubmit = async (formChanges) => {
     if (!raw) return;

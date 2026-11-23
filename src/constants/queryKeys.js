@@ -33,6 +33,7 @@ export const QUERY_KEYS = {
     COUNTRIES: ()            => ['location', 'countries'],
     STATES:    (countryId)   => ['location', 'states', countryId],
     CITIES:    (stateId)     => ['location', 'cities', stateId],
+    STORE:     (companyId)   => ['location', 'store', companyId],
   },
 
   CATEGORIES: {

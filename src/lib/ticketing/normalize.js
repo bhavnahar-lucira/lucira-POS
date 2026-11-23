@@ -1,6 +1,7 @@
 // The lucirajewelry.cloud workflow panel writes its CAD fields (cadVersions, status 'cad_shared'/'ok', …)
 // onto the same ticket documents; this maps them to the POS view of a ticket.
 import { TICKET_STATUS, TICKET_FORMAT_MULTI } from './constants';
+import { responseSteps, delayHistory } from './responseTimer';
 
 const CAD_BASE_URL = 'https://lucirajewelry.cloud';
 
@@ -255,9 +256,25 @@ function toPublicMultiTicket(ticket) {
   };
 }
 
+const byTime = (a, b) => new Date(a.at ?? 0) - new Date(b.at ?? 0);
+
+function withResponseTimers(ticket) {
+  const holds = ticket.holds ?? [];
+  const steps = responseSteps(ticket);
+  return {
+    ...ticket,
+    holds,
+    response_steps: steps,
+    ...(ticket.history && { history: [...ticket.history, ...delayHistory(steps, holds)].sort(byTime) }),
+  };
+}
+
 export function toPublicTicket(ticket) {
   if (!ticket) return null;
-  if (isMultiTicket(ticket)) return toPublicMultiTicket(ticket);
+  return withResponseTimers(isMultiTicket(ticket) ? toPublicMultiTicket(ticket) : toPublicSingleTicket(ticket));
+}
+
+function toPublicSingleTicket(ticket) {
   const { _id, ...rest } = ticket;
   const designs = ticketDesigns(ticket);
   const g2d = g2dEstimates(ticket);

@@ -127,6 +127,11 @@ const confirmTicketOrderSchema = z.object({
   if (!o.advance_receipt_id) ctx.addIssue({ code: 'custom', message: 'The advance receipt was not created', path: ['advance_receipt_id'] });
 }).transform((o) => (o.amount_received ? o : { ...o, advance_received_on: null, advance_receipt_id: null, payments: [] }));
 
+const holdActions = [
+  z.object({ action: z.literal('hold'), reason: text(1000).min(3, 'Enter why the ticket is on hold') }),
+  z.object({ action: z.literal('resume') }),
+];
+
 /** Actions on a multi-product ticket; the product ones carry item_id. */
 export const multiTicketActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('add_item'), specs: ticketSpecsSchema, file_ids: itemFileIds.min(1, 'Add at least one reference image') }),
@@ -165,6 +170,7 @@ export const multiTicketActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('cancel'), reason: text(1000).min(3, 'Enter the cancellation reason') }),
   z.object({ action: z.literal('order_placed'), transaction_id: z.coerce.number().int().positive() }),
   z.object({ action: z.literal('add_comment'), item_id: itemId.nullable().default(null), text: text(2000).min(1, 'Write a comment') }),
+  ...holdActions,
 ]);
 
 export const ticketActionSchema = z.discriminatedUnion('action', [
@@ -198,4 +204,5 @@ export const ticketActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('cancel'), reason: text(1000).min(3, 'Enter the cancellation reason') }),
   z.object({ action: z.literal('order_placed'), transaction_id: z.coerce.number().int().positive() }),
   z.object({ action: z.literal('add_comment'), item_id: z.null().default(null), text: text(2000).min(1, 'Write a comment') }),
+  ...holdActions,
 ]);

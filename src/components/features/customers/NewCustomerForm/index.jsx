@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Input }  from '@/components/ui/input';
@@ -15,6 +14,7 @@ import { customerSchema } from '@/validators/customerSchema';
 import { storedValueToPhone } from '@/lib/normalizers/customer';
 import { useCreateCustomer } from '@/hooks/customer/useCreateCustomer';
 import { useCountries, useStates, useCities } from '@/hooks/settings/useLocation';
+import { useAddressDefaults } from '@/hooks/customer/useAddressDefaults';
 import { todayDateString } from '@/lib/dateUtils';
 import { Checkbox } from '@/components/ui/checkbox';
 import { GENDER_OPTIONS, MARITAL_STATUS_OPTIONS, RELIGION_OPTIONS } from '@/constants/customerOptions';
@@ -26,6 +26,7 @@ export default function NewCustomerForm({ defaultMobile = '', defaultName = '', 
     control,
     watch,
     setValue,
+    getValues,
     formState: { errors },
   } = useForm({
     resolver: zodResolver(customerSchema),
@@ -58,17 +59,7 @@ export default function NewCustomerForm({ defaultMobile = '', defaultName = '', 
 
   const allowCredit = watch('allow_credit');
 
-  const countryId = watch('country_id');
-  const stateId   = watch('state_id');
-
-  useEffect(() => {
-    setValue('state_id', null);
-    setValue('city_id', null);
-  }, [countryId, setValue]);
-
-  useEffect(() => {
-    setValue('city_id', null);
-  }, [stateId, setValue]);
+  const { countryId, stateId } = useAddressDefaults({ watch, setValue, getValues });
 
   const { countries, isLoading: countriesLoading } = useCountries();
   const { states,    isLoading: statesLoading }    = useStates(countryId);
