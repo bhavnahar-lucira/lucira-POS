@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSelector } from 'react-redux';
 import {
   ArrowLeftRight, ClipboardList, CreditCard, FileText, Loader2, RefreshCw,
-  RotateCcw, ShoppingBag, Store, Tag, User,
+  RotateCcw, ShoppingBag, Store, Tag, User, Coins
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +19,8 @@ import { deriveDocumentStatus } from '@/hooks/customer/useCustomerOrders';
 import APP_CONFIG from '@/constants/appConfig';
 import { formatAmountOrNull } from '@/lib/priceUtils';
 import { formatDatePadded } from '@/lib/dateUtils';
+import { useLuciraPoints } from '@/hooks/customers/useLuciraPoints';
+import { selectActiveStoreId } from '@/store/slices/storeSlice';
 
 const TABS = [
   { key: 'invoice', label: 'Invoice', pluralLabel: 'invoices', icon: FileText },
@@ -28,6 +31,46 @@ const TABS = [
 ];
 const ALL_STORES = 'all';
 const DOCUMENT_TYPE_BADGE_VARIANT = { invoice: 'default', order: 'secondary' };
+
+/** Header-level pill that displays and logs Lucira points on load and on click */
+function CustomerPoints({ companyId, partyId, mobile, customerName }) {
+  const { points, isLoading, isAvailable } = useLuciraPoints(
+    { companyId, partyId, mobile },
+    { enabled: !!companyId && !!partyId && !!mobile }
+  );
+
+  // useEffect(() => {
+  //   if (!isLoading && isAvailable) {
+  //     console.log(
+  //       `%c[Lucira Points] ${customerName || 'Customer'} (${mobile})`,
+  //       'color: #d97706; font-weight: bold;',
+  //       { customerName, partyId, mobile, points }
+  //     );
+  //   }
+  // }, [isLoading, isAvailable, points, customerName, mobile, partyId]);
+
+  // const handleClick = () => {
+  //   console.log(
+  //     `%c[Lucira Points Clicked] ${customerName || 'Customer'} (${mobile})`,
+  //     'color: #d97706; font-weight: bold;',
+  //     { customerName, partyId, mobile, points }
+  //   );
+  // };
+
+  return (
+    <button
+      type="button"
+      className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900 transition-colors hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-900/50"
+    >
+      <Coins size={13} className="shrink-0 text-amber-500" aria-hidden="true" />
+      {isLoading
+        ? 'Lucira points …'
+        : isAvailable
+        ? `${points.toLocaleString('en-IN')} Lucira points`
+        : 'Lucira points —'}
+    </button>
+  );
+}
 
 function PurchaseCard({ purchase }) {
   const {
@@ -136,10 +179,14 @@ function PurchaseCard({ purchase }) {
 
 /** Read-only purchase history for one customer across every store (POS DB), refreshed from OrnaVerse on open. */
 export default function PurchaseHistory({ customerId }) {
+  const activeStoreId = useSelector(selectActiveStoreId);
   const { purchases, isLoading, isError, refetch } = useBuyerHistory(customerId);
   const { sync, isSyncing } = useSyncBuyerHistory();
   const [activeTab, setActiveTab] = useState('invoice');
   const [store, setStore] = useState(ALL_STORES);
+
+  const customerMobile = purchases.find((p) => p.customerMobile)?.customerMobile;
+  const customerName = purchases.find((p) => p.customerName)?.customerName;
 
   const syncedForRef = useRef(null);
   useEffect(() => {
@@ -176,6 +223,17 @@ export default function PurchaseHistory({ customerId }) {
             </span>
           ) : 'Every store · read only'}
         </p>
+
+        {/* Lucira points pill button */}
+        {activeStoreId && customerMobile && (
+          <CustomerPoints
+            companyId={activeStoreId}
+            partyId={Number(customerId)}
+            mobile={customerMobile}
+            customerName={customerName}
+          />
+        )}
+
         {stores.length > 1 && (
           <Select value={store} onValueChange={setStore}>
             <SelectTrigger className="h-9 w-full sm:w-64" aria-label="Store"><SelectValue /></SelectTrigger>

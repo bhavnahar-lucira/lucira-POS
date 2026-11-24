@@ -243,6 +243,8 @@ export function useCreateOrder() {
       // Not clearing the cart here — same reason as useCreateInvoice.js.
       // The screen clears it once the confirmation is on screen.
       queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['buyers'] });
+      queryClient.invalidateQueries({ queryKey: ['nector'] });
     },
 
     onError: (error, variables) => {

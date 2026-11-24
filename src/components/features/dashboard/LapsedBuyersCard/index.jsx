@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSelector } from 'react-redux';
-import { ChevronRight, Coins, UserRoundSearch } from 'lucide-react';
+import { ChevronRight, Coins, Loader2, UserRoundSearch } from 'lucide-react';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import { useBuyerPurchases } from '@/hooks/buyers/useBuyerPurchases';
+import { useBuyersCoins } from '@/hooks/buyers/useBuyersCoins';
 import { groupPurchasesByBuyer } from '@/lib/buyers/groupPurchasesByBuyer';
 import { daysSince } from '@/lib/buyers/buyerFilters';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
@@ -24,28 +25,45 @@ function getInitials(name) {
   return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
 }
 
-/** The buyer's Lucira points, fetched once the row scrolls into view. */
-function BuyerPoints({ companyId, partyId, mobile }) {
+/** The buyer's Lucira points, fetched once the row scrolls into view, or preloaded from useBuyersCoins. */
+function BuyerPoints({ companyId, partyId, mobile, points: preloadedPoints }) {
   const ref = useRef(null);
   const [visible, setVisible] = useState(false);
   useEffect(() => {
     const el = ref.current;
     if (!el || visible) return undefined;
-    const observer = new IntersectionObserver(([entry]) => entry.isIntersecting && setVisible(true));
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setVisible(true);
+        observer.disconnect();
+      }
+    });
     observer.observe(el);
     return () => observer.disconnect();
   }, [visible]);
-  const { points, isLoading, isAvailable } = useLuciraPoints({ companyId, partyId, mobile }, { enabled: visible });
+
+  const shouldQuery = preloadedPoints == null;
+  const { points: queryPoints, isLoading, isAvailable } = useLuciraPoints(
+    { companyId, partyId, mobile },
+    { enabled: shouldQuery && visible }
+  );
+
+  const points = preloadedPoints ?? queryPoints;
+  const ready = preloadedPoints != null ? true : isAvailable;
+  const loading = preloadedPoints != null ? false : (!visible || isLoading);
 
   return (
-    <span ref={ref} className="mt-1 inline-flex w-fit items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+    <span
+      ref={ref}
+      className="mt-1 inline-flex w-fit items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+    >
       <Coins size={12} className="shrink-0 text-amber-500" aria-hidden="true" />
-      {!visible || isLoading ? 'Lucira points …' : isAvailable ? `${points.toLocaleString('en-IN')} Lucira points` : 'Lucira points —'}
+      {loading ? 'Lucira points …' : ready ? `${points.toLocaleString('en-IN')} Lucira points` : 'Lucira points —'}
     </span>
   );
 }
 
-/** Every buyer of the active store with no purchase in the last 90 days, most valuable first. */
+/** Every buyer of the active store with no purchase in the last 90 days, sorted by Lucira coins descending on pageload. */
 export default function LapsedBuyersCard() {
   const router = useRouter();
   const activeStoreId = useSelector(selectActiveStoreId);
@@ -53,20 +71,39 @@ export default function LapsedBuyersCard() {
   const { purchases, isLoading } = useBuyerPurchases({ companyId: activeStoreId ?? undefined });
   const [now] = useState(() => Date.now());
 
-  if (!activeStoreId && !isSuperAdmin) return null;
+  const lapsedBuyers = useMemo(() => {
+    return groupPurchasesByBuyer(purchases)
+      .map((b) => ({ ...b, daysSince: daysSince(b.lastPurchaseDate, now) }))
+      .filter((b) => b.daysSince != null && b.daysSince > LAPSED_DAYS);
+  }, [purchases, now]);
 
-  const buyers = groupPurchasesByBuyer(purchases)
-    .map((b) => ({ ...b, daysSince: daysSince(b.lastPurchaseDate, now) }))
-    .filter((b) => b.daysSince != null && b.daysSince > LAPSED_DAYS)
-    .sort((a, b) => b.totalSpend - a.totalSpend);
+  const { coinsMap, isLoadingCoins } = useBuyersCoins({
+    buyers: lapsedBuyers,
+    companyId: activeStoreId,
+    enabled: !!activeStoreId,
+  });
+
+  const buyers = useMemo(() => {
+    return [...lapsedBuyers].sort((a, b) => {
+      const partyIdA = Number(a._id);
+      const partyIdB = Number(b._id);
+      const coinsA = coinsMap.get(partyIdA) ?? -1;
+      const coinsB = coinsMap.get(partyIdB) ?? -1;
+      if (coinsB !== coinsA) return coinsB - coinsA;
+      return b.totalSpend - a.totalSpend;
+    });
+  }, [lapsedBuyers, coinsMap]);
+
+  if (!activeStoreId && !isSuperAdmin) return null;
 
   return (
     <div className="rounded-xl border border-border bg-card shadow-sm p-5">
       <div className="mb-3 flex items-baseline justify-between gap-2">
         <h2 className="font-heading text-base text-foreground">Buyers</h2>
         {!isLoading && (
-          <span className="text-xs text-muted-foreground">
-            <span className='hidden'>{buyers.length} with </span>No purchase in the last {LAPSED_DAYS} days
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            {isLoadingCoins && <Loader2 size={12} className="animate-spin text-amber-500" aria-hidden="true" />}
+            <span>No purchase in the last {LAPSED_DAYS} days</span>
           </span>
         )}
       </div>
@@ -118,7 +155,14 @@ export default function LapsedBuyersCard() {
                   )}
                   <span className="whitespace-nowrap">Last purchase {buyer.daysSince} days ago</span>
                 </p>
-                {activeStoreId && <BuyerPoints companyId={activeStoreId} partyId={Number(buyer._id)} mobile={buyer.customerMobile} />}
+                {activeStoreId && (
+                  <BuyerPoints
+                    companyId={activeStoreId}
+                    partyId={Number(buyer._id)}
+                    mobile={buyer.customerMobile}
+                    points={coinsMap.get(Number(buyer._id))}
+                  />
+                )}
               </div>
               <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">{formatAmountOrDash(buyer.totalSpend)}</span>
             </div>

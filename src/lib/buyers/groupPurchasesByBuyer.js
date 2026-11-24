@@ -28,6 +28,7 @@ export function groupPurchasesByBuyer(purchases) {
         _id: key,
         customerName:   p.customerName ?? null,
         customerMobile: p.customerMobile ?? null,
+        customerEmail:  p.customerEmail ?? null,
         stores:         new Set(),
         invoiceCount:   0,
         orderCount:     0,
@@ -41,6 +42,7 @@ export function groupPurchasesByBuyer(purchases) {
         lastPurchaseDate:   null,
         latestRecordMs:     -1,
         latestMobileMs:     -1,
+        latestEmailMs:      -1,
       };
       byCustomer.set(key, entry);
     }
@@ -76,10 +78,15 @@ export function groupPurchasesByBuyer(purchases) {
       entry.latestMobileMs = dateMs;
       entry.customerMobile = p.customerMobile;
     }
+    // Email comes from the newest record that has one.
+    if (p.customerEmail && dateMs >= entry.latestEmailMs) {
+      entry.latestEmailMs = dateMs;
+      entry.customerEmail = p.customerEmail;
+    }
   }
 
   return [...byCustomer.values()]
-    .map(({ stores, lastPurchaseDateMs, latestRecordMs, latestMobileMs, ...rest }) => ({
+    .map(({ stores, lastPurchaseDateMs, latestRecordMs, latestMobileMs, latestEmailMs, ...rest }) => ({
       ...rest,
       stores: [...stores],
       hasOutcomes: rest.returnCount + rest.exchangeCount + rest.buybackCount + rest.cancelledCount > 0,

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { getLoyaltyCheckoutSettings, previewLoyaltyCheckout } from '@/services/nectorService';
+import { getLoyaltyCheckoutSettings, previewLoyaltyCheckout, isLoyaltyOutage } from '@/services/nectorService';
 import { isThirdPartyLoyalty, evaluateLoyaltyEligibility } from '@/lib/checkout/loyaltyEligibility';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 
@@ -18,14 +18,18 @@ import { QUERY_KEYS } from '@/constants/queryKeys';
  *     rules (min invoice value / item group) block it BEFORE ever calling Preview.
  * }}
  */
+const OUTAGE_RECHECK_MS = 30 * 1000;
+
 export function useNectorCheckoutInfo(
   { mobile, companyId, partyId, netAmount, remainingDue, lineItems = [] },
   { enabled = true } = {}
 ) {
   const settingsQuery = useQuery({
-    queryKey: QUERY_KEYS.NECTOR.LOYALTY_CHECKOUT_SETTINGS(companyId),
-    queryFn: () => getLoyaltyCheckoutSettings(companyId),
+    queryKey: [...QUERY_KEYS.NECTOR.LOYALTY_CHECKOUT_SETTINGS(companyId), 'checkout'],
+    queryFn: () => getLoyaltyCheckoutSettings(companyId, { throwOnOutage: true }),
     enabled: enabled && !!companyId,
+    retry: 1,
+    refetchInterval: (query) => (query.state.status === 'error' ? OUTAGE_RECHECK_MS : false),
     // Drives loyalty eligibility (min invoice value, item groups) at
     // checkout — must always reflect live state, same as this hook's own
     // preview query below (see useCheckoutPricing/useActivePromotions/
@@ -61,12 +65,14 @@ export function useNectorCheckoutInfo(
       mobile, netAmount, remainingDue, lines,
     }),
     enabled: readyForPreview,
+    refetchInterval: (query) => (isLoyaltyOutage(query.state.data) ? OUTAGE_RECHECK_MS : false),
     staleTime: 0,
 
     gcTime: 0,
   });
 
   const preview = previewQuery.data;
+  const isNectorDown = enabled && (settingsQuery.isError || isLoyaltyOutage(preview));
   const isRedeemable = !!preview?.success
     && ((Number(preview.coin_value) || 0) + (Number(preview.credit_value) || 0)) > 0.01;
 
@@ -75,6 +81,7 @@ export function useNectorCheckoutInfo(
     isEligible: isRedeemable,
     isLoading: settingsQuery.isLoading || (readyForPreview && previewQuery.isLoading),
     isError: settingsQuery.isError || previewQuery.isError,
+    isNectorDown,
     ineligibleReason: !isThirdParty
       ? null // not a third-party-loyalty tenant — Loyalty tile simply doesn't apply
       : eligibility && !eligibility.ok

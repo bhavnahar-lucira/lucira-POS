@@ -110,7 +110,7 @@ function shapeRecord(kind, entity, salesPersonNames) {
     customerId:      entity.party_id,
     customerName:    entity.party_name ?? null,
     customerMobile:  entity.mobile ?? null,
-    customerEmail:   null,
+    customerEmail:   (entity.email && entity.email !== 'NA') ? entity.email : (entity.party_email && entity.party_email !== 'NA' ? entity.party_email : null),
     customerAddress: null,
     transactionId:   entity.transaction_id,
     documentType:    kind,

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSelector } from 'react-redux';
+import { useQueryClient } from '@tanstack/react-query';
 import { Search, X, Loader2, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -15,11 +16,13 @@ import BuyersMobileFilterBar from '@/components/features/buyers/BuyersMobileFilt
 import BuyerSegmentFilters from '@/components/features/buyers/BuyerSegmentFilters';
 import { applyBuyerFilters } from '@/lib/buyers/buyerFilters';
 import { useBuyerPurchases } from '@/hooks/buyers/useBuyerPurchases';
+import { useBuyersCoins } from '@/hooks/buyers/useBuyersCoins';
 import { useSyncStorePurchases } from '@/hooks/buyers/useSyncStorePurchases';
 import { groupPurchasesByBuyer } from '@/lib/buyers/groupPurchasesByBuyer';
 import { selectActiveStoreId, selectAvailableStores } from '@/store/slices/storeSlice';
 import { selectIsSuperAdmin } from '@/store/slices/authSlice';
-import { todayDateString } from '@/lib/dateUtils';
+import { todayDateString } from '@/lib/dateUtils';
+
 import { indianMobileFromQuery } from '@/lib/phoneFormat';
 
 const PAGE_SIZE = 25;
@@ -30,6 +33,7 @@ const salesPersonKey = (name) => String(name ?? '').trim().toLowerCase();
 
 export default function BuyersPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const isSuperAdmin = useSelector(selectIsSuperAdmin);
   const activeStoreId = useSelector(selectActiveStoreId);
   const availableStores = useSelector(selectAvailableStores);
@@ -42,7 +46,8 @@ export default function BuyersPage() {
   const [salesPerson, setSalesPerson] = useState(ALL_SALES_PERSONS);
   const [recency, setRecency] = useState('all');
   const [frequency, setFrequency] = useState('all');
-  const [sort, setSort] = useState('recent');
+  const [sort, setSort] = useState('coins_desc');
+  const [coinsRefreshKey, setCoinsRefreshKey] = useState(0);
   const [pagination, setPagination] = useState({ key: '', visibleCount: PAGE_SIZE });
   const prevActiveStoreIdRef = useRef(activeStoreId);
   useEffect(() => {
@@ -66,6 +71,25 @@ export default function BuyersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId]);
 
+  const handleSync = () => {
+    if (companyId == null) return;
+    setCoinsRefreshKey((k) => k + 1);
+    queryClient.invalidateQueries({ queryKey: ['buyers'] });
+    queryClient.invalidateQueries({ queryKey: ['nector'] });
+    sync(companyId).then(() => refetch()).catch((err) => console.warn('[buyers/sync-store]', err));
+  };
+
+  const allGroupedBuyers = useMemo(() => {
+    return groupPurchasesByBuyer(purchases);
+  }, [purchases]);
+
+  const { coinsMap, isLoadingCoins, progress: coinsProgress } = useBuyersCoins({
+    buyers: allGroupedBuyers,
+    companyId,
+    enabled: sort === 'coins_desc',
+    refreshKey: coinsRefreshKey,
+  });
+
   // Names of everyone who made a sale at this store, for the Sales person filter.
   const salesPersons = useMemo(() => {
     const byKey = new Map();
@@ -77,9 +101,9 @@ export default function BuyersPage() {
   }, [purchases]);
 
   const hasActiveFilters = documentTypes.length !== ALL_DOCUMENT_TYPES.length || !!fromDate || !!toDate
-    || salesPerson !== ALL_SALES_PERSONS || recency !== 'all' || frequency !== 'all';
+    || salesPerson !== ALL_SALES_PERSONS || recency !== 'all' || frequency !== 'all' || sort !== 'coins_desc';
   const trimmedSearch = indianMobileFromQuery(search) ?? search.trim().toLowerCase();
-  const filteredBuyers = useMemo(() => {
+  const searchedBuyers = useMemo(() => {
     // With a sales person chosen: only the customers they sold to, and only their sales to them
     // (that customer's returns/exchanges/buybacks still count as outcomes).
     const selectedKey = salesPerson === ALL_SALES_PERSONS ? null : salesPersonKey(salesPerson);
@@ -105,13 +129,16 @@ export default function BuyersPage() {
       return true;
     });
     const grouped = groupPurchasesByBuyer(matching);
-    const searched = trimmedSearch
+    return trimmedSearch
       ? grouped.filter((b) =>
         b.customerName?.toLowerCase().includes(trimmedSearch)
         || b.customerMobile?.includes(trimmedSearch))
       : grouped;
-    return applyBuyerFilters(searched, { recency, frequency, sort });
-  }, [purchases, documentTypes, fromDate, toDate, trimmedSearch, salesPerson, recency, frequency, sort]);
+  }, [purchases, documentTypes, fromDate, toDate, trimmedSearch, salesPerson]);
+  const filteredBuyers = useMemo(
+    () => applyBuyerFilters(searchedBuyers, { recency, frequency, sort, coinsMap: sort === 'coins_desc' ? coinsMap : null }),
+    [searchedBuyers, recency, frequency, sort, coinsMap],
+  );
   const filterKey = `${documentTypes.join(',')}|${fromDate}|${toDate}|${salesPerson}|${recency}|${frequency}|${sort}|${trimmedSearch}|${purchases.length}`;
   if (pagination.key !== filterKey) {
     setPagination({ key: filterKey, visibleCount: PAGE_SIZE });
@@ -148,7 +175,7 @@ export default function BuyersPage() {
     setSalesPerson(ALL_SALES_PERSONS);
     setRecency('all');
     setFrequency('all');
-    setSort('recent');
+    setSort('coins_desc');
   };
 
   const segmentFilters = {
@@ -238,7 +265,7 @@ export default function BuyersPage() {
                 type="button"
                 variant="ghost"
                 size="icon"
-                onClick={() => sync(companyId).then(() => refetch())}
+                onClick={handleSync}
                 disabled={isSyncing}
                 aria-label="Refresh"
                 className="hidden md:flex h-11 w-11 shrink-0"
@@ -264,6 +291,14 @@ export default function BuyersPage() {
           <p className="text-xs text-muted-foreground">
             {filteredBuyers.length} buyer{filteredBuyers.length !== 1 ? 's' : ''}{hasActiveFilters ? ' matching filters' : ''}
           </p>
+        )}
+        {sort === 'coins_desc' && isLoadingCoins && (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+            <Loader2 size={13} className="animate-spin text-amber-600 shrink-0" aria-hidden="true" />
+            <span>
+              Loading live Lucira points for sorting ({coinsProgress.loaded} of {coinsProgress.total} buyers loaded)…
+            </span>
+          </div>
         )}
       </div>
 
@@ -305,7 +340,7 @@ export default function BuyersPage() {
         onOpenFilters={() => setIsFilterOpen(true)}
         showSync={companyId != null}
         isSyncing={isSyncing}
-        onSync={() => sync(companyId).then(() => refetch())}
+        onSync={handleSync}
       />
 
       <BottomSheet

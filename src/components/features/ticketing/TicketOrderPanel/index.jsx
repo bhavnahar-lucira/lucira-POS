@@ -184,6 +184,7 @@ export function useTicketCartHandoff(ticket) {
         customLineId: crypto.randomUUID(),
         customLine: line,
         ticketNumber: ticket.ticket_number,
+        ticketSku: summary.sku,
       }));
     }
     toast.success(`Order for ${ticket.ticket_number} added to the cart.`);

@@ -16,6 +16,7 @@ import { formatAmountOrNull as formatCurrency } from '@/lib/priceUtils';
 import { formatDateNumeric } from '@/lib/dateUtils';
 import { resolveImageSrc } from '@/lib/resolveImageSrc';
 import PhoneLink from '@/components/shared/PhoneLink';
+import WorkflowStatusSection from '@/components/features/workflow/WorkflowStatusSection';
 
 function Row({ label, value, bold, border }) {
   if (value === null || value === undefined || value === '') return null;
@@ -229,6 +230,8 @@ export default function OrderDetailSheet({ order, isOpen, onClose, readyLines = 
           <div className="rounded-xl border border-border bg-card p-4">
             <OrderContent raw={raw} status={order?.status} />
           </div>
+
+          {order?.documentType !== 'invoice' && raw.document_no && <WorkflowStatusSection documentNo={raw.document_no} />}
 
           <InvoiceReportButton
             transactionId={raw.transaction_id}

@@ -3,6 +3,7 @@ import { getItemSizesByType, getStoneRate } from '@/services/customEstimateServi
 import { uploadTemporaryFile } from '@/services/fileUploadService';
 import { matchCustomItem } from '@/lib/estimation/prefillFromTicket';
 import { DIAMOND_ITEM_GROUP_ID, norm, matchLabel, resolveStone } from '@/lib/ticketing/attributeMatch';
+import { finalSku } from '@/lib/ticketing/normalize';
 import APP_CONFIG from '@/constants/appConfig';
 
 // OrnaVerse's "Making Charges" operation (per gram), used when its labour rule returns nothing for a
@@ -255,7 +256,7 @@ export async function buildOrderFromFinal(final, ticket, lookups, overrides = {}
     line,
     item: selectedItem,
     summary: {
-      itemName: selectedItem.item_name, sizeName, karat: karatOpt.label, color: colorOpt?.label ?? null, weight, purity,
+      itemName: selectedItem.item_name, sku: finalSku(final), sizeName, karat: karatOpt.label, color: colorOpt?.label ?? null, weight, purity,
       metalRate, metalAmount, stonesTotal, labourRate, labourAmount, subTotal, taxAmount, netAmount, imagePath,
     },
   };

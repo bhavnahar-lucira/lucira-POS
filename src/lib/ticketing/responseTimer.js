@@ -115,7 +115,7 @@ function unitSteps(unit, { itemId = null, closedAt = null }) {
     steps.push({
       key: `${prefix}g2d:${e.round}`,
       item_id: itemId,
-      label: `G2D estimate round ${e.round}${product}`,
+      label: `Estimate round ${e.round}${product}`,
       started_at: e.at,
       ended_at: e.decided_at ?? rounds[i + 1]?.at ?? closedAt,
       outcome: e.decided_at ? decisionLabel(e.customer_decision) : null,

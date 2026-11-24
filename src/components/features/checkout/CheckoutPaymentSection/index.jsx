@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Loader2, CheckCircle2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { usePaymentModes } from '@/hooks/checkout/usePaymentModes';
@@ -21,6 +22,9 @@ import tracker from '@/lib/analytics/tracker';
 import EVENTS, { WEBENGAGE_EVENTS } from '@/lib/analytics/events';
 import { buildPaymentInfoData, pricedRowsToCheckoutItems } from '@/lib/analytics/webengageEvents';
 import { selectAppliedPromos } from '@/store/slices/cartSlice';
+
+const NECTOR_DOWN_MESSAGE = 'Loyalty points cannot be applied or redeemed as the server is down.';
+const NECTOR_DOWN_TOAST_ID = 'nector-down';
 
 const { LOYALTY_MODE_TYPE } = APP_CONFIG.PAYMENT_MODES;
 
@@ -97,7 +101,7 @@ export default function CheckoutPaymentSection({
   const loyaltyMode = paymentModes.find((m) => m.modeType === LOYALTY_MODE_TYPE) ?? null;
   const {
     promotion: loyaltyPromotion, isEligible: loyaltyEligible,
-    isLoading: loyaltyEligibilityLoading, ineligibleReason,
+    isLoading: loyaltyEligibilityLoading, ineligibleReason, isNectorDown,
   } = useNectorCheckoutInfo(
     {
       mobile: customerMobile, companyId: activeStoreId, partyId: customerId,
@@ -107,7 +111,9 @@ export default function CheckoutPaymentSection({
   );
   const loyaltyClaimable = (Number(loyaltyPromotion?.coin_value) || 0)
     + (Number(loyaltyPromotion?.credit_value) || 0);
-  const loyaltyDisabledReason = !customerMobile
+  const loyaltyDisabledReason = isNectorDown
+    ? NECTOR_DOWN_MESSAGE
+    : !customerMobile
     ? 'Attach a customer to redeem Nector Loyalty'
     : total <= 0
     ? 'Still pricing your cart'
@@ -117,7 +123,14 @@ export default function CheckoutPaymentSection({
     ? (ineligibleReason ?? 'Not redeemable on this order yet')
     : null;
   const [payments, setPayments] = useState([]);
+  useEffect(() => {
+    if (isNectorDown) toast.warning(NECTOR_DOWN_MESSAGE, { id: NECTOR_DOWN_TOAST_ID, duration: Infinity });
+    else toast.dismiss(NECTOR_DOWN_TOAST_ID);
+  }, [isNectorDown]);
+  useEffect(() => () => toast.dismiss(NECTOR_DOWN_TOAST_ID), []);
+
   const [lastPricedTotal, setLastPricedTotal] = useState(total);
+  const [lastLoyaltyQuote, setLastLoyaltyQuote] = useState(null);
   const [autoAppliedAdvanceFor, setAutoAppliedAdvanceFor] = useState(null);
   const dailyCashTaken = helpers.dailyCash?.amount ?? 0;
   const cashHeadroom   = Math.max(0, APP_CONFIG.COMPLIANCE.CASH_DAILY_LIMIT - dailyCashTaken);
@@ -239,6 +252,29 @@ export default function CheckoutPaymentSection({
         .reduce((s, p) => s + (Number(p.amount) || 0), 0);
       const remaining = Math.max(0, total - helperPaid);
       return prev.map((p) => (!p.isHelper && !p.isCredit ? { ...p, amount: String(remaining) } : p));
+    });
+  }
+  // Applied coins follow Nector's latest quote for the current cart: capped when the bill shrinks (offer,
+  // removed item), dropped when it no longer qualifies (min bill / diamond value), then the single other
+  // tender is re-balanced. Ignored while a new quote is loading so the row doesn't flicker.
+  const loyaltyQuote = loyaltyEligibilityLoading ? lastLoyaltyQuote : String(loyaltyEligible ? loyaltyClaimable : 0);
+  if (loyaltyQuote !== lastLoyaltyQuote) {
+    setLastLoyaltyQuote(loyaltyQuote);
+    setPayments((prev) => {
+      const isLoyaltyRow = (p) => !!p.nectorPromotion;
+      const row = prev.find(isLoyaltyRow);
+      if (!row) return prev;
+      const capped = loyaltyEligible && loyaltyClaimable > 0 ? Math.min(Number(row.amount) || 0, loyaltyClaimable) : 0;
+      if (capped === (Number(row.amount) || 0) && row.nectorPromotion === loyaltyPromotion) return prev;
+      let next = capped > 0
+        ? prev.map((p) => (isLoyaltyRow(p) ? { ...p, amount: String(capped), nectorPromotion: loyaltyPromotion } : p))
+        : prev.filter((p) => !isLoyaltyRow(p));
+      const others = next.filter((p) => !p.isHelper && !p.isCredit);
+      if (others.length === 1) {
+        const covered = next.filter((p) => p.isHelper || p.isCredit).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+        next = next.map((p) => (!p.isHelper && !p.isCredit ? { ...p, amount: String(Math.max(0, total - covered)) } : p));
+      }
+      return next;
     });
   }
   const emittedPayments = payments.map((p) => {

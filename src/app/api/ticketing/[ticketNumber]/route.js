@@ -11,6 +11,7 @@ import { ticketDesigns, g2dEstimates, effectiveStatus, requestedSpecs, isMultiTi
 import { buildMultiAction } from '@/lib/ticketing/multiActions';
 import { buildHoldAction, responseFollowUp } from '@/lib/ticketing/responseActions';
 import { postUpstream } from '@/lib/reports/serverAccess';
+import { getWorkflowStatusForTicket } from '@/lib/workflow/workflowOrdersClient';
 
 
 function parsePartyId(request) {
@@ -36,7 +37,14 @@ export async function GET(request, { params }) {
   try {
     const { error, ticket } = await loadAccessibleTicket(request, params);
     if (error) return error;
-    return Response.json({ ticket: toPublicTicket(ticket) });
+    const hasOrder = ticket.pos_order?.document_no || ticket.order_number || ticket.orderNumber;
+    const workflowOrder = hasOrder
+      ? await getWorkflowStatusForTicket(ticket).catch((err) => {
+        console.error('[api/ticketing/:ticketNumber] workflow status', err);
+        return null;
+      })
+      : null;
+    return Response.json({ ticket: { ...toPublicTicket(ticket), workflow_order: workflowOrder } });
   } catch (err) {
     console.error('[api/ticketing/:ticketNumber] GET', err);
     return Response.json({ error: 'Failed to load ticket' }, { status: 500 });
@@ -85,7 +93,7 @@ export async function POST(request, { params }) {
 
     if (input.action === 'update_request') {
       if (status !== TICKET_STATUS.AWAITING_G2D) {
-        return Response.json({ error: 'The request can only be updated while waiting for the G2D estimate.' }, { status: 409 });
+        return Response.json({ error: 'The request can only be updated while waiting for the estimate.' }, { status: 409 });
       }
       const requested = requestedSpecs(ticket);
       const specChanges = Object.fromEntries(Object.entries(input.specs)
@@ -113,7 +121,7 @@ export async function POST(request, { params }) {
     } else if (input.action === 'approve_g2d' || input.action === 'reject_g2d') {
       const estimate = g2d[0];
       if (status !== TICKET_STATUS.G2D_SHARED || !estimate || estimate.round !== input.round) {
-        return Response.json({ error: 'Only the latest shared G2D estimate can be approved or sent back.' }, { status: 409 });
+        return Response.json({ error: 'Only the latest shared estimate can be approved or sent back.' }, { status: 409 });
       }
       const approved = input.action === 'approve_g2d';
       filter['g2d_decisions.round'] = { $ne: estimate.round };

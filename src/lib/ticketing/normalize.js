@@ -108,7 +108,7 @@ export function g2dEstimates(ticket) {
         by: historyUser(h),
         note: h.note || null,
         changes,
-        files: urls.map((url, n) => ({ url: absoluteCadUrl(url), file_name: `G2D estimate ${i + 1}${urls.length > 1 ? `-${n + 1}` : ''}` })),
+        files: urls.map((url, n) => ({ url: absoluteCadUrl(url), file_name: `Estimate ${i + 1}${urls.length > 1 ? `-${n + 1}` : ''}` })),
         customer_decision: decisions.get(i + 1)?.decision ?? null,
         customer_feedback: decisions.get(i + 1)?.feedback ?? null,
         decided_at: decisions.get(i + 1)?.decided_at ?? null,
@@ -119,6 +119,9 @@ export function g2dEstimates(ticket) {
 }
 
 /** The workflow panel's final data (its `estimation` object) plus its manufacturing order reference, or null. */
+export const finalSku = (final) =>
+  final?.lineItem?.design_code ?? final?.lineItem?.sku ?? final?.design_code ?? final?.sku ?? null;
+
 export function finalDetails(ticket) {
   const est = ticket.estimation;
   if (!est) return null;

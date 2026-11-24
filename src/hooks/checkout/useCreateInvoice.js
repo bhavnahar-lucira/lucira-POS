@@ -243,6 +243,8 @@ export function useCreateInvoice() {
       // bounce the operator to /cart before they see the confirmation
       // screen. The screen clears the cart itself once shown.
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['buyers'] });
+      queryClient.invalidateQueries({ queryKey: ['nector'] });
       // Only invalidate orders for a "Fulfill from order" sale — that's the
       // only case where placing an invoice also changes an order's state
       // (closes the source order server-side).

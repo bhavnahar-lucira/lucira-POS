@@ -109,6 +109,7 @@ const cartSlice = createSlice({
             customLineId: incoming.customLineId,
             customLine:   incoming.customLine,
             ticketNumber: incoming.ticketNumber ?? null,
+            ticketSku:    incoming.ticketSku ?? null,
           }),
         });
       }

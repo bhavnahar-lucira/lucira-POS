@@ -22,6 +22,7 @@ import { useMetalRates } from '@/hooks/settings/useMetalRates';
 import { useAttributeOptions, useKaratOptions } from '@/hooks/catalog/useCatalogFilterOptions';
 import APP_CONFIG from '@/constants/appConfig';
 import { TICKET_STATUS, advanceModeFields, goldKarat, ticketStatusLabel } from '@/lib/ticketing/constants';
+import { finalSku } from '@/lib/ticketing/normalize';
 import { useSelector } from 'react-redux';
 import BankPosSelect from '@/components/features/checkout/BankPosSelect';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -29,6 +30,7 @@ import { useOrderHeaderConfig } from '@/hooks/checkout/useOrderHeaderConfig';
 import { useQuery } from '@tanstack/react-query';
 import { createAdvanceReceipt, listUnusedAdvanceReceipts, findReusedPaymentRefs } from '@/services/advanceReceiptService';
 import AdvanceReceiptLink from '@/components/features/ticketing/AdvanceReceiptLink';
+import TicketWorkflowStatus from '@/components/features/ticketing/TicketWorkflowStatus';
 import { validatePayments, toStoredPayment } from '@/lib/checkout/paymentModeRules';
 import { resolveDocumentDateTime } from '@/lib/dateUtils';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
@@ -52,8 +54,8 @@ export const STATUS_TONES = {
 
 const STAGES = [
   { key: 'raised', label: 'Request raised' },
-  { key: 'g2d', label: 'G2D estimate' },
-  { key: 'advance', label: 'G2D approval & advance' },
+  { key: 'g2d', label: 'Estimate' },
+  { key: 'advance', label: 'Estimate approval & advance' },
   { key: 'design', label: 'CAD design' },
   { key: 'cad_ok', label: 'CAD approval' },
   { key: 'final', label: 'Final details & SKU' },
@@ -73,9 +75,9 @@ const STAGE_BY_STATUS = {
 export const ACTION_LABELS = {
   ticket_created: 'Ticket created',
   request_updated: 'Request updated',
-  share_g2d_estimate: 'G2D estimate shared by CAD team',
-  g2d_approved: 'Customer approved G2D – order confirmed',
-  g2d_rejected: 'G2D changes requested',
+  share_g2d_estimate: 'Estimate shared by CAD team',
+  g2d_approved: 'Customer approved estimate – order confirmed',
+  g2d_rejected: 'Estimate changes requested',
   design_shared: 'Design shared by CAD team',
   share_cad_design: 'CAD design shared by CAD team',
   order_created: 'Final details sent · manufacturing order created by workflow team',
@@ -273,8 +275,8 @@ export function FinalDetails({ details }) {
         items={[
           ['Received', `${formatDateTime(details.received_at)}${details.received_by ? ` by ${details.received_by}` : ''}`],
           ['Manufacturing order (panel)', details.manufacturing_order_number ?? '—'],
-          ['Panel status', details.panel_status_label ?? '—'],
-          ['SKU', lineItem.design_code ?? details.design_code ?? 'Not received yet'],
+          ['Panel status', details.panel_status_label?.replace(/G2D estimate/gi, 'Estimate').replace(/G2D/gi, 'Estimate') ?? '—'],
+          ['SKU', finalSku(details) ?? 'Not received yet'],
         ]}
       />
 
@@ -770,7 +772,7 @@ export default function TicketDetail({ ticket, partyId }) {
             step={1}
             title="Customer requirement"
             isCurrent={status === TICKET_STATUS.AWAITING_G2D}
-            prompt="Waiting for the CAD team's G2D estimate. The request can still be updated until it is shared."
+            prompt="Waiting for the CAD team's estimate. The request can still be updated until it is shared."
             actions={(
               <Button type="button" variant="outline" className="h-11 gap-1.5" onClick={() => setDialog('edit')}>
                 <Pencil size={16} aria-hidden="true" /> Update request
@@ -792,13 +794,13 @@ export default function TicketDetail({ ticket, partyId }) {
 
           <StepCard
             step={2}
-            title="G2D estimate"
+            title="Estimate"
             isCurrent={canDecideG2d}
-            prompt={latestG2d && `The CAD team has shared G2D round ${latestG2d.round}. Show it to the customer, then confirm the order once they approve, or send it back with the changes they want.`}
+            prompt={latestG2d && `The CAD team has shared estimate round ${latestG2d.round}. Show it to the customer, then confirm the order once they approve, or send it back with the changes they want.`}
             actions={decisionButtons(() => setDialog('reject_g2d'), () => setDialog('approve_g2d'), 'Customer approved – confirm order')}
           >
             {g2d.length === 0 ? (
-              <p className="text-sm text-muted-foreground">The CAD team hasn&apos;t shared the G2D estimate yet.</p>
+              <p className="text-sm text-muted-foreground">The CAD team hasn&apos;t shared the estimate yet.</p>
             ) : [...g2d].reverse().map((estimate) => (
               <div key={estimate.round} className="flex flex-col gap-3 border-t border-border pt-3 first:border-0 first:pt-0">
                 <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -868,7 +870,7 @@ export default function TicketDetail({ ticket, partyId }) {
             {ticket.cad_remarks && <TextBlock label="CAD remarks">{ticket.cad_remarks}</TextBlock>}
             {designs.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                {status === TICKET_STATUS.AWAITING_CAD ? 'The CAD team is working on the design.' : 'The CAD design follows once the G2D estimate is approved.'}
+                {status === TICKET_STATUS.AWAITING_CAD ? 'The CAD team is working on the design.' : 'The CAD design follows once the estimate is approved.'}
               </p>
             ) : [...designs].reverse().map((design) => (
               <div key={design.version} className="flex flex-col gap-2 border-t border-border pt-3 first:border-0 first:pt-0">
@@ -918,6 +920,9 @@ export default function TicketDetail({ ticket, partyId }) {
                   ['Order placed', formatDateTime(ticket.pos_order.placed_at)],
                 ]}
               />
+            )}
+            {(ticket.pos_order?.document_no || ticket.final_details?.manufacturing_order_number) && (
+              <TicketWorkflowStatus workflow={ticket.workflow_order} />
             )}
             {ticket.final_details ? (
               <FinalDetails details={ticket.final_details} />
@@ -1020,8 +1025,8 @@ export default function TicketDetail({ ticket, partyId }) {
         <ReasonDialog
           isOpen={dialog === 'reject_g2d'}
           onOpenChange={(open) => setDialog(open ? 'reject_g2d' : null)}
-          title={`Request changes to G2D round ${latestG2d.round}`}
-          description="The customer's changes go to the CAD team for a revised G2D estimate."
+          title={`Request changes to estimate round ${latestG2d.round}`}
+          description="The customer's changes go to the CAD team for a revised estimate."
           label="Changes the customer wants"
           confirmLabel="Send to CAD"
           isPending={action.isPending}

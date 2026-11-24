@@ -36,6 +36,7 @@ export function matchesBand(value, options, selected) {
 }
 
 export const SORT_OPTIONS = [
+  { value: 'coins_desc', label: 'Lucira Coins: High to Low' },
   { value: 'recent',     label: 'Most recent purchase' },
   { value: 'price_desc', label: 'Price: high to low' },
   { value: 'price_asc',  label: 'Price: low to high' },
@@ -50,12 +51,27 @@ export function daysSince(date, now = Date.now()) {
   return Number.isFinite(ms) ? Math.max(0, Math.round((startOfDay(now) - startOfDay(ms)) / DAY_MS)) : null;
 }
 
-/** Applies the Days, Frequency and By Price controls to grouped buyers (groupPurchasesByBuyer rows). */
-export function applyBuyerFilters(buyers, { recency = 'all', frequency = 'all', sort = 'recent', now = Date.now() } = {}) {
+/** Applies the Days, Frequency and Sort controls to grouped buyers (groupPurchasesByBuyer rows). */
+export function applyBuyerFilters(buyers, { recency = 'all', frequency = 'all', sort = 'coins_desc', coinsMap = null, now = Date.now() } = {}) {
   const rows = buyers
-    .map((b) => ({ ...b, daysSinceLastPurchase: daysSince(b.lastPurchaseDate, now) }))
+    .map((b) => {
+      return {
+        ...b,
+        luciraPoints: coinsMap?.get(Number(b._id)) ?? b.luciraPoints,
+        daysSinceLastPurchase: daysSince(b.lastPurchaseDate, now),
+      };
+    })
     .filter((b) => matchesBand(b.daysSinceLastPurchase, RECENCY_OPTIONS, recency)
       && matchesBand(b.purchaseCount, FREQUENCY_OPTIONS, frequency));
+
+  if (sort === 'coins_desc') {
+    return rows.sort((a, b) => {
+      const aCoins = a.luciraPoints ?? -1;
+      const bCoins = b.luciraPoints ?? -1;
+      if (bCoins !== aCoins) return bCoins - aCoins;
+      return b.totalSpend - a.totalSpend;
+    });
+  }
   if (sort === 'price_desc') return rows.sort((a, b) => b.totalSpend - a.totalSpend);
   if (sort === 'price_asc') return rows.sort((a, b) => a.totalSpend - b.totalSpend);
   return rows;

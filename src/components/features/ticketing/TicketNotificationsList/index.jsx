@@ -90,7 +90,7 @@ export default function TicketNotificationsList({ data, onNavigate }) {
           icon={ClipboardList}
           tone="border-violet-300 bg-violet-50 text-violet-900 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-100"
         >
-          The CAD team has shared the G2D estimate for <strong>{t.ticket_number}</strong>{productText(t)}
+          The CAD team has shared the estimate for <strong>{t.ticket_number}</strong>{productText(t)}
           {t.customer_name ? ` · ${t.customer_name}` : ''}, kindly confirm with the customer.
         </NoticeRow>
       ))}

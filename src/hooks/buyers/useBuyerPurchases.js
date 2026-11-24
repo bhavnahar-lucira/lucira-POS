@@ -21,6 +21,7 @@ export function useBuyerPurchases({ companyId } = {}) {
     queryKey: QUERY_KEYS.BUYERS.LIST(companyId ?? 'all'),
     queryFn:  () => fetchPurchases(companyId),
     staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   return {

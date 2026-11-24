@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Download, Loader2, Receipt, Search, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, Receipt, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { downloadDocumentList } from '@/lib/documentListExport';
 import { useSelector } from 'react-redux';
@@ -14,17 +14,15 @@ import EmptyState from '@/components/shared/EmptyState';
 import ErrorState from '@/components/shared/ErrorState';
 import InlineLoader from '@/components/shared/InlineLoader';
 import { StaggerList } from '@/components/shared/StaggerList';
-import { Input } from '@/components/ui/input';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
+import { DocumentFiltersHeader, DocumentFiltersSheet, DocumentMobileFilterBar } from '@/components/shared/DocumentListFilters';
 import OrderListItem from '@/components/features/orders/OrderListItem';
 import OrderDetailSheet from '@/components/features/orders/OrderDetailSheet';
 import { useOrders } from '@/hooks/orders/useOrders';
 import { useAllOrders } from '@/hooks/orders/useAllOrders';
 import { useReadyToBillOrders } from '@/hooks/orders/useReadyToBillOrders';
+import { useWorkflowStatuses } from '@/hooks/workflow/useOrderWorkflowStatus';
+import { WORKFLOW_STAGES, getStageMeta } from '@/lib/workflow/workflowConstants';
 import APP_CONFIG from '@/constants/appConfig';
-import { todayDateString } from '@/lib/dateUtils';
 
 // document_status feeds order.status — see deriveDocumentStatus in useCustomerOrders.js.
 const STATUS_OPTIONS = [
@@ -46,6 +44,9 @@ export default function OrdersPage() {
   const [fromDate, setFromDate]     = useState('');
   const [toDate, setToDate]         = useState('');
   const [statusFilter, setStatusFilter] = useState(''); // 'paid' | 'partial' | 'due' | 'cancelled' | 'draft' | ''
+  const [hideFreebies, setHideFreebies] = useState(false);
+  const [workflowStage, setWorkflowStage] = useState(''); // '' | 'any' | 'none' | stage key
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
 
   const debounceRef = useRef(null);
   const { byOrder: readyByOrder } = useReadyToBillOrders();
@@ -102,6 +103,8 @@ export default function OrdersPage() {
     setFromDate('');
     setToDate('');
     setStatusFilter('');
+    setHideFreebies(false);
+    setWorkflowStage('');
   };
 
   // ── Filter logic ─────────────────────────────────────────
@@ -110,7 +113,19 @@ export default function OrdersPage() {
     q.length >= APP_CONFIG.SEARCH.MIN_QUERY_LENGTH ||
     !!fromDate ||
     !!toDate ||
-    !!statusFilter;
+    !!statusFilter ||
+    hideFreebies ||
+    !!workflowStage;
+
+  // Workflow stages: the whole store's list while filtering (or choosing a filter), otherwise just this page.
+  const workflowDocNos = (isSearchActive || isFilterOpen ? allOrders : pagedOrders)
+    .filter((o) => o.documentType === 'order')
+    .map((o) => o.orderNo);
+  const { statuses: workflowStatuses, isLoading: isWorkflowLoading } = useWorkflowStatuses(workflowDocNos);
+  const stageOf = (order) => {
+    const step = workflowStatuses[order.orderNo]?.current_step;
+    return step ? (getStageMeta(step)?.key ?? step) : null;
+  };
 
   const applyFilters = (list) => {
     let result = list;
@@ -145,6 +160,18 @@ export default function OrdersPage() {
       result = result.filter((order) => order.status === statusFilter);
     }
 
+    if (hideFreebies) {
+      result = result.filter((order) => Number(order.totalAmount) !== 0);
+    }
+
+    if (workflowStage === 'any') {
+      result = result.filter((order) => stageOf(order));
+    } else if (workflowStage === 'none') {
+      result = result.filter((order) => !stageOf(order));
+    } else if (workflowStage) {
+      result = result.filter((order) => stageOf(order) === workflowStage);
+    }
+
     return result;
   };
 
@@ -153,10 +180,30 @@ export default function OrdersPage() {
   // ── Display resolution ───────────────────────────────────
   const displayOrders = isSearchActive ? filteredOrders : pagedOrders;
 
-  const isFilterBusy = isSearchActive && isAllLoading && allOrders.length === 0;
+  const stageCounts = {};
+  for (const order of allOrders) {
+    const key = order.documentType === 'order' ? stageOf(order) : null;
+    if (key) stageCounts[key] = (stageCounts[key] ?? 0) + 1;
+  }
+  const inWorkflowCount = Object.values(stageCounts).reduce((a, b) => a + b, 0);
+  const workflowOptions = [
+    { value: 'any', label: `In workflow (any stage) · ${inWorkflowCount}` },
+    ...WORKFLOW_STAGES.map((st) => ({ value: st.key, label: `${st.stepNumber}. ${st.label} · ${stageCounts[st.key] ?? 0}` })),
+    { value: 'none', label: 'Not in workflow' },
+  ];
+
+  const isFilterBusy = isSearchActive && ((isAllLoading && allOrders.length === 0) || (!!workflowStage && isWorkflowLoading));
   const isLoading    = isSearchActive ? isFilterBusy : isPagedLoading;
   const isError      = isSearchActive ? false : isPagedError;
-  const hasFilters   = !!inputVal || !!fromDate || !!toDate || !!statusFilter;
+  const hasFilters   = !!inputVal || !!fromDate || !!toDate || !!statusFilter || hideFreebies || !!workflowStage;
+  const filterCount  = [fromDate || toDate, statusFilter, hideFreebies, workflowStage].filter(Boolean).length;
+  const searchProps  = {
+    value: inputVal,
+    onChange: handleSearchChange,
+    onClear: () => { clearTimeout(debounceRef.current); setInputVal(''); setSearchQuery(''); },
+    placeholder: 'Search by order number or customer',
+    label: 'Search orders',
+  };
 
   const handleDownload = async () => {
     setIsExporting(true);
@@ -178,105 +225,38 @@ export default function OrdersPage() {
   const currentPage = Math.floor(skip / take) + 1;
 
   return (
-    <div className="flex flex-col gap-3 w-full p-4 md:p-6">
-      <div className="sticky top-0 z-10 -mx-4 -mt-4 flex flex-col gap-2 border-b border-border bg-background px-4 pt-4 pb-3 md:-mx-6 md:-mt-6 md:px-6 md:pt-6">
+    <div className="flex flex-col gap-3 w-full p-4 pb-28 md:p-6 md:pb-6">
+      <div className={`sticky top-0 z-10 -mx-4 -mt-4 ${hasFilters ? 'flex' : 'hidden md:flex'} flex-col gap-2 border-b border-border bg-background px-4 pt-4 pb-3 md:-mx-6 md:-mt-6 md:px-6 md:pt-6`}>
         {isAllFetching && !isAllLoading && (
           <div className="flex justify-end -mb-1">
             <Loader2 size={14} className="animate-spin text-muted-foreground" aria-hidden="true" />
           </div>
         )}
-        <div className="flex flex-col gap-2 md:flex-row md:items-center">
-          <div className="relative md:flex-1 md:min-w-50">
-            <Search
-              size={16}
-              aria-hidden="true"
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              type="search"
-              placeholder="Search by order number or customer"
-              value={inputVal}
-              onChange={handleSearchChange}
-              className="pl-9 pr-9"
-              aria-label="Search orders"
-            />
-            {inputVal.length > 0 && (
-              <button
-                type="button"
-                onClick={() => {
-                  clearTimeout(debounceRef.current);
-                  setInputVal('');
-                  setSearchQuery('');
-                }}
-                aria-label="Clear search"
-                className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center h-7 w-7 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              >
-                <X size={15} aria-hidden="true" />
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Input
-              type="date"
-              value={fromDate}
-              max={todayDateString()}
-              onChange={(e) => setFromDate(e.target.value)}
-              aria-label="From date"
-              className="flex-1 min-w-0 md:w-36 md:flex-none"
-            />
-            <span className="text-muted-foreground text-sm shrink-0">to</span>
-            <Input
-              type="date"
-              value={toDate}
-              max={todayDateString()}
-              onChange={(e) => setToDate(e.target.value)}
-              aria-label="To date"
-              className="flex-1 min-w-0 md:w-36 md:flex-none"
-            />
-          </div>
-
-          <Select value={statusFilter || undefined} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full md:w-36" aria-label="Filter by status">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent align="start">
-              {STATUS_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleDownload}
-            disabled={isExporting}
-            className="gap-1.5 shrink-0 w-full md:w-auto"
-          >
-            {isExporting ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Download size={14} aria-hidden="true" />}
-            Download Excel
-          </Button>
-
-          {hasFilters && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleClearAll}
-              className="gap-1.5 shrink-0 w-full md:w-auto"
-              aria-label="Clear all filters"
-            >
+        <DocumentFiltersHeader
+          search={searchProps}
+          filterCount={filterCount}
+          onOpenFilters={() => setIsFilterOpen(true)}
+          onDownload={handleDownload}
+          isDownloading={isExporting}
+          downloadDisabled={false}
+          onClearAll={handleClearAll}
+          hasFilters={hasFilters}
+        />
+        {hasFilters && (
+          <div className="md:hidden flex items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              {isSearchActive && !isFilterBusy ? `${filteredOrders.length} order${filteredOrders.length !== 1 ? 's' : ''} found` : 'Filtering…'}
+              {filterCount > 0 && ` · ${filterCount} filter${filterCount !== 1 ? 's' : ''}`}
+            </p>
+            <Button type="button" variant="ghost" size="sm" onClick={handleClearAll} className="h-8 gap-1">
               <X size={14} aria-hidden="true" />
               Clear
             </Button>
-          )}
-        </div>
+          </div>
+        )}
 
         {isSearchActive && !isFilterBusy && (
-          <p className="text-xs text-muted-foreground">
+          <p className="hidden md:block text-xs text-muted-foreground">
             {filteredOrders.length} order{filteredOrders.length !== 1 ? 's' : ''} found
           </p>
         )}
@@ -301,9 +281,10 @@ export default function OrdersPage() {
         ) : (
           displayOrders.map((order, idx) => (
             <OrderListItem
-              key={order.orderId ?? idx}
+              key={`${order.documentType}-${order.orderId ?? order.orderNo ?? idx}`}
               order={order}
               readyLines={readyByOrder.get(order.orderNo) ?? null}
+              workflow={workflowStatuses[order.orderNo] ?? null}
               onSelect={() => setSelectedOrder(order)}
             />
           ))
@@ -344,6 +325,29 @@ export default function OrdersPage() {
         isOpen={!!openOrder}
         onClose={closeOrder}
         readyLines={openOrder ? readyByOrder.get(openOrder.orderNo) ?? null : null}
+      />
+
+      <DocumentMobileFilterBar
+        hasActiveFilters={hasFilters}
+        onOpenFilters={() => setIsFilterOpen(true)}
+        onDownload={handleDownload}
+        isDownloading={isExporting}
+        downloadDisabled={false}
+      />
+
+      <DocumentFiltersSheet
+        isOpen={isFilterOpen}
+        onClose={() => setIsFilterOpen(false)}
+        onClearAll={handleClearAll}
+        search={searchProps}
+        fromDate={fromDate}
+        toDate={toDate}
+        onFromDateChange={setFromDate}
+        onToDateChange={setToDate}
+        status={{ value: statusFilter, onChange: setStatusFilter, options: STATUS_OPTIONS }}
+        workflow={{ value: workflowStage, onChange: setWorkflowStage, options: workflowOptions, isLoading: isWorkflowLoading || isAllLoading }}
+        hideFreebies={hideFreebies}
+        onHideFreebiesChange={setHideFreebies}
       />
     </div>
   );

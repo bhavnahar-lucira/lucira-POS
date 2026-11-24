@@ -37,7 +37,7 @@ export default function BuyerSegmentFilters({
   return (
     <div className={`flex flex-col gap-5 ${className}`}>
       <FilterSelect label="Days since last purchase" value={recency} onChange={onRecencyChange} options={RECENCY_OPTIONS} />
-      <FilterSelect label="By Price" value={sort} onChange={onSortChange} options={SORT_OPTIONS} />
+      <FilterSelect label="Sort by" value={sort} onChange={onSortChange} options={SORT_OPTIONS} />
       <FilterSelect label="Frequency" value={frequency} onChange={onFrequencyChange} options={FREQUENCY_OPTIONS} />
     </div>
   );

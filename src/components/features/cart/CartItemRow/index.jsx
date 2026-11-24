@@ -61,6 +61,7 @@ export default function CartItemRow({
   
   const metaParts = [
     item.customLine && 'Custom estimate',
+    item.ticketSku && `SKU ${item.ticketSku}`,
     item.sizeName,
     item.attributes?.karat,
     item.attributes?.metal_color,

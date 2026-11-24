@@ -1,9 +1,10 @@
 'use client';
 
-import { User, Calendar, Store, PackageCheck } from 'lucide-react';
+import { User, Calendar, Store, PackageCheck, Workflow } from 'lucide-react';
 import ListItemCard from '@/components/shared/ListItemCard';
 import PaymentStatusBadge, { mapOrderStatus } from '@/components/shared/PaymentStatusBadge';
 import { formatDateSlashed } from '@/lib/dateUtils';
+import WorkflowStageBadge from '@/components/features/workflow/WorkflowStageBadge';
 
 /**
  * @param {{
@@ -11,7 +12,7 @@ import { formatDateSlashed } from '@/lib/dateUtils';
  *   onSelect: () => void,
  * }} props
  */
-export default function OrderListItem({ order, onSelect, readyLines = null }) {
+export default function OrderListItem({ order, onSelect, readyLines = null, workflow = null }) {
   const { orderNo, orderDate, customerName, totalAmount, status, companyName } = order;
   const reservedSkus = (readyLines ?? []).map((l) => l.sku).filter(Boolean);
 
@@ -53,6 +54,14 @@ export default function OrderListItem({ order, onSelect, readyLines = null }) {
           {reservedSkus.length > 0 && (
             <span className="truncate text-muted-foreground">Reserved {reservedSkus.join(', ')}</span>
           )}
+        </div>
+      )}
+
+      {workflow?.current_step && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground">
+          <Workflow size={13} className="shrink-0 text-muted-foreground/70" aria-hidden="true" />
+          <span className="shrink-0">Order status</span>
+          <WorkflowStageBadge stageKey={workflow.current_step} />
         </div>
       )}
 

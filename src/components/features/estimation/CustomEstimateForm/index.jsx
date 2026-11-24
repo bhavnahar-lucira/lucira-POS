@@ -15,6 +15,7 @@ import {
 import { listHeldEstimates, holdEstimate, removeHeldEstimate } from '@/lib/estimation/heldEstimates';
 import { prefillFromTicket, isMetalOnPureWeight, STONE_COSTING_DEFAULTS } from '@/lib/estimation/prefillFromTicket';
 import { isMaskedValue } from '@/lib/normalizers/customer';
+import { finalSku } from '@/lib/ticketing/normalize';
 import { uploadTemporaryFile } from '@/services/fileUploadService';
 import { resolveImageSrc } from '@/lib/resolveImageSrc';
 import CustomerAttachedBanner from '@/components/shared/CustomerAttachedBanner';
@@ -501,6 +502,7 @@ export default function CustomEstimateForm({ onDone, ticket = null }) {
       customLineId: crypto.randomUUID(),
       customLine:   buildLineItem(),
       ticketNumber: ticket?.ticket_number ?? null,
+      ticketSku:    finalSku(final),
     }));
     toast.success('Estimate added to the cart.');
     onDone();

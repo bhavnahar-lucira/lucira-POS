@@ -42,18 +42,19 @@ import { resolveDocumentDateTime } from '@/lib/dateUtils';
 import { formatAmountOrDash } from '@/lib/priceUtils';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import APP_CONFIG from '@/constants/appConfig';
+import TicketWorkflowStatus from '@/components/features/ticketing/TicketWorkflowStatus';
 import { TICKET_STATUS, TICKET_ITEM_MAX_FILES, TICKET_MAX_ITEMS, goldKarat } from '@/lib/ticketing/constants';
 
 const MULTI_ACTION_LABELS = {
   ...ACTION_LABELS,
   ticket_created: 'Ticket created',
   item_added: 'Product added',
-  g2d_approved: 'Customer approved G2D',
+  g2d_approved: 'Customer approved estimate',
   order_confirmed: 'Order confirmed',
   item_cancelled: 'Product cancelled',
 };
 
-const ITEM_STEPS = ['Request', 'G2D estimate', 'G2D approval', 'Order & advance', 'CAD design', 'CAD approval', 'Final details', 'Order'];
+const ITEM_STEPS = ['Request', 'Estimate', 'Estimate approval', 'Order & advance', 'CAD design', 'CAD approval', 'Final details', 'Order'];
 const STEP_BY_STATUS = {
   awaiting_g2d: 1,
   g2d_shared: 2,
@@ -174,9 +175,9 @@ function ProductCard({ ticket, item, partyId, run, isPending, canChange }) {
       )}
 
       {(g2d.length > 0 || !cancelled) && (
-        <SubSection title="G2D estimate">
+        <SubSection title="Estimate">
           {g2d.length === 0 ? (
-            <p className="text-sm text-muted-foreground">The CAD team hasn&apos;t shared the G2D estimate yet.</p>
+            <p className="text-sm text-muted-foreground">The CAD team hasn&apos;t shared the estimate yet.</p>
           ) : [...g2d].reverse().map((estimate) => (
             <div key={estimate.round} className="flex flex-col gap-2 rounded-lg border border-border p-3">
               <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -200,8 +201,8 @@ function ProductCard({ ticket, item, partyId, run, isPending, canChange }) {
           ))}
           {canDecideG2d && (
             <>
-              <p className="rounded-lg bg-primary/5 p-3 text-sm">Show G2D round {latestG2d.round} to the customer and record their decision.</p>
-              {decisionButtons(() => setDialog('reject_g2d'), () => setDialog('approve_g2d'), 'Customer approved G2D')}
+              <p className="rounded-lg bg-primary/5 p-3 text-sm">Show estimate round {latestG2d.round} to the customer and record their decision.</p>
+              {decisionButtons(() => setDialog('reject_g2d'), () => setDialog('approve_g2d'), 'Customer approved estimate')}
             </>
           )}
           {status === TICKET_STATUS.G2D_APPROVED && (
@@ -310,17 +311,17 @@ function ProductCard({ ticket, item, partyId, run, isPending, canChange }) {
           <ConfirmDialog
             isOpen={dialog === 'approve_g2d'}
             onOpenChange={(open) => setDialog(open ? 'approve_g2d' : null)}
-            title={`Customer approved G2D round ${latestG2d.round}?`}
-            description="The order and advance are confirmed once for the whole ticket, after every product's G2D is approved."
+            title={`Customer approved estimate round ${latestG2d.round}?`}
+            description="The order and advance are confirmed once for the whole ticket, after every product's estimate is approved."
             confirmLabel="Approve"
             confirmVariant="default"
-            onConfirm={() => act({ action: 'approve_g2d', round: latestG2d.round }, `G2D approved for ${item.item_id}.`)}
+            onConfirm={() => act({ action: 'approve_g2d', round: latestG2d.round }, `Estimate approved for ${item.item_id}.`)}
           />
           <ReasonDialog
             isOpen={dialog === 'reject_g2d'}
             onOpenChange={(open) => setDialog(open ? 'reject_g2d' : null)}
-            title={`Request changes to G2D round ${latestG2d.round}`}
-            description="The customer's changes go to the CAD team for a revised G2D estimate."
+            title={`Request changes to estimate round ${latestG2d.round}`}
+            description="The customer's changes go to the CAD team for a revised estimate."
             label="Changes the customer wants"
             confirmLabel="Send to CAD"
             isPending={isPending}
@@ -610,7 +611,7 @@ function AddProductDialog({ isOpen, onOpenChange, isPending, onSave }) {
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Add product</DialogTitle>
-          <DialogDescription>The new product goes to the CAD team for its own G2D estimate.</DialogDescription>
+          <DialogDescription>The new product goes to the CAD team for its own estimate.</DialogDescription>
         </DialogHeader>
         <TicketRequestFields idPrefix="add-product" specs={specs} onSpecsChange={setSpecs} files={files} onFilesChange={setFiles} maxFiles={TICKET_ITEM_MAX_FILES} requireFiles />
         <DialogFooter>
@@ -793,7 +794,7 @@ export default function TicketMultiDetail({ ticket, partyId }) {
         <div className="flex flex-col gap-3 rounded-xl border border-violet-300 bg-violet-50 p-4 text-sm text-violet-900 sm:flex-row sm:items-center sm:justify-between dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-100">
           <p>
             {waitingG2d.length
-              ? <>G2D approved for {pendingConfirmation.map((i) => i.item_id).join(', ')}. The order can be confirmed once {waitingG2d.map((i) => i.item_id).join(', ')} {waitingG2d.length > 1 ? 'are' : 'is'} approved or cancelled.</>
+              ? <>Estimate approved for {pendingConfirmation.map((i) => i.item_id).join(', ')}. The order can be confirmed once {waitingG2d.map((i) => i.item_id).join(', ')} {waitingG2d.length > 1 ? 'are' : 'is'} approved or cancelled.</>
               : <>All products are approved. Confirm the order and collect the advance to send {pendingConfirmation.length > 1 ? 'them' : 'it'} to CAD.</>}
           </p>
           {!waitingG2d.length && (
@@ -814,6 +815,9 @@ export default function TicketMultiDetail({ ticket, partyId }) {
         <div className="flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
           <Check size={16} aria-hidden="true" /> Order {ticket.pos_order.document_no} placed {formatDateTime(ticket.pos_order.placed_at)} · {formatAmountOrDash(ticket.pos_order.net_amount)}
         </div>
+      )}
+      {(isOrdered || ticket.order_number || ticket.orderNumber) && (
+        <TicketWorkflowStatus workflow={ticket.workflow_order} />
       )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

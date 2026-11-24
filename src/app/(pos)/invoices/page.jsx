@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Download, Loader2, Receipt, Search, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, Receipt, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { downloadDocumentList } from '@/lib/documentListExport';
 import { useSelector } from 'react-redux';
@@ -14,13 +14,12 @@ import EmptyState from '@/components/shared/EmptyState';
 import ErrorState from '@/components/shared/ErrorState';
 import InlineLoader from '@/components/shared/InlineLoader';
 import { StaggerList } from '@/components/shared/StaggerList';
-import { Input } from '@/components/ui/input';
+import { DocumentFiltersHeader, DocumentFiltersSheet, DocumentMobileFilterBar } from '@/components/shared/DocumentListFilters';
 import InvoiceListItem from '@/components/features/invoices/InvoiceListItem';
 import InvoiceDetailSheet from '@/components/features/invoices/InvoiceDetailSheet';
 import { useInvoiceList } from '@/hooks/invoices/useInvoiceList';
 import { useAllInvoices } from '@/hooks/invoices/useAllInvoices';
 import APP_CONFIG from '@/constants/appConfig';
-import { todayDateString } from '@/lib/dateUtils';
 
 export default function InvoicesPage() {
   const [skip, setSkip] = useState(0);
@@ -30,6 +29,8 @@ export default function InvoicesPage() {
   const [searchQuery, setSearchQuery] = useState(''); // debounced
   const [fromDate, setFromDate]       = useState('');
   const [toDate, setToDate]           = useState('');
+  const [hideFreebies, setHideFreebies] = useState(false);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
 
   const debounceRef = useRef(null);
 
@@ -49,7 +50,7 @@ export default function InvoicesPage() {
     allInvoices,
     isLoading: isAllLoading,
     isFetching: isAllFetching,
-  } = useAllInvoices({ enabled: !!inputVal || !!fromDate || !!toDate });
+  } = useAllInvoices({ enabled: !!inputVal || !!fromDate || !!toDate || hideFreebies });
   const [isExporting, setIsExporting] = useState(false);
   const activeStoreId = useSelector(selectActiveStoreId);
 
@@ -76,12 +77,13 @@ export default function InvoicesPage() {
     setSearchQuery('');
     setFromDate('');
     setToDate('');
+    setHideFreebies(false);
   };
 
   // ── Filter logic ─────────────────────────────────────────
   const q = searchQuery.trim().toLowerCase();
   const isSearchActive =
-    q.length >= APP_CONFIG.SEARCH.MIN_QUERY_LENGTH || !!fromDate || !!toDate;
+    q.length >= APP_CONFIG.SEARCH.MIN_QUERY_LENGTH || !!fromDate || !!toDate || hideFreebies;
 
   const applyFilters = (list) => {
     let result = list;
@@ -110,6 +112,10 @@ export default function InvoicesPage() {
       );
     }
 
+    if (hideFreebies) {
+      result = result.filter((inv) => Number(inv.totalAmount) !== 0);
+    }
+
     return result;
   };
 
@@ -121,7 +127,15 @@ export default function InvoicesPage() {
   const isFilterBusy = isSearchActive && isAllLoading && allInvoices.length === 0;
   const isLoading    = isSearchActive ? isFilterBusy : isPagedLoading;
   const isError      = isSearchActive ? false : isPagedError;
-  const hasFilters   = !!inputVal || !!fromDate || !!toDate;
+  const hasFilters   = !!inputVal || !!fromDate || !!toDate || hideFreebies;
+  const filterCount  = [fromDate || toDate, hideFreebies].filter(Boolean).length;
+  const searchProps  = {
+    value: inputVal,
+    onChange: handleSearchChange,
+    onClear: () => { clearTimeout(debounceRef.current); setInputVal(''); setSearchQuery(''); },
+    placeholder: 'Search by invoice number or customer',
+    label: 'Search invoices',
+  };
 
   const handleDownload = async () => {
     setIsExporting(true);
@@ -143,92 +157,38 @@ export default function InvoicesPage() {
   const currentPage = Math.floor(skip / take) + 1;
 
   return (
-    <div className="flex flex-col gap-3 w-full p-4 md:p-6">
-      <div className="sticky top-0 z-10 -mx-4 -mt-4 flex flex-col gap-2 border-b border-border bg-background px-4 pt-4 pb-3 md:-mx-6 md:-mt-6 md:px-6 md:pt-6">
+    <div className="flex flex-col gap-3 w-full p-4 pb-28 md:p-6 md:pb-6">
+      <div className={`sticky top-0 z-10 -mx-4 -mt-4 ${hasFilters ? 'flex' : 'hidden md:flex'} flex-col gap-2 border-b border-border bg-background px-4 pt-4 pb-3 md:-mx-6 md:-mt-6 md:px-6 md:pt-6`}>
         {isAllFetching && !isAllLoading && (
           <div className="flex justify-end -mb-1">
             <Loader2 size={14} className="animate-spin text-muted-foreground" aria-hidden="true" />
           </div>
         )}
-        <div className="flex flex-col gap-2 md:flex-row md:items-center">
-          <div className="relative md:flex-1 md:min-w-50">
-            <Search
-              size={16}
-              aria-hidden="true"
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              type="search"
-              placeholder="Search by invoice number or customer"
-              value={inputVal}
-              onChange={handleSearchChange}
-              className="pl-9 pr-9"
-              aria-label="Search invoices"
-            />
-            {inputVal.length > 0 && (
-              <button
-                type="button"
-                onClick={() => {
-                  clearTimeout(debounceRef.current);
-                  setInputVal('');
-                  setSearchQuery('');
-                }}
-                aria-label="Clear search"
-                className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center h-7 w-7 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              >
-                <X size={15} aria-hidden="true" />
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Input
-              type="date"
-              value={fromDate}
-              max={todayDateString()}
-              onChange={(e) => setFromDate(e.target.value)}
-              aria-label="From date"
-              className="flex-1 min-w-0 md:w-36 md:flex-none"
-            />
-            <span className="text-muted-foreground text-sm shrink-0">to</span>
-            <Input
-              type="date"
-              value={toDate}
-              max={todayDateString()}
-              onChange={(e) => setToDate(e.target.value)}
-              aria-label="To date"
-              className="flex-1 min-w-0 md:w-36 md:flex-none"
-            />
-          </div>
-
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleDownload}
-            disabled={isExporting || isFilterBusy}
-            className="gap-1.5 shrink-0 w-full md:w-auto"
-          >
-            {isExporting ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Download size={14} aria-hidden="true" />}
-            Download Excel
-          </Button>
-
-          {hasFilters && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleClearAll}
-              className="gap-1.5 shrink-0 w-full md:w-auto"
-              aria-label="Clear all filters"
-            >
+        <DocumentFiltersHeader
+          search={searchProps}
+          filterCount={filterCount}
+          onOpenFilters={() => setIsFilterOpen(true)}
+          onDownload={handleDownload}
+          isDownloading={isExporting}
+          downloadDisabled={isFilterBusy}
+          onClearAll={handleClearAll}
+          hasFilters={hasFilters}
+        />
+        {hasFilters && (
+          <div className="md:hidden flex items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              {isSearchActive && !isFilterBusy ? `${filteredInvoices.length} invoice${filteredInvoices.length !== 1 ? 's' : ''} found` : 'Filtering…'}
+              {filterCount > 0 && ` · ${filterCount} filter${filterCount !== 1 ? 's' : ''}`}
+            </p>
+            <Button type="button" variant="ghost" size="sm" onClick={handleClearAll} className="h-8 gap-1">
               <X size={14} aria-hidden="true" />
               Clear
             </Button>
-          )}
-        </div>
+          </div>
+        )}
 
         {isSearchActive && !isFilterBusy && (
-          <p className="text-xs text-muted-foreground">
+          <p className="hidden md:block text-xs text-muted-foreground">
             {filteredInvoices.length} invoice{filteredInvoices.length !== 1 ? 's' : ''} found
           </p>
         )}
@@ -294,6 +254,27 @@ export default function InvoicesPage() {
         invoice={selectedInvoice}
         isOpen={!!selectedInvoice}
         onClose={() => setSelectedInvoice(null)}
+      />
+
+      <DocumentMobileFilterBar
+        hasActiveFilters={hasFilters}
+        onOpenFilters={() => setIsFilterOpen(true)}
+        onDownload={handleDownload}
+        isDownloading={isExporting}
+        downloadDisabled={isFilterBusy}
+      />
+
+      <DocumentFiltersSheet
+        isOpen={isFilterOpen}
+        onClose={() => setIsFilterOpen(false)}
+        onClearAll={handleClearAll}
+        search={searchProps}
+        fromDate={fromDate}
+        toDate={toDate}
+        onFromDateChange={setFromDate}
+        onToDateChange={setToDate}
+        hideFreebies={hideFreebies}
+        onHideFreebiesChange={setHideFreebies}
       />
     </div>
   );

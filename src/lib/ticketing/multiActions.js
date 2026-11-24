@@ -81,7 +81,7 @@ export async function buildMultiAction({ input, ticket, session, store, request,
   if (input.action === 'confirm_order') {
     const active = items.filter((i) => statuses.get(i.item_id) !== TICKET_STATUS.CANCELLED);
     if (!canConfirmOrder(active.map((i) => statuses.get(i.item_id)))) {
-      return fail('Every product must have its G2D estimate approved by the customer before the order is confirmed.');
+      return fail('Every product must have its estimate approved by the customer before the order is confirmed.');
     }
     const pending = active.filter((i) => statuses.get(i.item_id) === TICKET_STATUS.G2D_APPROVED);
     const sent = new Map(input.order.items.map((i) => [i.item_id, i]));
@@ -277,7 +277,7 @@ export async function buildMultiAction({ input, ticket, session, store, request,
 
   if (input.action === 'update_request') {
     if (status !== TICKET_STATUS.AWAITING_G2D) {
-      return fail('The request can only be updated while waiting for the G2D estimate.');
+      return fail('The request can only be updated while waiting for the estimate.');
     }
     if ((item.reference_images?.length ?? 0) + input.file_ids.length > TICKET_ITEM_MAX_FILES) {
       return fail(`A product can have up to ${TICKET_ITEM_MAX_FILES} reference images.`, 400);
@@ -310,7 +310,7 @@ export async function buildMultiAction({ input, ticket, session, store, request,
   if (input.action === 'approve_g2d' || input.action === 'reject_g2d') {
     const estimate = g2dEstimates(view)[0];
     if (status !== TICKET_STATUS.G2D_SHARED || !estimate || estimate.round !== input.round) {
-      return fail('Only the latest shared G2D estimate can be approved or sent back.');
+      return fail('Only the latest shared estimate can be approved or sent back.');
     }
     const approved = input.action === 'approve_g2d';
     return {

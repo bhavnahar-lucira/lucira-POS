@@ -20,6 +20,8 @@ import {
   MessageSquareHeart,
   Truck,
   Target,
+  PhoneCall,
+  Workflow,
 } from 'lucide-react';
 
 export const NAV_ITEMS = [
@@ -34,12 +36,15 @@ export const NAV_ITEMS = [
   // { label: 'Branch Transfer', href: '/branch-transfer', icon: Truck     },
   { label: 'Estimation',   href: '/estimation',   icon: FileSpreadsheet },
   { label: 'Ticketing',    href: '/ticketing',    icon: Ticket          },
+  { label: 'Workflow Orders', href: '/workflow-orders', icon: Workflow },
+
   // { label: 'Customers',    href: '/customers',    icon: Users           },
   { label: 'Schemes',      href: '/schemes',      icon: BookOpen        },
   { label: 'Walk-ins',     href: '/walkins',      icon: Footprints      },
   { label: 'Buyers',       href: '/buyers',       icon: UserCheck       },
   { label: 'Non-Buyers',   href: '/non-buyers',   icon: UserX           },
   { label: 'Voice of Lucira', href: '/voc',     icon: MessageSquareHeart },
+  { label: 'Frejun Calls', href: '/frejun',       icon: PhoneCall       },
   { label: 'Reports',      href: '/reports',      icon: BarChart3       },
   { label: 'CRM Deals',    href: '/deals',        icon: Target },
 ];

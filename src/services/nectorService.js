@@ -101,9 +101,11 @@ export async function getReviews({ shopifyProductId, page = 1, limit = 10 }) {
  * `evaluateLoyaltyEligibility`/`W5e` exactly.
  *
  * @param {number} companyId
+ * @param {{ throwOnOutage?: boolean }} [options] — checkout passes true so a Nector/OrnaVerse outage
+ *   surfaces as an error instead of looking like "loyalty not configured".
  * @returns {Promise<object|null>}
  */
-export async function getLoyaltyCheckoutSettings(companyId) {
+export async function getLoyaltyCheckoutSettings(companyId, { throwOnOutage = false } = {}) {
   if (!companyId) return null;
   try {
     const response = await axiosInstance.post(API.CRM.LOYALTY_CHECKOUT_SETTINGS, {
@@ -114,9 +116,17 @@ export async function getLoyaltyCheckoutSettings(companyId) {
     // A store with no LoyaltyCheckout config at all (or a real outage)
     // degrades to "loyalty tile doesn't apply here" — isThirdPartyLoyalty(null)
     // already returns false safely — never a crashed checkout screen.
+    if (throwOnOutage && isLoyaltyOutage(err)) throw err;
     console.warn('[nectorService] getLoyaltyCheckoutSettings failed:', err?.serverMessage ?? err?.message);
     return null;
   }
+}
+
+/** True when a loyalty call failed because the service is unreachable or erroring, not because of the customer. */
+export function isLoyaltyOutage(result) {
+  if (!result || result.success) return false;
+  const code = Number(result.code);
+  return result.retryable === true || code === 0 || code === 429 || code >= 500;
 }
 
 /**
@@ -170,6 +180,42 @@ export async function previewLoyaltyCheckout({
     // success:false — both shapes are real, both must degrade to the SAME
     // normalized result so every customer gets consistent behavior, not
     // just the one this was first tested against.
-    return { success: false, error: err?.serverMessage ?? 'Loyalty points could not be loaded.' };
+    return {
+      success: false,
+      error: err?.serverMessage ?? 'Loyalty points could not be loaded.',
+      code: err?.code ?? null,
+      retryable: err?.retryable ?? false,
+    };
+  }
+}
+
+/**
+ * A customer's Lucira points balance (same result shape as previewLoyaltyCheckout) through the server route,
+ * which answers "no coins / no loyalty account" as 0 points instead of an HTTP 400.
+ */
+export async function getPointsBalance({ companyId, partyId, mobile, cartAmount, netAmount, remainingDue, lines }) {
+  if (!companyId || !partyId || !mobile) return { success: false, error: 'Missing required fields.' };
+  try {
+    const res = await fetch('/api/loyalty/points-balance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        company_id: companyId,
+        party_id: partyId,
+        document_no: 'DRAFT',
+        cart_amount: cartAmount,
+        apply_coins: true,
+        apply_credits: false,
+        mobile,
+        net_amount: netAmount,
+        remaining_due: remainingDue,
+        lines: lines ?? [],
+      }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok) return json.Entity ?? { success: false, error: 'Loyalty points could not be loaded.' };
+    return { success: false, error: json.error ?? 'Loyalty points could not be loaded.', code: res.status, retryable: res.status === 429 || res.status >= 500 };
+  } catch {
+    return { success: false, error: 'Network error. Please check your connection.', code: 0, retryable: true };
   }
 }

@@ -11,6 +11,9 @@ import {
   RESPONSE_TARGET_MINUTES, activeHold, formatMinutes, mostUrgentStep, stepTiming,
 } from '@/lib/ticketing/responseTimer';
 
+// Holds saved before the wording change still carry 'G2D estimate round N'.
+const stepText = (step) => step?.replace(/G2D estimate/g, 'Estimate').replace(/G2D/g, 'Estimate');
+
 const HOLD_REASONS = ['Customer not responding', 'Customer asked to wait', 'Customer unavailable / travelling'];
 
 const TONES = {
@@ -137,7 +140,7 @@ export function ResponseStatusBar({ ticket }) {
     <div className={`flex flex-col gap-2 rounded-xl border p-4 text-sm ${hold ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100' : 'border-border bg-card'}`}>
       {hold && (
         <p>
-          <strong>On hold</strong> since {fmtTime(hold.held_at)} by {hold.held_by}{hold.store_code ? ` (${hold.store_code})` : ''} · at {hold.step}
+          <strong>On hold</strong> since {fmtTime(hold.held_at)} by {hold.held_by}{hold.store_code ? ` (${hold.store_code})` : ''} · at {stepText(hold.step)}
           <span className="block whitespace-pre-line text-xs">Reason: {hold.reason}</span>
         </p>
       )}
@@ -182,7 +185,7 @@ export function ResponseTimesCard({ ticket, Card }) {
           <p className="font-medium text-foreground">Holds</p>
           {holds.map((h) => (
             <p key={h.id}>
-              {fmtTime(h.held_at)} → {h.resumed_at ? fmtTime(h.resumed_at) : 'still on hold'} · {h.step} · {h.reason}
+              {fmtTime(h.held_at)} → {h.resumed_at ? fmtTime(h.resumed_at) : 'still on hold'} · {stepText(h.step)} · {h.reason}
             </p>
           ))}
         </div>
@@ -217,7 +220,7 @@ export function ResponseHistoryDetail({ entry }) {
   if (['ticket_on_hold', 'ticket_resumed', 'response_delayed'].includes(entry.action)) {
     return (
       <p className="text-xs text-muted-foreground">
-        {c.step ? `At ${c.step}` : ''}
+        {c.step ? `At ${stepText(c.step)}` : ''}
         {c.auto ? ' · resumed automatically when the ticket moved on' : ''}
       </p>
     );
