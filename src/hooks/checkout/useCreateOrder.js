@@ -23,6 +23,7 @@ import { trackDocumentPlaced, trackDocumentFailed } from '@/lib/analytics/orderT
 import { recordBuyerPurchase } from '@/lib/checkout/recordBuyerPurchase';
 import { runTicketAction } from '@/services/ticketingService';
 import { QUERY_KEYS } from '@/constants/queryKeys';
+import { withResolvedAttributes } from '@/lib/ticketing/attributeMatch';
 
 function buildOrderEntity({
   lineItems, promotionDetails,
@@ -161,6 +162,13 @@ export function useCreateOrder() {
             ? { ...p, gift_qty: freeGiftPieces.get(giftItemId), amount: 0 }
             : p;
         });
+      }
+
+      const customItemIds = new Set(items.filter((i) => i.customLine).map((i) => i.itemId));
+      if (customItemIds.size) {
+        lineItems = await Promise.all(
+          lineItems.map((row) => (customItemIds.has(row.item_id) ? withResolvedAttributes(row) : row)),
+        );
       }
 
       const entity = buildOrderEntity({

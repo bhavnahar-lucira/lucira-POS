@@ -21,9 +21,9 @@ export async function GET(request) {
     const docNos = requested.filter((d) => documentInStores(d, codes));
     if (!docNos.length) return Response.json(searchParams.get('full') === '1' ? { order: null } : { statuses: {} });
     if (searchParams.get('full') === '1') {
-      return Response.json({ order: await getWorkflowOrderByDocumentNo(docNos[0]) });
+      return Response.json({ order: await getWorkflowOrderByDocumentNo(docNos[0], { env: session.env }) });
     }
-    return Response.json({ statuses: await getWorkflowStatusesByDocumentNos(docNos) });
+    return Response.json({ statuses: await getWorkflowStatusesByDocumentNos(docNos, { env: session.env }) });
   } catch (err) {
     console.error('[api/workflow-orders/by-document]', err);
     return Response.json({ error: 'Could not load the workflow status' }, { status: 500 });
@@ -45,7 +45,7 @@ export async function POST(request) {
   try {
     const codes = await getWorkflowStoreCodes(session);
     const allowed = docNos.filter((d) => documentInStores(d, codes));
-    return Response.json({ statuses: await getWorkflowStatusesByDocumentNos(allowed) });
+    return Response.json({ statuses: await getWorkflowStatusesByDocumentNos(allowed, { env: session.env }) });
   } catch (err) {
     console.error('[api/workflow-orders/by-document] POST', err);
     return Response.json({ error: 'Could not load the workflow status' }, { status: 500 });

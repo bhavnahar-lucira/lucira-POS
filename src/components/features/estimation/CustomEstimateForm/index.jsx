@@ -14,6 +14,7 @@ import {
 } from '@/services/customEstimateService';
 import { listHeldEstimates, holdEstimate, removeHeldEstimate } from '@/lib/estimation/heldEstimates';
 import { prefillFromTicket, isMetalOnPureWeight, STONE_COSTING_DEFAULTS } from '@/lib/estimation/prefillFromTicket';
+import { metalChoice } from '@/lib/ticketing/attributeMatch';
 import { isMaskedValue } from '@/lib/normalizers/customer';
 import { finalSku } from '@/lib/ticketing/normalize';
 import { uploadTemporaryFile } from '@/services/fileUploadService';
@@ -413,7 +414,11 @@ export default function CustomEstimateForm({ onDone, ticket = null }) {
         documentId: APP_CONFIG.DOCUMENT_TYPES.POS_ORDER,
       });
       if (!rePriced) throw new Error('Labour could not be applied.');
-      setBaseRow(rePriced);
+      const chosen = metalChoice(baseRow.item_components?.[0]);
+      setBaseRow({
+        ...rePriced,
+        item_components: [{ ...rePriced.item_components[0], ...chosen }, ...rePriced.item_components.slice(1)],
+      });
       setAppliedLabour(labourProposal);
       toast.success('Labour applied.');
     } catch (err) {
@@ -435,6 +440,10 @@ export default function CustomEstimateForm({ onDone, ticket = null }) {
       : [];
     return {
       ...baseRow,
+      karat_id: metalComponent?.karat_id,
+      karat_name: metalComponent?.karat_name,
+      metal_color_id: metalComponent?.metal_color_id,
+      metal_color_name: metalComponent?.metal_color_name,
       weight: weightNum,
       net_weight: weightNum,
       pure_weight: pureWeight,
@@ -447,6 +456,7 @@ export default function CustomEstimateForm({ onDone, ticket = null }) {
       base_tax_amount: taxAmount,
       item_size_id: sizeId ? Number(sizeId) : undefined,
       item_size_name: chosenSize?.item_size_name,
+      item_size_code: chosenSize ? (chosenSize.item_size_code ?? chosenSize.item_size_name) : undefined,
       item_components: [
         { ...metalComponent, weight: weightNum, pure_weight: pureWeight, amount: metalAmount, base_amount: metalAmount },
         ...stones.map((s) => ({

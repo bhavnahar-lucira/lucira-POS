@@ -4,7 +4,7 @@ import { Calendar, Package, User } from 'lucide-react';
 import ListItemCard from '@/components/shared/ListItemCard';
 import WorkflowStageBadge from '@/components/features/workflow/WorkflowStageBadge';
 import WorkflowStatusBadge from '@/components/features/workflow/WorkflowStatusBadge';
-import { WORKFLOW_STAGES, getStageMeta } from '@/lib/workflow/workflowConstants';
+import { WORKFLOW_STAGES, getStageMeta, workflowSourceLabel } from '@/lib/workflow/workflowConstants';
 import { formatAmountOrDash } from '@/lib/priceUtils';
 import { formatDateSlashed } from '@/lib/dateUtils';
 
@@ -29,11 +29,11 @@ export default function WorkflowOrderListItem({ order, onSelect }) {
     <ListItemCard
       onSelect={onSelect}
       header={(
-        <span className="flex items-center justify-between gap-2">
-          <span className="min-w-0 break-words">{order.order_number || 'Order'}</span>
-          {order.priority === 'high' && (
-            <span className="shrink-0 rounded-full bg-status-error/10 px-2 py-0.5 text-[11px] font-medium text-status-error">High priority</span>
-          )}
+        <span className="flex min-w-0 flex-col">
+          <span className="break-words">{order.erp_document_no || workflowSourceLabel(order)}</span>
+          <span className="break-words text-xs font-normal text-muted-foreground">
+            {order.erp_document_no ? workflowSourceLabel(order) : 'Not in OrnaVerse yet'}
+          </span>
         </span>
       )}
       footer={(

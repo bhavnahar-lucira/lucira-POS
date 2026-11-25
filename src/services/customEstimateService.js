@@ -172,6 +172,28 @@ export async function getStoneTypeDetails(itemGroupId) {
   return response.data?.Entities ?? [];
 }
 
+const ATTRIBUTE_ID_FIELDS = [
+  'base_item_id', 'item_group_id', 'type_id', 'sub_type_id', 'metal_color_id', 'karat_id', 'shape_id', 'quality_id',
+  'stone_size_id', 'sieve_id', 'group_sieve_id', 'stone_color_id', 'cut_id', 'polish_id', 'symmetry_id',
+  'fluorescence_id', 'culet_id', 'girdle_id',
+];
+
+/** OrnaVerse's attribute ({ attribute_id, attribute_code }) for a component's or line's karat/colour/shape/quality ids. */
+export async function getComponentAttribute(component) {
+  const body = Object.fromEntries(ATTRIBUTE_ID_FIELDS.map((k) => [k, Number(component[k]) || 0]));
+  for (const k of ['collection_id', 'brand_id', 'super_type_id']) if (component[k] != null) body[k] = Number(component[k]) || 0;
+  body.table = component.table ?? '';
+  body.depth = component.depth ?? '';
+  const response = await axiosInstance.post(API.HELPERS.GET_ATTRIBUTE, body);
+  return response.data ?? null;
+}
+
+/** Raw-material item master rows (e.g. every diamond item: LRDVVSEF, LEMVVSEF, …) for one base item. */
+export async function getRawMaterialItems(baseItemId) {
+  const response = await axiosInstance.post(API.ITEMS.URD_LIST, { base_item_id: baseItemId, Take: 0 });
+  return response.data?.Entities ?? [];
+}
+
 /**
  * Proposes a labour/making-charge line for the "Apply labour" step —
  * CONFIRMED LIVE (this call itself succeeds; see applyLabourToLine's own

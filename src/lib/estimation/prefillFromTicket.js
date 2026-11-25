@@ -4,7 +4,7 @@ import {
 } from '@/services/customEstimateService';
 import { uploadTemporaryFile } from '@/services/fileUploadService';
 import {
-  DIAMOND_ITEM_GROUP_ID, STONE_COSTING_DEFAULTS, norm, matchLabel, resolveStone,
+  DIAMOND_ITEM_GROUP_ID, STONE_COSTING_DEFAULTS, norm, matchLabel, resolveStone, findSize, metalChoice,
 } from '@/lib/ticketing/attributeMatch';
 import APP_CONFIG from '@/constants/appConfig';
 
@@ -96,7 +96,7 @@ export async function prefillFromTicket(final, lookups) {
   const sizeName = lineItem.item_size_name;
   if (sizeName && sizeName.trim() !== '-') {
     const sizes = await getItemSizesByType(selectedItem.type_id);
-    const size = sizes.find((s) => norm(s.item_size_name) === norm(sizeName));
+    const size = findSize(sizes, sizeName);
     if (size) sizeId = size.item_size_id;
     else warnings.push(`Size "${sizeName}" was not found — select it manually.`);
   }
@@ -172,7 +172,9 @@ export async function prefillFromTicket(final, lookups) {
         item: { ...baseRow, weight, net_weight: weight }, operations: labourProposal, documentId: APP_CONFIG.DOCUMENT_TYPES.POS_ORDER,
       });
       if (rePriced) {
+        const chosen = metalChoice(metalComponent());
         baseRow = rePriced;
+        patchMetal(chosen);
         appliedLabour = labourProposal;
       } else {
         warnings.push('Labour could not be applied — apply it manually.');

@@ -6,6 +6,7 @@ import WorkflowStageBadge from './WorkflowStageBadge';
 import WorkflowStatusBadge from './WorkflowStatusBadge';
 import WorkflowLifecycleStepper from './WorkflowLifecycleStepper';
 import { formatAmountOrNull } from '@/lib/priceUtils';
+import { workflowSourceLabel } from '@/lib/workflow/workflowConstants';
 import { formatDateTime } from '@/lib/dateUtils';
 
 function Row({ label, value, bold, border }) {
@@ -27,7 +28,6 @@ function Section({ title, children }) {
   );
 }
 
-const CHANNEL_LABELS = { 'shopify Admin API': 'Website', web: 'Website', store: 'Store', Amazon: 'Amazon' };
 
 export default function WorkflowOrderDetailSheet({ order, isOpen, onClose }) {
   const address = order?.shipping_address;
@@ -44,18 +44,14 @@ export default function WorkflowOrderDetailSheet({ order, isOpen, onClose }) {
           <div className="flex flex-wrap items-center gap-2">
             <WorkflowStatusBadge status={order.status} size="md" />
             <WorkflowStageBadge stageKey={order.current_step} className="text-xs" />
-            {order.priority === 'high' && (
-              <span className="rounded-full bg-status-error/10 px-3 py-1 text-xs font-medium text-status-error">High priority</span>
-            )}
           </div>
 
           <div className="flex flex-col gap-2">
-            <Row label="Order No." value={order.order_number} />
-            <Row label="ERP Doc No." value={order.erp_document_no} />
+            <Row label="OrnaVerse Order No." value={order.erp_document_no ?? 'Not in OrnaVerse yet'} />
+            <Row label="Source" value={workflowSourceLabel(order)} />
             <Row label="PO No." value={order.po_number} />
             <Row label="Created" value={formatDateTime(order.created_at)} />
             <Row label="Last updated" value={formatDateTime(order.updated_at)} />
-            <Row label="Channel" value={CHANNEL_LABELS[order.channel] ?? order.channel} />
             <Row label="Payment" value={order.payment_mode} />
             <Row label="ERP sync" value={order.erp_sync?.status ? order.erp_sync.status.replace(/^\w/, (c) => c.toUpperCase()) : null} />
           </div>

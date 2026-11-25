@@ -30,10 +30,13 @@ function compact(obj) {
   return Object.keys(out).length ? out : null;
 }
 
-function toApiOrder(d) {
+function toApiOrder(d, ticketDocs = new Map()) {
   const ship = d.shippingAddress ?? {};
   const fin = d.financials ?? {};
-  const erpDocumentNo = d.documentNo || d.stockAllocation?.documentNo || null;
+  const ticketNumber = d.orderNumber?.match(/^#ORD-(.+)$/)?.[1] ?? null;
+  const erpDocumentNo = ticketNumber && ticketDocs.has(ticketNumber)
+    ? ticketDocs.get(ticketNumber)
+    : d.documentNo || d.stockAllocation?.documentNo || null;
   const stages = Object.fromEntries(
     STAGE_SOURCES.map(([key, field]) => [key, compact(d[field])]).filter(([, v]) => v),
   );
@@ -43,6 +46,7 @@ function toApiOrder(d) {
     id: String(d._id),
     order_id: d.orderId != null ? String(d.orderId) : null,
     order_number: d.orderNumber ?? null,
+    ticket_number: ticketNumber,
     po_number: d.poFulfillment?.poNumber || null,
     erp_document_no: erpDocumentNo,
     channel: d.channel ?? null,
@@ -173,56 +177,99 @@ export async function getWorkflowOrders(params = {}) {
     ]).toArray(),
   ]);
   const stage_counts = Object.fromEntries(stageRows.filter((r) => r._id).map((r) => [r._id, r.n]));
+  const ticketDocs = await ticketDocumentNos(docs, params.env);
 
   return {
     success: true,
     meta: { total, limit, offset, returned: docs.length, stage_counts },
-    data: docs.map(toApiOrder),
+    data: docs.map((d) => toApiOrder(d, ticketDocs)),
   };
 }
 
+/** Map(ticket no. → the OrnaVerse order no. that ticket placed, or null) for the ticket orders among these workflow orders. */
+async function ticketDocumentNos(docs, env) {
+  const numbers = [...new Set(docs.map((d) => d.orderNumber?.match(/^#ORD-(.+)$/)?.[1]).filter(Boolean))];
+  if (!numbers.length) return new Map();
+  const tickets = await (await getWebsiteDb()).collection('pos_cad_tickets')
+    .find({ ...(env ? { env } : {}), ticket_number: { $in: numbers } }, { projection: { ticket_number: 1, 'pos_order.document_no': 1 } })
+    .toArray();
+  return new Map(tickets.map((t) => [t.ticket_number, t.pos_order?.document_no ?? null]));
+}
+
+const ticketOrderNumbers = (ticket) => [...new Set([ticket.order_number, ticket.orderNumber, `#ORD-${ticket.ticket_number}`].filter(Boolean))];
+
 /** The workflow panel's current stage for a ticket's order (matched by the panel order no., then the POS order no.), or null. */
 export async function getWorkflowStatusForTicket(ticket) {
-  const orderNumbers = [ticket.order_number, ticket.orderNumber].filter(Boolean);
+  const col = (await getWebsiteDb()).collection(COLLECTION);
+  const projection = { orderNumber: 1, currentStep: 1, status: 1, updatedAt: 1 };
   const posDoc = ticket.pos_order?.document_no;
-  if (!orderNumbers.length && !posDoc) return null;
-
-  const or = [];
-  if (orderNumbers.length) or.push({ orderNumber: { $in: orderNumbers } });
-  if (posDoc) or.push({ documentNo: posDoc }, { 'stockAllocation.documentNo': posDoc });
-
-  const doc = await (await getWebsiteDb()).collection(COLLECTION).findOne(
-    { $or: or },
-    { sort: { updatedAt: -1 }, projection: { orderNumber: 1, currentStep: 1, status: 1, updatedAt: 1 } },
-  );
+  const doc = await col.findOne({ orderNumber: { $in: ticketOrderNumbers(ticket) } }, { sort: { updatedAt: -1 }, projection })
+    ?? (posDoc
+      ? await col.findOne({ $or: [{ documentNo: posDoc }, { 'stockAllocation.documentNo': posDoc }], orderNumber: { $not: /^#ORD-/ } }, { sort: { updatedAt: -1 }, projection })
+      : null);
   return doc
     ? { order_number: doc.orderNumber ?? null, current_step: doc.currentStep ?? null, status: doc.status ?? null, updated_at: doc.updatedAt ?? null }
     : null;
 }
 
-const byDocumentFilter = (docNos) => ({
-  $or: [{ documentNo: { $in: docNos } }, { 'stockAllocation.documentNo': { $in: docNos } }],
-});
+const TICKET_WORKFLOW = /^#ORD-(.+)$/;
 
-/** Current stage per OrnaVerse order no. — { [documentNo]: { order_number, current_step, status, updated_at } }. */
-export async function getWorkflowStatusesByDocumentNos(docNos) {
-  if (!docNos.length) return {};
-  const docs = await (await getWebsiteDb()).collection(COLLECTION)
-    .find(byDocumentFilter(docNos), { projection: { orderNumber: 1, documentNo: 1, 'stockAllocation.documentNo': 1, currentStep: 1, status: 1, updatedAt: 1 } })
+/**
+ * Workflow orders bound to these OrnaVerse order nos. — Map(documentNo → workflow doc). The panel links its own orders
+ * to OrnaVerse orders, and for ticket orders ("#ORD-<ticket>") it can pick the wrong one (another order of the same
+ * customer). The ticket records the order it really placed, so for those that pairing wins over the panel's link.
+ */
+async function findBoundWorkflows(docNos, env, projection) {
+  if (!docNos.length) return new Map();
+  const db = await getWebsiteDb();
+  const envFilter = env ? { env } : {};
+  const tickets = db.collection('pos_cad_tickets');
+  const ticketProjection = { ticket_number: 1, order_number: 1, orderNumber: 1, 'pos_order.document_no': 1 };
+
+  const placing = await tickets.find({ ...envFilter, 'pos_order.document_no': { $in: docNos } }, { projection: ticketProjection }).toArray();
+  const workflows = await db.collection(COLLECTION).find({
+    $or: [
+      { documentNo: { $in: docNos } },
+      { 'stockAllocation.documentNo': { $in: docNos } },
+      ...(placing.length ? [{ orderNumber: { $in: placing.flatMap(ticketOrderNumbers) } }] : []),
+    ],
+  }, { projection: { ...projection, orderNumber: 1, documentNo: 1, 'stockAllocation.documentNo': 1, updatedAt: 1 } })
     .sort({ updatedAt: 1 })
     .toArray();
+
+  const named = [...new Set(workflows.map((w) => w.orderNumber?.match(TICKET_WORKFLOW)?.[1]).filter(Boolean))];
+  const known = new Set(placing.map((t) => t.ticket_number));
+  const extra = named.filter((n) => !known.has(n));
+  const allTickets = extra.length
+    ? [...placing, ...await tickets.find({ ...envFilter, ticket_number: { $in: extra } }, { projection: ticketProjection }).toArray()]
+    : placing;
+  const ticketByOrderNumber = new Map(allTickets.flatMap((t) => ticketOrderNumbers(t).map((n) => [n, t])));
+
   const wanted = new Set(docNos);
-  const out = {};
-  for (const d of docs) {
-    const status = { order_number: d.orderNumber ?? null, current_step: d.currentStep ?? null, status: d.status ?? null, updated_at: d.updatedAt ?? null };
-    for (const no of [d.documentNo, d.stockAllocation?.documentNo]) if (no && wanted.has(no)) out[no] = status;
+  const out = new Map();
+  for (const w of workflows) {
+    const ticket = ticketByOrderNumber.get(w.orderNumber);
+    const bound = ticket
+      ? [ticket.pos_order?.document_no]
+      : [w.documentNo, w.stockAllocation?.documentNo];
+    for (const no of bound) if (no && wanted.has(no)) out.set(no, w);
   }
   return out;
 }
 
+/** Current stage per OrnaVerse order no. — { [documentNo]: { order_number, current_step, status, updated_at } }. */
+export async function getWorkflowStatusesByDocumentNos(docNos, { env } = {}) {
+  const bound = await findBoundWorkflows(docNos, env, { currentStep: 1, status: 1 });
+  return Object.fromEntries([...bound].map(([no, d]) => [no, {
+    order_number: d.orderNumber ?? null, current_step: d.currentStep ?? null, status: d.status ?? null, updated_at: d.updatedAt ?? null,
+  }]));
+}
+
 /** The full workflow order (POS API shape) for one OrnaVerse order no., or null. */
-export async function getWorkflowOrderByDocumentNo(docNo) {
+export async function getWorkflowOrderByDocumentNo(docNo, { env } = {}) {
+  const match = (await findBoundWorkflows([docNo], env, {})).get(docNo);
+  if (!match) return null;
   const doc = await (await getWebsiteDb()).collection(COLLECTION)
-    .findOne(byDocumentFilter([docNo]), { sort: { updatedAt: -1 }, projection: { 'erpSync.rawResponse': 0 } });
-  return doc ? toApiOrder(doc) : null;
+    .findOne({ _id: match._id }, { projection: { 'erpSync.rawResponse': 0 } });
+  return doc ? toApiOrder(doc, await ticketDocumentNos([doc], env)) : null;
 }

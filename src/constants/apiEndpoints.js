@@ -95,6 +95,7 @@ const API = {
     GET_RATE:           'Services/Helpers/GetRate',
     GET_LABOUR_RATE:    'Services/Helpers/GetLabourRate',
     GET_METAL_RATE:     'Services/Helpers/GetMetalRate',
+    GET_ATTRIBUTE:      'Services/Helpers/GetAttribute',
     SET_SALES_ITEMS:    'Services/Helpers/SetSalesItems',
     SET_RETURN_ITEMS:   'Services/Helpers/SetReturnItems',
     SET_BUYBACK_ITEMS:  'Services/Helpers/SetBuyBackItems',

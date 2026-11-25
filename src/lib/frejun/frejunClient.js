@@ -12,36 +12,38 @@ function getBaseUrl() {
   return (process.env.FREJUN_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, '');
 }
 
+const IST_OFFSET_MS = 330 * 60 * 1000;
+
 /**
- * Converts ISO/date strings to Frejun's required format: DD/MM/YY HH:MM:SS
- * @param {string|Date} dateStr 
- * @param {boolean} isEnd 
- * @returns {string|null}
+ * Frejun's DD/MM/YY HH:MM:SS filter format. FreJun reads it as UTC, so a plain YYYY-MM-DD is taken as an IST day
+ * (00:00:00 / 23:59:59 IST) and shifted to UTC.
  */
 export function toFrejunDateFormat(dateStr, isEnd = false) {
   if (!dateStr) return null;
   const str = String(dateStr).trim();
   if (/^\d{2}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/.test(str)) return str;
 
-  // Handles YYYY-MM-DD or standard Date parseable strings
   let d;
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
     const [yyyy, mm, dd] = str.split('-').map(Number);
-    d = new Date(yyyy, mm - 1, dd, isEnd ? 23 : 0, isEnd ? 59 : 0, isEnd ? 59 : 0);
+    d = new Date(Date.UTC(yyyy, mm - 1, dd, isEnd ? 23 : 0, isEnd ? 59 : 0, isEnd ? 59 : 0) - IST_OFFSET_MS);
   } else {
     d = new Date(str);
   }
-
   if (isNaN(d.getTime())) return null;
 
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const yy = String(d.getFullYear()).slice(-2);
-  const hh = String(d.getHours()).padStart(2, '0');
-  const min = String(d.getMinutes()).padStart(2, '0');
-  const ss = String(d.getSeconds()).padStart(2, '0');
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${String(d.getUTCFullYear()).slice(-2)} `
+    + `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+}
 
-  return `${dd}/${mm}/${yy} ${hh}:${min}:${ss}`;
+/** FreJun sends UTC timestamps without a zone ("2026-11-25T06:18:52"), which browsers read as local (IST) time. */
+const asUtc = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v) && !/(Z|[+-]\d{2}:?\d{2})$/.test(v) ? `${v}Z` : v);
+
+function withUtcTimes(call) {
+  const out = { ...call };
+  for (const [k, v] of Object.entries(call)) if (/(_time|_at)$/.test(k)) out[k] = asUtc(v);
+  return out;
 }
 
 /**
@@ -114,11 +116,18 @@ export async function getFrejunCalls({
 
   if (!res.ok) {
     const errorText = await res.text().catch(() => '');
+    if (isNothingFound(res.status, errorText)) return { count: 0, next: null, previous: null, results: [] };
     throw new Error(`Frejun API responded with ${res.status}: ${errorText || res.statusText}`);
   }
 
   const json = await res.json();
-  return json?.data ?? { count: 0, next: null, previous: null, results: [] };
+  const data = json?.data ?? { count: 0, next: null, previous: null, results: [] };
+  return { ...data, results: (data.results ?? []).map(withUtcTimes) };
+}
+
+/** FreJun answers an empty period with 400/404 "No Calllog Found" rather than an empty list. */
+function isNothingFound(status, body) {
+  return (status === 400 || status === 404) && /no\s*call\s*log|no\s+\w+\s+found|not\s+found/i.test(body);
 }
 
 /**
@@ -159,6 +168,7 @@ export async function getFrejunAnalytics({
 
   if (!res.ok) {
     const errorText = await res.text().catch(() => '');
+    if (isNothingFound(res.status, errorText)) return [];
     throw new Error(`Frejun API Analytics responded with ${res.status}: ${errorText || res.statusText}`);
   }
 

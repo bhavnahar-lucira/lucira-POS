@@ -2,7 +2,9 @@ import { calculateItemRates } from '@/services/pricingService';
 import { getItemSizesByType, getStoneRate } from '@/services/customEstimateService';
 import { uploadTemporaryFile } from '@/services/fileUploadService';
 import { matchCustomItem } from '@/lib/estimation/prefillFromTicket';
-import { DIAMOND_ITEM_GROUP_ID, norm, matchLabel, resolveStone } from '@/lib/ticketing/attributeMatch';
+import {
+  DIAMOND_ITEM_GROUP_ID, norm, matchLabel, resolveStone, findSize, withResolvedAttributes,
+} from '@/lib/ticketing/attributeMatch';
 import { finalSku } from '@/lib/ticketing/normalize';
 import APP_CONFIG from '@/constants/appConfig';
 
@@ -72,10 +74,11 @@ export async function buildOrderFromFinal(final, ticket, lookups, overrides = {}
 
   let sizeId = null;
   let sizeName = null;
+  let sizeCode = null;
   const wantedSize = lineItem.item_size_name;
   if (wantedSize && wantedSize.trim() !== '-') {
-    const size = (await getItemSizesByType(selectedItem.type_id)).find((s) => norm(s.item_size_name) === norm(wantedSize));
-    if (size) ({ item_size_id: sizeId, item_size_name: sizeName } = size);
+    const size = findSize(await getItemSizesByType(selectedItem.type_id), wantedSize);
+    if (size) ({ item_size_id: sizeId, item_size_name: sizeName, item_size_code: sizeCode = sizeName } = size);
     else warnings.push(`Size "${wantedSize}" was not found in OrnaVerse — the order goes without a size.`);
   }
   if (blockers.length) return { blockers, warnings, review, checks: [] };
@@ -89,6 +92,8 @@ export async function buildOrderFromFinal(final, ticket, lookups, overrides = {}
   };
   const [refRow] = await calculateItemRates([{
     ...selectedItem, weight, net_weight: weight,
+    ...(karatOpt && { karat_id: karatOpt.value, karat_name: karatOpt.label }),
+    ...(colorOpt && { metal_color_id: colorOpt.value, metal_color_name: colorOpt.label }),
     item_components: [{ ...defaultRow.item_components[0], ...metalPatch }],
   }], APP_CONFIG.DOCUMENT_TYPES.POS_ORDER);
   const refMetal = refRow?.item_components?.[0];
@@ -228,12 +233,16 @@ export async function buildOrderFromFinal(final, ticket, lookups, overrides = {}
 
   const taxTemplate = refRow?.item_taxes?.length ? refRow.item_taxes : defaultRow.item_taxes ?? [];
   const rowTax = taxTemplate.length ? round2(taxAmount / taxTemplate.length) : 0;
-  const line = {
+  const builtLine = {
     ...(refRow ?? defaultRow),
+    ...(karatOpt && { karat_id: karatOpt.value, karat_name: karatOpt.label }),
+    ...(colorOpt && { metal_color_id: colorOpt.value, metal_color_name: colorOpt.label }),
     weight, net_weight: weight, pure_weight: pureWeight,
+    karat_id: metalPatch.karat_id, karat_name: metalPatch.karat_name, purity: metalPatch.purity,
+    ...(colorOpt && { metal_color_id: colorOpt.value, metal_color_name: colorOpt.label }),
     sub_total: subTotal, taxable_amount: subTotal, tax_amount: taxAmount, net_amount: netAmount,
     base_sub_total: subTotal, base_tax_amount: taxAmount, base_net_amount: netAmount,
-    ...(sizeId && { item_size_id: sizeId, item_size_name: sizeName }),
+    ...(sizeId && { item_size_id: sizeId, item_size_name: sizeName, item_size_code: sizeCode }),
     item_components: [
       { ...defaultRow.item_components[0], ...metalPatch, pure_weight: pureWeight, rate: metalRate, amount: metalAmount, base_amount: metalAmount },
       ...stones,
@@ -246,6 +255,13 @@ export async function buildOrderFromFinal(final, ticket, lookups, overrides = {}
     item_labour: labourAmount,
     ...(imagePath && { image: imagePath }),
   };
+
+  let line;
+  try {
+    line = await withResolvedAttributes(builtLine);
+  } catch (err) {
+    return { blockers: [err.message], warnings, review, unresolved, checks };
+  }
 
   return {
     blockers,

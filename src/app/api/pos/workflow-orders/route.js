@@ -35,7 +35,7 @@ async function authenticateRequest(request) {
 
   const session = await getSessionFromRequest(request);
   if (!session) return null;
-  return { allowedCodes: await getWorkflowStoreCodes(session) };
+  return { allowedCodes: await getWorkflowStoreCodes(session), env: session.env };
 }
 
 export async function OPTIONS(request) {
@@ -85,6 +85,7 @@ export async function GET(request) {
     };
     const storeCodes = effectiveStoreCodes(auth.allowedCodes, searchParams.get('store'));
     if (storeCodes) params.store_codes = storeCodes;
+    if (auth.env) params.env = auth.env;
 
     const result = await getWorkflowOrders(params);
 

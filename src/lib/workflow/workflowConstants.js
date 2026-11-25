@@ -138,3 +138,12 @@ export const WORKFLOW_STATUS_OPTIONS = [
   { value: 'completed', label: 'Completed' },
   { value: 'cancelled', label: 'Cancelled' },
 ];
+
+export const WORKFLOW_CHANNEL_LABELS = { 'shopify Admin API': 'Website', web: 'Ticket', store: 'Store', Amazon: 'Amazon' };
+
+/** Where a workflow order came from, with the number that source gave it — "Website #3894", "Ticket HO-26-0001". */
+export function workflowSourceLabel(order) {
+  if (order.ticket_number) return `Ticket ${order.ticket_number}`;
+  const source = WORKFLOW_CHANNEL_LABELS[order.channel] ?? order.channel ?? 'Order';
+  return order.order_number ? `${source} ${order.order_number}` : source;
+}

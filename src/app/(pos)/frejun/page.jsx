@@ -80,7 +80,7 @@ function calculatePresetDates(presetKey) {
       d.setDate(d.getDate() - 1);
       return [isoDay(d), isoDay(d)];
     case '7days':
-      d.setDate(d.getDate() - 7);
+      d.setDate(d.getDate() - 6);
       return [isoDay(d), today];
     case 'thisMonth':
       return [`${today.slice(0, 8)}01`, today];
@@ -93,6 +93,43 @@ function calculatePresetDates(presetKey) {
     default:
       return [today, today];
   }
+}
+
+const DEFAULT_PRESET = '7days';
+
+function DateRangeControls({ preset, fromDate, toDate, onPreset, onCustom, compact = false }) {
+  const [draftFrom, setDraftFrom] = useState(fromDate);
+  const [draftTo, setDraftTo] = useState(toDate);
+
+  const applyIfValid = (from, to) => {
+    if (from && to && from <= to && (from !== fromDate || to !== toDate)) onCustom(from, to);
+  };
+  const inputClass = compact ? 'h-10 w-[9.5rem]' : 'h-11 flex-1 min-w-0';
+
+  return (
+    <div className={compact ? 'flex items-center gap-2' : 'flex flex-col gap-2'}>
+      <Select value={preset} onValueChange={onPreset}>
+        <SelectTrigger className={compact ? 'h-10 w-40' : 'h-11 w-full'} aria-label="Date range">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent align="start">
+          {DATE_PRESETS.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+          {preset === 'custom' && <SelectItem value="custom">Custom range</SelectItem>}
+        </SelectContent>
+      </Select>
+      <div className="flex items-center gap-2">
+        <Input
+          type="date" value={draftFrom} max={draftTo || todayDateString()} aria-label="From date" className={inputClass}
+          onChange={(e) => { setDraftFrom(e.target.value); applyIfValid(e.target.value, draftTo); }}
+        />
+        <span className="text-muted-foreground text-sm shrink-0">to</span>
+        <Input
+          type="date" value={draftTo} min={draftFrom || undefined} max={todayDateString()} aria-label="To date" className={inputClass}
+          onChange={(e) => { setDraftTo(e.target.value); applyIfValid(draftFrom, e.target.value); }}
+        />
+      </div>
+    </div>
+  );
 }
 
 function FilterSelect({ label, value, onChange, options, allLabel }) {
@@ -127,9 +164,9 @@ export default function FrejunTelephonyPage() {
   const isStoreUnmapped = !isSuperAdmin && !matchedActiveStore;
 
   const [activeTab, setActiveTab] = useState('calls');
-  const [datePreset, setDatePreset] = useState('today');
-  const [fromDate, setFromDate] = useState(() => todayDateString());
-  const [toDate, setToDate] = useState(() => todayDateString());
+  const [datePreset, setDatePreset] = useState(DEFAULT_PRESET);
+  const [fromDate, setFromDate] = useState(() => calculatePresetDates(DEFAULT_PRESET)[0]);
+  const [toDate, setToDate] = useState(() => calculatePresetDates(DEFAULT_PRESET)[1]);
   const [selectedStoreTag, setSelectedStoreTag] = useState(defaultStore);
   const userHasPickedStoreRef = useRef(false);
 
@@ -314,7 +351,7 @@ export default function FrejunTelephonyPage() {
     setCallType(ALL);
     setStatusFilter(ALL);
     setSelectedStoreTag(defaultStore);
-    handlePresetSelect('today');
+    handlePresetSelect(DEFAULT_PRESET);
   };
 
   const handleRefresh = () => {
@@ -329,14 +366,17 @@ export default function FrejunTelephonyPage() {
     resetPage();
   };
 
+  const handleAgentSelect = (v) => { setSelectedAgent(v); resetPage(); };
   const filterCount = [
     isSuperAdmin && selectedStoreTag !== defaultStore,
-    datePreset !== 'today',
-    selectedAgent !== ALL,
     callType !== ALL,
     statusFilter !== ALL,
   ].filter(Boolean).length;
-  const hasFilters = filterCount > 0 || !!inputVal;
+  const hasFilters = filterCount > 0 || !!inputVal || datePreset !== DEFAULT_PRESET || selectedAgent !== ALL;
+  const agentLabel = selectedAgent === ALL ? null : agentOptions.find((o) => o.value === selectedAgent)?.label ?? selectedAgent;
+  const dateControlProps = {
+    preset: datePreset, fromDate, toDate, onPreset: handlePresetSelect, onCustom: handleCustomDateChange,
+  };
 
   const searchProps = {
     value: inputVal,
@@ -374,10 +414,25 @@ export default function FrejunTelephonyPage() {
           onClearAll={handleClearAll}
           hasFilters={hasFilters}
         />
-        <PillTabs tabs={tabs} value={activeTab} onChange={setActiveTab} className="md:max-w-xs" />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <PillTabs tabs={tabs} value={activeTab} onChange={setActiveTab} className="md:max-w-xs" />
+          <div className="hidden md:flex flex-wrap items-center justify-end gap-2">
+            <Select value={selectedAgent} onValueChange={handleAgentSelect}>
+              <SelectTrigger className="h-10 w-56" aria-label="Calling agent">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end" className="max-h-72">
+                <SelectItem value={ALL}>All agents</SelectItem>
+                {agentOptions.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <DateRangeControls key={`${fromDate}|${toDate}`} {...dateControlProps} compact />
+          </div>
+        </div>
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
           <p className="text-xs text-muted-foreground">
             {storeLabel} · {dateLabel}
+            {agentLabel && ` · ${agentLabel}`}
             {filterCount > 0 && ` · ${filterCount} filter${filterCount !== 1 ? 's' : ''}`}
             {shownUpdatedAt > 0 && ` · Updated ${new Date(shownUpdatedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`}
             {isLiveRange && ' · live'}
@@ -418,7 +473,14 @@ export default function FrejunTelephonyPage() {
             ) : isCallsError ? (
               <ErrorState className="col-span-full" title="Couldn't load calls." description={callsError?.message} onRetry={() => refetchCalls()} />
             ) : displayedCalls.length === 0 ? (
-              <EmptyState className="col-span-full" icon={Headphones} title="No calls found." description="Try another store, date range or filter." />
+              <EmptyState
+                className="col-span-full"
+                icon={Headphones}
+                title={hasFilters ? 'No calls match your filters.' : 'No calls yet.'}
+                description={hasFilters
+                  ? 'Try another date range or clear the filters.'
+                  : 'No calls have been made or received for the selected dates. New calls appear here automatically.'}
+              />
             ) : (
               displayedCalls.map((call) => (
                 <CallListItem key={call.id || call.call_id} call={call} onSelect={() => setSelectedCall(call)} />
@@ -512,31 +574,14 @@ export default function FrejunTelephonyPage() {
             </section>
           )}
 
-          <section className="flex flex-col gap-2">
+          <section className="flex flex-col gap-2 md:hidden">
             <h3 className="text-sm font-medium text-foreground">Date</h3>
-            <Select value={datePreset} onValueChange={handlePresetSelect}>
-              <SelectTrigger className="h-11 w-full" aria-label="Date range">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start">
-                {DATE_PRESETS.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
-                {datePreset === 'custom' && <SelectItem value="custom">Custom range</SelectItem>}
-              </SelectContent>
-            </Select>
-            <div className="flex items-center gap-2">
-              <Input type="date" value={fromDate} max={todayDateString()} onChange={(e) => handleCustomDateChange(e.target.value, toDate)} aria-label="From date" className="h-11 flex-1 min-w-0" />
-              <span className="text-muted-foreground text-sm shrink-0">to</span>
-              <Input type="date" value={toDate} max={todayDateString()} onChange={(e) => handleCustomDateChange(fromDate, e.target.value)} aria-label="To date" className="h-11 flex-1 min-w-0" />
-            </div>
+            <DateRangeControls key={`${fromDate}|${toDate}`} {...dateControlProps} />
           </section>
 
-          <FilterSelect
-            label="Calling agent"
-            value={selectedAgent}
-            onChange={(v) => { setSelectedAgent(v); resetPage(); }}
-            options={agentOptions}
-            allLabel="All agents"
-          />
+          <div className="md:hidden">
+            <FilterSelect label="Calling agent" value={selectedAgent} onChange={handleAgentSelect} options={agentOptions} allLabel="All agents" />
+          </div>
           <FilterSelect label="Direction" value={callType} onChange={setCallType} options={DIRECTION_OPTIONS} allLabel="All directions" />
           <FilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={STATUS_OPTIONS} allLabel="All statuses" />
         </div>
