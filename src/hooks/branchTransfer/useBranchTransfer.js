@@ -167,3 +167,86 @@ export const useAuthorizeBranchIn = () => useAction((payload) => authorizeBranch
 export const usePostAllocation = () => useAction(({ id }) => postStockAllocation(id), 'Stock allocation posted.', { doc_type: 'allocation', action: 'posted' });
 export const useCancelAllocation = () => useAction(({ id }) => cancelStockAllocation(id), 'Stock allocation cancelled — the stock is free again.', { doc_type: 'allocation', action: 'cancelled' });
 export const useUpdateAllocation = () => useAction(({ id, lines }) => updateStockAllocation({ id, lines }), 'Stock allocation saved.', { doc_type: 'allocation', action: 'updated' });
+
+const APPROVALS_URL = '/api/branch-transfer/approvals';
+
+async function approvalsFetch(url, init) {
+  const res = await fetch(url, init);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error ?? 'Request failed');
+  return data;
+}
+
+/** Latest HO approval request per document ({ [transaction_id]: approval }) and whether approval is switched on. */
+export function useTransferApprovals(kind, ids) {
+  const list = [...new Set((ids ?? []).filter(Boolean))];
+  const query = useQuery({
+    queryKey: [KEY, 'approvals', kind, list.join(',')],
+    queryFn: () => approvalsFetch(`${APPROVALS_URL}?kind=${kind}&transaction_ids=${list.join(',')}`),
+    enabled: list.length > 0,
+    staleTime: 0,
+    refetchInterval: 60 * 1000,
+  });
+  return { required: query.data?.required ?? true, approvals: query.data?.approvals ?? {}, isLoading: query.isLoading && list.length > 0 };
+}
+
+/** HO: every pending request. A store: its own pending requests and those decided in the last day. */
+export function usePendingTransferApprovals() {
+  const companyId = useSelector(selectActiveStoreId);
+  const query = useQuery({
+    queryKey: [KEY, 'approvals', 'pending', companyId],
+    queryFn: () => approvalsFetch(`${APPROVALS_URL}?scope=pending`),
+    enabled: !!companyId,
+    staleTime: 30 * 1000,
+    refetchInterval: 2 * 60 * 1000,
+  });
+  return {
+    approvals: query.data?.approvals ?? [],
+    isApprover: !!query.data?.isApprover,
+    required: query.data?.required ?? true,
+    isLoading: query.isLoading,
+    refetch: query.refetch,
+  };
+}
+
+export function requestTransferApproval(payload) {
+  return approvalsFetch(APPROVALS_URL, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  });
+}
+
+export function useRequestTransferApproval() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: requestTransferApproval,
+    onSuccess: (_data, vars) => {
+      logTransferEvent({ doc_type: vars.kind === 'send' ? 'branch_out' : 'branch_in', transaction_id: vars.transaction_id, document_no: vars.document_no ?? null, action: 'approval_requested', note: vars.note ?? null });
+      queryClient.invalidateQueries({ queryKey: [KEY] });
+      toast.success('Sent to HO for approval.');
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
+  });
+}
+
+export function useDecideTransferApproval() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, decision, reason }) => approvalsFetch(APPROVALS_URL, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, decision, reason }),
+    }),
+    onSuccess: ({ approval }, vars) => {
+      logTransferEvent({
+        doc_type: approval.kind === 'send' ? 'branch_out' : 'branch_in', transaction_id: approval.transaction_id, document_no: approval.document_no,
+        action: vars.decision === 'approve' ? 'approved' : 'rejected', note: vars.reason ?? null,
+      });
+      if (vars.decision === 'approve' && approval.kind === 'send') {
+        logTransferEvent({ doc_type: 'branch_out', transaction_id: approval.transaction_id, document_no: approval.document_no, action: 'posted' });
+      }
+      queryClient.invalidateQueries({ queryKey: [KEY] });
+      toast.success(vars.decision === 'approve'
+        ? (approval.kind === 'send' ? `Approved — ${approval.document_no ?? 'the transfer'} is posted and in transit.` : `Approved — ${approval.store_code ?? 'the store'} can now authorise the receipt.`)
+        : 'Rejected — the store has been told why.');
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
+  });
+}

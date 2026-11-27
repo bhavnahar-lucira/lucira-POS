@@ -26,7 +26,7 @@ const COLUMNS = [
   { key: 'status',   label: 'Document Status' },
 ];
 
-/** Same columns as OrnaVerse's POS Invoice/Order list Excel export; `entities` are raw list rows. */
+/** Same columns as OrnaVerse's POS Invoice/Order/Reserve list Excel export; `entities` are raw list rows. */
 export function downloadDocumentList({ kind, entities }) {
   const rows = [...entities]
     .sort((a, b) => new Date(b.document_date ?? 0) - new Date(a.document_date ?? 0))
@@ -43,6 +43,6 @@ export function downloadDocumentList({ kind, entities }) {
     }));
 
   const stamp = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date()).replaceAll('-', '');
-  const name = kind === 'order' ? 'Order' : 'Invoice';
+  const name = { order: 'Order', reserve: 'Reserve' }[kind] ?? 'Invoice';
   downloadXlsx(`${name}List_${stamp}.xlsx`, [{ name: `${name}s`, columns: COLUMNS, rows }]);
 }

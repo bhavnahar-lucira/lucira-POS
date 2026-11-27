@@ -1,9 +1,11 @@
 'use client';
 
 import { useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { useDispatch } from 'react-redux';
 import { toast } from 'sonner';
-import { ShoppingCart } from 'lucide-react';
+import { Bookmark, ShoppingCart } from 'lucide-react';
+import { useCustomerSession } from '@/hooks/customer/useCustomerSession';
 import { Button } from '@/components/ui/button';
 import { addItem } from '@/store/slices/cartSlice';
 import { openCart } from '@/store/slices/uiSlice';
@@ -42,8 +44,12 @@ export default function AddToCartButton({
   shopifyIds = null,
   disabled = false,
   className,
+  mode = 'cart',
 }) {
   const dispatch = useDispatch();
+  const router = useRouter();
+  const { customerId } = useCustomerSession();
+  const isReserve = mode === 'reserve';
   const isDisabled = !product || disabled || unitPrice == null;
   const isAddingRef = useRef(false);
   const resolvedImage =
@@ -68,6 +74,10 @@ export default function AddToCartButton({
 
   const handleAddToCart = () => {
     if (isDisabled || isAddingRef.current) return;
+    if (isReserve && !customerId) {
+      toast.error('Attach the customer first — the piece is reserved against them.');
+      return;
+    }
     isAddingRef.current = true;
     setTimeout(() => { isAddingRef.current = false; }, 700);
 
@@ -106,11 +116,28 @@ export default function AddToCartButton({
       buildCartItemData(fullAttributes, { price: unitPrice, quantity }),
     );
 
+    if (isReserve) {
+      router.push('/checkout?mode=reserve');
+      return;
+    }
     toast.success(TOAST.CART.ITEM_ADDED(product.item_name ?? 'Item'));
     dispatch(openCart());
   };
 
   return (
+    isReserve ? (
+      <Button
+        type="button"
+        variant="outline"
+        onClick={handleAddToCart}
+        disabled={isDisabled}
+        aria-label="Reserve for customer"
+        className={cn('min-h-10 px-4 text-sm font-semibold sm:min-h-12 sm:px-5 sm:text-base', className)}
+      >
+        <Bookmark size={18} aria-hidden="true" className="shrink-0" />
+        Reserve
+      </Button>
+    ) : (
     <Button
       type="button"
       variant="premium"
@@ -123,5 +150,6 @@ export default function AddToCartButton({
       <span className="sm:hidden">Add</span>
       <span className="hidden sm:inline">Add to Cart</span>
     </Button>
+    )
   );
 }

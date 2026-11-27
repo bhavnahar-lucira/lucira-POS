@@ -18,13 +18,15 @@ import CallDetailSheet, { resolveAgentInfo, callStatusTone } from '@/components/
 import { isIncomingCall, resolveAllAgents } from '@/lib/frejun/agentInfo';
 import CallListItem from '@/components/features/frejun/CallListItem';
 import StaffAnalyticsPanel from '@/components/features/frejun/StaffAnalyticsPanel';
-import AgentOverviewPanel from '@/components/features/frejun/AgentOverviewPanel';
+import AgentOverviewPanel, { formatTalkTime } from '@/components/features/frejun/AgentOverviewPanel';
 import { useFrejunCalls } from '@/hooks/frejun/useFrejunCalls';
 import { useFrejunAnalytics } from '@/hooks/frejun/useFrejunAnalytics';
 import { useFrejunAgents } from '@/hooks/frejun/useFrejunAgents';
+import { useFrejunSummary } from '@/hooks/frejun/useFrejunSummary';
+import { useFrejunAgentTags } from '@/hooks/frejun/useFrejunAgentTags';
 import { selectActiveStoreName, selectActiveStoreCode } from '@/store/slices/storeSlice';
 import { selectIsSuperAdmin } from '@/store/slices/authSlice';
-import { matchStoreByNameOrCode } from '@/lib/frejun/storeMapping';
+import { FREJUN_STORES, matchStoreByNameOrCode } from '@/lib/frejun/storeMapping';
 import APP_CONFIG from '@/constants/appConfig';
 import { todayDateString } from '@/lib/dateUtils';
 
@@ -149,6 +151,34 @@ function FilterSelect({ label, value, onChange, options, allLabel }) {
   );
 }
 
+function SummaryTile({ label, value, hint, className = '' }) {
+  return (
+    <div className="flex flex-col gap-0.5 rounded-lg border border-border bg-card px-3 py-2.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className={`text-lg font-bold tabular-nums text-foreground ${className}`}>{value}</span>
+      {hint && <span className="text-[11px] leading-tight text-muted-foreground">{hint}</span>}
+    </div>
+  );
+}
+
+function CallSummaryTiles({ summary, isLoading, error, isAllStores }) {
+  if (error) return <p className="text-xs text-status-error">Couldn&apos;t load the overall totals: {error.message}</p>;
+  const fmt = (n) => (isLoading || n == null ? '…' : Number(n).toLocaleString('en-IN'));
+  const rate = summary?.total ? `${((summary.connected / summary.total) * 100).toFixed(1)}% of calls` : null;
+  const uniqueHint = !isLoading && summary && summary.uniqueCustomers == null
+    ? (isAllStores ? 'Pick a store or a shorter range' : 'Pick a shorter range')
+    : (summary && !summary.uniqueExact ? 'Latest calls only' : 'Distinct numbers');
+  return (
+    <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-5">
+      <SummaryTile label="Total calls" value={fmt(summary?.total)} />
+      <SummaryTile label="Connected" value={fmt(summary?.connected)} hint={rate} className="text-status-in-stock" />
+      <SummaryTile label="Not connected" value={fmt(summary?.notConnected)} className="text-status-error" />
+      <SummaryTile label="Unique customers" value={fmt(summary?.uniqueCustomers)} hint={uniqueHint} />
+      <SummaryTile label="Talk time" value={isLoading || !summary ? '…' : formatTalkTime(summary.minutes)} />
+    </div>
+  );
+}
+
 export default function FrejunTelephonyPage() {
   const activeStoreName = useSelector(selectActiveStoreName);
   const activeStoreCode = useSelector(selectActiveStoreCode);
@@ -242,8 +272,21 @@ export default function FrejunTelephonyPage() {
     overview, isLoading: isAgentsLoading, isFetching: isAgentsFetching, error: agentsError, refetch: refetchAgents, updatedAt: agentsUpdatedAt,
   } = useFrejunAgents(
     { store: selectedStoreTag, dateStart: fromDate, dateEnd: toDate },
-    { enabled: activeTab === 'agents' && !isStoreUnmapped, refetchInterval: isLiveRange ? TOTALS_REFRESH_MS : false },
+    { enabled: !isStoreUnmapped, refetchInterval: isLiveRange ? TOTALS_REFRESH_MS : false },
   );
+
+  const { agentTags, refetch: refetchAgentTags } = useFrejunAgentTags({ enabled: !isStoreUnmapped });
+
+  const {
+    summary, isLoading: isSummaryLoading, isFetching: isSummaryFetching, error: summaryError, refetch: refetchSummary,
+  } = useFrejunSummary({
+    store: resolvedFilter.storeKey,
+    userEmail: selectedAgent.includes('@') ? selectedAgent : '',
+    tag: resolvedFilter.tag,
+    search,
+    dateStart: fromDate,
+    dateEnd: toDate,
+  }, { enabled: !isStoreUnmapped, refetchInterval: isLiveRange ? TOTALS_REFRESH_MS : false });
 
   const displayedCalls = useMemo(() => calls.filter((c) => {
     if (callType !== ALL) {
@@ -271,22 +314,25 @@ export default function FrejunTelephonyPage() {
   const agentOptions = useMemo(() => {
     const map = new Map();
     const seenNames = new Set();
-    const add = (value, label, name = label) => {
-      if (!value || map.has(value) || seenNames.has(name.toLowerCase())) return;
+    const add = (value, label, dedupeKey = value) => {
+      const k = String(dedupeKey).toLowerCase().replace(/\s+/g, ' ').trim();
+      if (!value || map.has(value) || seenNames.has(k)) return;
       map.set(value, label);
-      seenNames.add(name.toLowerCase());
+      seenNames.add(k);
     };
     for (const a of overview?.agents ?? []) {
-      if (!a.untagged) add(a.key, `${a.name} (${overview.store?.label ?? 'store'})`, a.name);
+      if (!a.untagged) add(a.key, `${a.name} (${overview.store?.label ?? 'store'})`);
     }
     for (const call of [...unfilteredCalls, ...calls]) {
       for (const info of resolveAllAgents(call)) {
-        if (info.tagId) add(info.fullTag, info.storeName ? `${info.agentName} (${info.storeName})` : info.agentName, info.agentName);
+        if (info.tagId) add(info.fullTag, info.storeName ? `${info.agentName} (${info.storeName})` : info.agentName);
         else if (!info.store && call.recruiter?.includes('@')) add(call.recruiter.toLowerCase(), info.agentName);
       }
     }
-    if (selectedStoreTag === ALL || selectedStoreTag === 'borivali') {
-      for (const name of ['Brandon Parkhe', 'Sarika Adangale', 'Mamta Tambe', 'Sanjay Jaiswal']) add(`Borivali - ${name}`, `${name} (Borivali Store)`, name);
+    for (const t of agentTags) {
+      if (selectedStoreTag !== ALL && t.storeKey && t.storeKey !== selectedStoreTag) continue;
+      const storeName = FREJUN_STORES.find((s) => s.key === t.storeKey)?.label;
+      add(t.name, storeName ? `${t.agentName} (${storeName})` : t.agentName);
     }
     for (const item of analytics) {
       const email = String(item.user || '').toLowerCase();
@@ -298,20 +344,7 @@ export default function FrejunTelephonyPage() {
     return Array.from(map.entries())
       .sort((x, y) => x[1].localeCompare(y[1]))
       .map(([value, label]) => ({ value, label }));
-  }, [unfilteredCalls, calls, analytics, overview, selectedStoreTag, selectedAgent]);
-
-  const pageStats = useMemo(() => {
-    let answered = 0;
-    let missed = 0;
-    let minutes = 0;
-    for (const c of displayedCalls) {
-      const tone = callStatusTone(c.status);
-      if (tone === 'done') answered++;
-      else if (tone === 'error') missed++;
-      minutes += Number(c.call_duration) || 0;
-    }
-    return { answered, missed, minutes: Math.round(minutes) };
-  }, [displayedCalls]);
+  }, [unfilteredCalls, calls, analytics, overview, agentTags, selectedStoreTag, selectedAgent]);
 
   const resetPage = () => setPage(1);
 
@@ -357,7 +390,9 @@ export default function FrejunTelephonyPage() {
   const handleRefresh = () => {
     refetchCalls();
     refetchAnalytics();
-    if (activeTab === 'agents' && selectedStoreTag !== ALL) refetchAgents();
+    refetchSummary();
+    refetchAgentTags();
+    if (selectedStoreTag !== ALL) refetchAgents();
   };
 
   const handleSelectStaff = (agentKey) => {
@@ -386,7 +421,7 @@ export default function FrejunTelephonyPage() {
     label: activeTab === 'calls' ? 'Search calls' : 'Search agents',
   };
   const refreshAction = {
-    label: 'Refresh', icon: RefreshCw, onClick: handleRefresh, busy: isCallsFetching || isAnalyticsFetching || isAgentsFetching, spinIcon: true,
+    label: 'Refresh', icon: RefreshCw, onClick: handleRefresh, busy: isCallsFetching || isAnalyticsFetching || isAgentsFetching || isSummaryFetching, spinIcon: true,
   };
 
   const shownUpdatedAt = activeTab === 'calls'
@@ -458,12 +493,11 @@ export default function FrejunTelephonyPage() {
         <EmptyState icon={Headphones} title="FreJun isn't set up for this store." description="Ask the admin team to map this store's FreJun account." />
       ) : activeTab === 'calls' ? (
         <>
-          {!isCallsLoading && !isCallsError && displayedCalls.length > 0 && (
+          <CallSummaryTiles summary={summary} isLoading={isSummaryLoading} error={summaryError} isAllStores={selectedStoreTag === ALL} />
+
+          {!isCallsLoading && !isCallsError && isPostFiltered && displayedCalls.length > 0 && (
             <p className="text-xs text-muted-foreground">
-              {isPostFiltered
-                ? `${displayedCalls.length} matching of ${pageCount} calls on this page · ${count.toLocaleString('en-IN')} before filters`
-                : `${count.toLocaleString('en-IN')} calls`}
-              {` · This page: ${pageStats.answered} answered, ${pageStats.missed} not answered, ${pageStats.minutes} min talk time`}
+              {`${displayedCalls.length} matching of ${pageCount} calls on this page · direction and status filters apply to the page shown`}
             </p>
           )}
 

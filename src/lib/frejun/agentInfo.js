@@ -1,5 +1,12 @@
 import { identifyStoreForCall } from './storeMapping';
 
+/** "Borivali - Mamta Tambe" → { storePart: 'Borivali', agentName: 'Mamta Tambe' }; null when it isn't "Store - Name". */
+export function splitAgentTag(tagName) {
+  const m = String(tagName || '').trim().match(/^(.+?)\s*[-–—]\s*(.+)$/);
+  if (!m || !m[1].trim() || !m[2].trim()) return null;
+  return { storePart: m[1].trim(), agentName: m[2].trim().replace(/\s+/g, ' ') };
+}
+
 /**
  * Resolves calling agent name, store, and tag details from Frejun tags or email.
  */
@@ -14,18 +21,15 @@ export function resolveAgentInfo(call) {
   if (Array.isArray(call.tags)) {
     for (const tag of call.tags) {
       const tagName = tag.name?.trim() || '';
-      if (tagName.includes('-')) {
-        const [storePart, ...rest] = tagName.split('-');
-        const agentPart = rest.join('-').trim();
-        if (agentPart) {
-          return {
-            agentName: agentPart,
-            storeName: store?.label || storePart.trim(),
-            fullTag: tagName,
-            tagId: tag.id,
-            store,
-          };
-        }
+      const parts = splitAgentTag(tagName);
+      if (parts) {
+        return {
+          agentName: parts.agentName,
+          storeName: store?.label || parts.storePart,
+          fullTag: tagName,
+          tagId: tag.id,
+          store,
+        };
       } else if (tagName && tagName.toLowerCase() !== store?.key?.toLowerCase()) {
         return {
           agentName: tagName,

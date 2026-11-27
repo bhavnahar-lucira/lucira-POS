@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  Truck, PackageCheck, Boxes, Plus, X, ChevronRight, RefreshCw, Trash2, Check, Search, ShieldCheck,
+  Truck, PackageCheck, Boxes, Plus, X, ChevronRight, RefreshCw, Trash2, Check, Search, ShieldCheck, ClipboardCheck,
 } from 'lucide-react';
 
 import {
@@ -14,7 +14,8 @@ import {
   useBranchOutDetail, useBranchInDetail, useStockAllocationDetail,
   usePostBranchOut, useCancelBranchOut, useAuthorizeBranchIn, getErrorMessage,
   usePostAllocation, useCancelAllocation, useUpdateAllocation, logTransferEvent, useTransferEvents, useSentTransferReceipts,
-  useCancelledAllocations,
+  useCancelledAllocations, useTransferApprovals, usePendingTransferApprovals, useRequestTransferApproval,
+  useDecideTransferApproval, requestTransferApproval,
 } from '@/hooks/branchTransfer/useBranchTransfer';
 import { useOrderHeaderConfig } from '@/hooks/checkout/useOrderHeaderConfig';
 import {
@@ -173,15 +174,21 @@ const formatDateTime = (v) => {
 
 const EVENT_LABELS = {
   created: 'Created in POS', posted: 'Posted from POS', cancelled: 'Cancelled', authorised: 'Received & authorised from POS', updated: 'Updated in POS',
+  approval_requested: 'Sent to HO for approval', approved: 'Approved by HO', rejected: 'Rejected by HO',
 };
+const EVENT_TONES = { cancelled: 'red', rejected: 'red', approved: 'green', approval_requested: 'amber' };
 
 /** Merges OrnaVerse's own stamps with the POS activity log into one dated history, oldest first. */
 function Timeline({ steps, events = [] }) {
   // Steps stay in their natural order (older OrnaVerse documents lack some stamps); POS log entries slot in by time.
   const items = steps.filter(Boolean).map((s) => ({ ...s, time: s.at ? parseOvTime(s.at) : null }));
   for (const e of events) {
-    const entry = { label: EVENT_LABELS[e.action] ?? e.action, time: new Date(e.at), by: `${e.user}${e.store_code ? ` (${e.store_code})` : ''}`, tone: e.action === 'cancelled' ? 'red' : 'muted' };
-    const at = items.findIndex((it) => it.pending || (it.time && it.time > entry.time));
+    const entry = {
+      label: EVENT_LABELS[e.action] ?? e.action, time: new Date(e.at), by: `${e.user}${e.store_code ? ` (${e.store_code})` : ''}`,
+      tone: EVENT_TONES[e.action] ?? 'muted', note: e.note ?? null,
+    };
+    // OrnaVerse's clock can run a second ahead of the POS, so nothing is placed above the document's first step.
+    const at = items.findIndex((it, i) => i > 0 && (it.pending || (it.time && it.time > entry.time)));
     items.splice(at === -1 ? items.length : at, 0, entry);
   }
   const dot = { green: 'bg-status-in-stock', amber: 'bg-status-made-order', red: 'bg-destructive', muted: 'bg-primary' };
@@ -204,13 +211,97 @@ function Timeline({ steps, events = [] }) {
   );
 }
 
+// ── HO approval ─────────────────────────────────────────────────────────
+
+const CLOSED_LABELS = {
+  posted_in_ornaverse: 'Posted in OrnaVerse', received_in_ornaverse: 'Received in OrnaVerse',
+  cancelled_in_ornaverse: 'Cancelled in OrnaVerse', deleted_in_ornaverse: 'Removed in OrnaVerse',
+};
+
+function ApprovalChip({ approval }) {
+  if (!approval) return null;
+  if (approval.status === 'pending') return <Chip tone="amber">Awaiting HO approval</Chip>;
+  if (approval.status === 'approved') return <Chip tone="green">HO approved</Chip>;
+  if (approval.status === 'closed') return <Chip>{CLOSED_LABELS[approval.closed_reason] ?? 'Completed in OrnaVerse'}</Chip>;
+  return <Chip tone="red">Rejected by HO</Chip>;
+}
+
+function ApprovalNote({ approval }) {
+  if (!approval) return null;
+  const when = approval.decided_at ? formatDateTime(approval.decided_at) : formatDateTime(approval.requested_at);
+  const text = approval.status === 'pending'
+    ? `Sent to HO for approval by ${approval.requested_by}${approval.store_code ? ` (${approval.store_code})` : ''} · ${when}`
+    : approval.status === 'approved'
+      ? `Approved by ${approval.decided_by} · ${when}`
+      : approval.status === 'closed'
+        ? `${CLOSED_LABELS[approval.closed_reason] ?? 'Completed in OrnaVerse'} without HO approval in the POS${approval.decided_by ? ` (by ${approval.decided_by})` : ''} · ${when}`
+        : `Rejected by ${approval.decided_by} · ${when}${approval.reason ? ` — ${approval.reason}` : ''}`;
+  const tone = approval.status === 'rejected' ? 'border-destructive/40 bg-destructive/5 text-destructive'
+    : approval.status === 'approved' ? 'border-status-in-stock/40 bg-status-in-stock/5 text-foreground'
+      : 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100';
+  return (
+    <div className={`rounded-lg border p-3 text-sm ${tone}`}>
+      <p>{text}</p>
+      {approval.note && <p className="mt-1 text-xs opacity-80">Store note: {approval.note}</p>}
+    </div>
+  );
+}
+
+function ReasonDialog({ open, onOpenChange, title, description, label, required, confirmLabel, isPending, onConfirm }) {
+  const [text, setText] = useState('');
+  const close = (o) => { if (!o) setText(''); onOpenChange(o); };
+  return (
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="bt-reason">{label}{required && <span className="text-destructive"> *</span>}</Label>
+          <Textarea id="bt-reason" value={text} onChange={(e) => setText(e.target.value)} rows={3} />
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => close(false)}>Back</Button>
+          <Button type="button" disabled={(required && !text.trim()) || isPending} onClick={() => onConfirm(text.trim() || null, () => close(false))}>
+            {isPending ? 'Please wait…' : confirmLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Super admin's Approve / Reject for one pending request. */
+function ApprovalDecision({ approval, onDone }) {
+  const decide = useDecideTransferApproval();
+  const [rejectOpen, setRejectOpen] = useState(false);
+  if (approval?.status !== 'pending') return null;
+  const approveLabel = approval.kind === 'send' ? 'Approve & post transfer' : 'Approve receipt';
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-2">
+        <Button type="button" variant="outline" disabled={decide.isPending} onClick={() => setRejectOpen(true)}>Reject</Button>
+        <Button type="button" disabled={decide.isPending} onClick={() => decide.mutate({ id: approval.id, decision: 'approve' }, { onSuccess: () => onDone?.() })}>
+          {decide.isPending ? 'Please wait…' : approveLabel}
+        </Button>
+      </div>
+      <ReasonDialog open={rejectOpen} onOpenChange={setRejectOpen} title="Reject this request?" required label="Reason (shown to the store)"
+        description={approval.kind === 'send' ? 'The draft transfer is cancelled and no stock moves.' : 'The receipt stays unposted; the store cannot authorise it.'}
+        confirmLabel="Reject" isPending={decide.isPending}
+        onConfirm={(reason, done) => decide.mutate({ id: approval.id, decision: 'reject', reason }, { onSuccess: () => { done(); onDone?.(); } })} />
+    </>
+  );
+}
+
 const STATUS_FILTERS = {
   send: [
-    { key: 'all', label: 'All' }, { key: 'draft', label: 'Drafts' }, { key: 'transit', label: 'In transit' },
+    { key: 'all', label: 'All' }, { key: 'awaiting_ho', label: 'Awaiting HO' }, { key: 'draft', label: 'Drafts' }, { key: 'transit', label: 'In transit' },
     { key: 'received', label: 'Received' }, { key: 'cancelled', label: 'Cancelled' },
   ],
   receive: [
-    { key: 'all', label: 'All' }, { key: 'awaiting', label: 'Awaiting authorisation' }, { key: 'received', label: 'Received' }, { key: 'cancelled', label: 'Cancelled' },
+    { key: 'all', label: 'All' }, { key: 'awaiting_ho', label: 'Awaiting HO' }, { key: 'awaiting', label: 'Awaiting authorisation' },
+    { key: 'received', label: 'Received' }, { key: 'cancelled', label: 'Cancelled' },
   ],
   allocation: [
     { key: 'all', label: 'All' }, { key: 'draft', label: 'Drafts' }, { key: 'posted', label: 'Posted' }, { key: 'cancelled', label: 'Cancelled' },
@@ -322,6 +413,8 @@ function NewBranchOutForm({ onDone }) {
   const headerConfig = useOrderHeaderConfig(DOCS.BRANCH_OUT);
   const { destinations, isLoading: destLoading } = useDestinations(companyId, company?.party_id);
   const freights = useFreights();
+  const { required: approvalOn, isApprover } = usePendingTransferApprovals();
+  const needsApproval = approvalOn && !isApprover;
 
   const [partyId, setPartyId] = useState(null);
   const [locationId, setLocationId] = useState(null);
@@ -388,10 +481,21 @@ function NewBranchOutForm({ onDone }) {
     try {
       const res = await createBranchOut({ companyId, headerConfig, party, context, locationId, freightId, awbNo, remark, address, lines });
       if (!res?.EntityId) throw new Error('Creation failed — no document was returned.');
-      logTransferEvent({ doc_type: 'branch_out', transaction_id: res.EntityId, action: 'created' });
-      if (andPost && !headerConfig.autoPosting) await postBranchOut(res.EntityId);
-      if (andPost || headerConfig.autoPosting) logTransferEvent({ doc_type: 'branch_out', transaction_id: res.EntityId, action: 'posted' });
-      toast.success(andPost ? 'Transfer posted — it is now in transit to the destination.' : 'Transfer saved as draft.');
+      const created = await retrieveBranchOut(res.EntityId).catch(() => null);
+      logTransferEvent({ doc_type: 'branch_out', transaction_id: res.EntityId, document_no: created?.document_no ?? null, action: 'created' });
+      if (andPost && needsApproval && !headerConfig.autoPosting) {
+        const request = {
+          kind: 'send', transaction_id: res.EntityId, document_no: created?.document_no ?? null,
+          counterparty: party.party_name ?? null, pieces: totals.pieces, net_amount: totals.net_amount,
+        };
+        await requestTransferApproval(request);
+        logTransferEvent({ doc_type: 'branch_out', transaction_id: res.EntityId, document_no: request.document_no, action: 'approval_requested' });
+        toast.success('Saved and sent to HO for approval — no stock moves until HO approves.');
+      } else {
+        if (andPost && !headerConfig.autoPosting) await postBranchOut(res.EntityId);
+        if (andPost || headerConfig.autoPosting) logTransferEvent({ doc_type: 'branch_out', transaction_id: res.EntityId, document_no: created?.document_no ?? null, action: 'posted' });
+        toast.success(andPost ? 'Transfer posted — it is now in transit to the destination.' : 'Transfer saved as draft.');
+      }
       queryClient.invalidateQueries({ queryKey: ['branch-transfer'] });
       onDone();
     } catch (err) {
@@ -442,7 +546,9 @@ function NewBranchOutForm({ onDone }) {
 
       <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
         <Button type="button" variant="outline" disabled={isSaving || headerConfig.isLoading} onClick={() => save(false)}>Save as Draft</Button>
-        <Button type="button" disabled={isSaving || headerConfig.isLoading} onClick={() => save(true)}>{isSaving ? 'Saving…' : 'Save & Post'}</Button>
+        <Button type="button" disabled={isSaving || headerConfig.isLoading} onClick={() => save(true)}>
+          {isSaving ? 'Saving…' : needsApproval ? 'Save & send for HO approval' : 'Save & Post'}
+        </Button>
       </div>
     </div>
   );
@@ -458,6 +564,14 @@ function BranchOutDetail({ id, onClose }) {
   const outEvents = useTransferEvents('branch_out', [id]);
   const inEvents = useTransferEvents('branch_in', [receipt?.transaction_id]);
   const docNo = entity?.document_no ?? null;
+  const { required: approvalOn, isApprover } = usePendingTransferApprovals();
+  const { approvals } = useTransferApprovals('send', [id]);
+  const approval = approvals[id] ?? null;
+  const requestApproval = useRequestTransferApproval();
+  const isDraft = entity?.document_status === 0;
+  const awaitingHo = isDraft && approval?.status === 'pending';
+  const canRequest = isDraft && approvalOn && !isApprover && approval?.status !== 'pending';
+  const canPostDirectly = isDraft && (!approvalOn || isApprover) && !awaitingHo;
 
   return (
     <Sheet open onOpenChange={(o) => !o && onClose()}>
@@ -471,20 +585,31 @@ function BranchOutDetail({ id, onClose }) {
             <>
               <div className="flex flex-wrap gap-2">
                 <DocStatusChip status={entity.document_status} />
+                {approval && (isDraft || approval.status !== 'pending') && <ApprovalChip approval={approval} />}
                 {entity.document_status === 1 && receipt && (receipt.authorize
                   ? <Chip tone="green">Received at {receipt.document_no}</Chip>
                   : <Chip tone="amber">In transit · {receipt.document_no} awaiting authorisation</Chip>)}
               </div>
+              <ApprovalNote approval={approval} />
               {entity.remark && <p className="text-sm text-muted-foreground">{entity.remark}</p>}
               {(entity.awb_no || entity.freight_code) && <p className="text-xs text-muted-foreground">Freight {entity.freight_code ?? '—'} · AWB {entity.awb_no || '—'}</p>}
               <LinesTable lines={entity.line_items ?? []} />
               <TotalsBar totals={transferTotals(entity.line_items ?? [], entity.is_tax_applicable)} />
               <Timeline
-                events={[...outEvents.filter((e) => e.action !== 'created' && e.action !== 'posted'), ...inEvents.filter((e) => e.action !== 'authorised')]}
+                events={[
+                  ...outEvents.filter((e) => e.action !== 'created' && (e.action !== 'posted' || entity.document_status === 2)),
+                  ...inEvents.filter((e) => e.action !== 'authorised'),
+                ]}
                 steps={[
                   { label: 'Created', at: entity.creation_date, by: entity.username },
-                  entity.document_status !== 0 && entity.posting_date && { label: 'Posted · sent', at: entity.posting_date, by: entity.posted_by_name, tone: 'green' },
-                  entity.document_status === 0 && { label: 'Draft · not posted yet', pending: true, tone: 'amber' },
+                  entity.document_status === 1 && entity.posting_date && {
+                    label: entity.posted_by_name && entity.posted_by_name !== entity.username ? 'Posted · sent (on HO approval)' : 'Posted · sent',
+                    at: entity.posting_date, by: entity.posted_by_name, tone: 'green',
+                  },
+                  // OrnaVerse overwrites posting_date with the cancel time (in UTC) when a transfer is cancelled.
+                  entity.document_status === 2 && !outEvents.some((e) => e.action === 'cancelled')
+                    && { label: 'Cancelled in OrnaVerse', at: parseOvTime(entity.posting_date, 'utc'), by: entity.posted_by_name, tone: 'red' },
+                  entity.document_status === 0 && { label: awaitingHo ? 'Waiting for HO approval · not posted yet' : 'Draft · not posted yet', pending: true, tone: 'amber' },
                   receipt && { label: `Receipt ${receipt.document_no} created at ${receipt.company_code ?? 'destination'}`, at: receipt.creation_date, tone: 'muted' },
                   receipt && (receipt.authorize
                     ? { label: `Received & authorised at ${receipt.company_code ?? 'destination'}`, at: authorisedAt(receipt), by: receipt.authorized_by_name, tone: 'green' }
@@ -494,9 +619,18 @@ function BranchOutDetail({ id, onClose }) {
                 ]}
               />
               <div className="flex flex-col gap-2">
-                {entity.document_status === 0 && (
+                {isApprover && awaitingHo && <ApprovalDecision approval={approval} onDone={() => refetch()} />}
+                {canPostDirectly && (
                   <Button disabled={postDoc.isPending} onClick={() => postDoc.mutate({ id, documentNo: docNo }, { onSuccess: () => refetch() })}>
                     {postDoc.isPending ? 'Posting…' : 'Post transfer'}
+                  </Button>
+                )}
+                {canRequest && (
+                  <Button disabled={requestApproval.isPending} onClick={() => requestApproval.mutate({
+                    kind: 'send', transaction_id: id, document_no: docNo, counterparty: entity.party_display_name ?? entity.party_name ?? null,
+                    pieces: transferTotals(entity.line_items ?? []).pieces, net_amount: entity.net_amount ?? null,
+                  })}>
+                    {requestApproval.isPending ? 'Sending…' : approval?.status === 'rejected' ? 'Send to HO for approval again' : 'Send to HO for approval'}
                   </Button>
                 )}
                 {entity.document_status !== 2 && !receipt?.authorize && !linked.isLoading && (
@@ -514,17 +648,18 @@ function BranchOutDetail({ id, onClose }) {
   );
 }
 
-const sendStatus = (r, receipt) => {
+const sendStatus = (r, receipt, approval) => {
   if (r.document_status === 2) return 'cancelled';
-  if (r.document_status === 0) return 'draft';
+  if (r.document_status === 0) return approval?.status === 'pending' ? 'awaiting_ho' : 'draft';
   if (receipt?.authorize) return 'received';
   return 'transit';
 };
 
-function SendStatusChips({ row, receipt }) {
-  const st = sendStatus(row, receipt);
+function SendStatusChips({ row, receipt, approval }) {
+  const st = sendStatus(row, receipt, approval);
   if (st === 'cancelled') return <Chip tone="red">Cancelled</Chip>;
-  if (st === 'draft') return <Chip>Draft</Chip>;
+  if (st === 'awaiting_ho') return <Chip tone="amber">Awaiting HO approval</Chip>;
+  if (st === 'draft') return approval?.status === 'rejected' ? <><Chip>Draft</Chip><Chip tone="red">Rejected by HO</Chip></> : <Chip>Draft</Chip>;
   if (st === 'received') return <Chip tone="green">Received</Chip>;
   return <><Chip tone="green">Posted</Chip><Chip tone="amber">{receipt ? 'In transit' : 'Sent'}</Chip></>;
 }
@@ -536,11 +671,13 @@ function SendTab() {
   const [search, setSearch] = useState('');
   const list = useBranchOuts();
   const receipts = useSentTransferReceipts();
+  const { approvals } = useTransferApprovals('send', list.rows.filter((r) => r.document_status === 0).map((r) => r.transaction_id));
+  const statusOf = (r) => sendStatus(r, receipts.get(r.transaction_id), approvals[r.transaction_id]);
   const counts = Object.fromEntries(STATUS_FILTERS.send.map((f) => [f.key, f.key === 'all'
     ? list.rows.length
-    : list.rows.filter((r) => sendStatus(r, receipts.get(r.transaction_id)) === f.key).length]));
+    : list.rows.filter((r) => statusOf(r) === f.key).length]));
   const rows = list.rows
-    .filter((r) => filter === 'all' || sendStatus(r, receipts.get(r.transaction_id)) === filter)
+    .filter((r) => filter === 'all' || statusOf(r) === filter)
     .filter((r) => matchesSearch(r, search));
   return (
     <div className="flex flex-col gap-3">
@@ -563,7 +700,7 @@ function SendTab() {
                 <DocRow key={r.transaction_id} title={r.document_no} subtitle={`To ${r.party_display_name ?? r.party_name}${receipt ? ` · ${receipt.document_no}` : ''}`}
                   meta={`${r.posting_date && r.document_status === 1 ? `Posted ${formatDateTime(r.posting_date)}` : formatDate(r.document_date)} · ${r.pieces ?? 0} pc · ${Number(r.weight ?? 0).toFixed(3)} g${r.username ? ` · ${r.username}` : ''}`}
                   amount={r.net_amount}
-                  chips={<SendStatusChips row={r} receipt={receipt} />}
+                  chips={<SendStatusChips row={r} receipt={receipt} approval={approvals[r.transaction_id]} />}
                   onSelect={() => setSelectedId(r.transaction_id)} />
               );
             })}
@@ -622,6 +759,13 @@ function BranchInDetail({ id, onClose }) {
   });
   const inEvents = useTransferEvents('branch_in', [id]);
   const outEvents = useTransferEvents('branch_out', [sentId]);
+  const { required: approvalOn, isApprover } = usePendingTransferApprovals();
+  const { approvals } = useTransferApprovals('receive', [id]);
+  const approval = approvals[id] ?? null;
+  const requestApproval = useRequestTransferApproval();
+  const [requestOpen, setRequestOpen] = useState(false);
+  const hoApproved = !approvalOn || approval?.status === 'approved';
+  const canRequest = pending && approvalOn && !hoApproved && approval?.status !== 'pending';
 
   return (
     <Sheet open onOpenChange={(o) => !o && onClose()}>
@@ -636,23 +780,40 @@ function BranchInDetail({ id, onClose }) {
               <div className="flex flex-wrap gap-2">
                 <DocStatusChip status={entity.document_status} />
                 {entity.authorize ? <Chip tone="green">Authorised{entity.authorized_by_name ? ` by ${entity.authorized_by_name}` : ''}</Chip> : <Chip tone="amber">Awaiting authorisation</Chip>}
+                {approval && <ApprovalChip approval={approval} />}
               </div>
+              {pending && <ApprovalNote approval={approval} />}
               {entity.remark && <p className="text-sm text-muted-foreground">{entity.remark}</p>}
               <LinesTable lines={entity.line_items ?? []} />
               <TotalsBar totals={transferTotals(entity.line_items ?? [], entity.is_tax_applicable)} />
               <Timeline
                 events={[...outEvents.filter((e) => e.action === 'cancelled'), ...inEvents.filter((e) => e.action !== 'authorised')]}
                 steps={[
-                  sent.data && { label: `Sent as ${sent.data.document_no}`, at: sent.data.posting_date ?? sent.data.creation_date, by: sent.data.posted_by_name ?? sent.data.username, tone: 'green' },
+                  sent.data && {
+                    label: `Sent as ${sent.data.document_no}`,
+                    at: sent.data.posting_date ?? sent.data.creation_date,
+                    by: sent.data.posted_by_name && sent.data.username && sent.data.posted_by_name !== sent.data.username
+                      ? `raised by ${sent.data.username} · posted on HO approval by ${sent.data.posted_by_name}`
+                      : sent.data.posted_by_name ?? sent.data.username,
+                    tone: 'green',
+                  },
                   { label: 'Receipt created (in transit)', at: entity.creation_date },
                   entity.authorize
                     ? { label: 'Received & authorised', at: authorisedAt(entity), by: entity.authorized_by_name, tone: 'green' }
                     : entity.document_status === 2
                       ? { label: 'Cancelled', tone: 'red' }
-                      : { label: 'Awaiting authorisation at this store', pending: true, tone: 'amber' },
+                      : !hoApproved
+                        ? { label: approval?.status === 'pending' ? 'Waiting for HO approval to receive' : 'Needs HO approval before it can be received', pending: true, tone: 'amber' }
+                        : { label: 'Awaiting authorisation at this store', pending: true, tone: 'amber' },
                 ]}
               />
-              {pending && (
+              {pending && isApprover && approval?.status === 'pending' && <ApprovalDecision approval={approval} onDone={() => refetch()} />}
+              {canRequest && (
+                <Button disabled={requestApproval.isPending} onClick={() => setRequestOpen(true)}>
+                  {approval?.status === 'rejected' ? 'Request HO approval again' : 'Request HO approval to receive'}
+                </Button>
+              )}
+              {pending && hoApproved && (
                 <Button onClick={() => setAuthOpen(true)}><ShieldCheck className="h-4 w-4" /> Authorise receipt</Button>
               )}
             </>
@@ -660,23 +821,33 @@ function BranchInDetail({ id, onClose }) {
         </div>
         <AuthorizeDialog open={authOpen} onOpenChange={setAuthOpen} isPending={authorize.isPending}
           onConfirm={(creds, done) => authorize.mutate({ id, documentNo: entity?.document_no ?? null, ...creds }, { onSuccess: () => { done(); refetch(); } })} />
+        <ReasonDialog open={requestOpen} onOpenChange={setRequestOpen} title="Request HO approval to receive"
+          description="Check the pieces first. HO approves, then this store authorises the receipt as usual." label="Note for HO (missing or damaged pieces, etc.)"
+          confirmLabel="Send to HO" isPending={requestApproval.isPending}
+          onConfirm={(note, done) => requestApproval.mutate({
+            kind: 'receive', transaction_id: id, document_no: entity?.document_no ?? null,
+            counterparty: entity?.party_display_name ?? entity?.party_name ?? null,
+            pieces: transferTotals(entity?.line_items ?? []).pieces, net_amount: entity?.net_amount ?? null, note,
+          }, { onSuccess: () => { done(); refetch(); } })} />
       </SheetContent>
     </Sheet>
   );
 }
 
-const receiveStatus = (r) => (r.authorize ? 'received' : r.document_status === 2 ? 'cancelled' : 'awaiting');
+const receiveStatus = (r, approval) => (r.authorize ? 'received' : r.document_status === 2 ? 'cancelled'
+  : approval?.status === 'pending' ? 'awaiting_ho' : 'awaiting');
 
 function ReceiveTab({ initialId = null }) {
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState(initialId);
   const list = useBranchIns();
+  const { approvals } = useTransferApprovals('receive', list.rows.filter((r) => !r.authorize && r.document_status !== 2).map((r) => r.transaction_id));
   const counts = Object.fromEntries(STATUS_FILTERS.receive.map((f) => [f.key, f.key === 'all'
     ? list.rows.length
-    : list.rows.filter((r) => receiveStatus(r) === f.key).length]));
+    : list.rows.filter((r) => receiveStatus(r, approvals[r.transaction_id]) === f.key).length]));
   const rows = list.rows
-    .filter((r) => filter === 'all' || receiveStatus(r) === filter)
+    .filter((r) => filter === 'all' || receiveStatus(r, approvals[r.transaction_id]) === filter)
     .filter((r) => matchesSearch(r, search));
   return (
     <div className="flex flex-col gap-3">
@@ -687,7 +858,8 @@ function ReceiveTab({ initialId = null }) {
           <DocRow key={r.transaction_id} title={r.document_no} subtitle={`From ${r.party_display_name ?? r.party_name}`}
             meta={`${r.authorize ? `Received ${formatDateTime(authorisedAt(r))}${r.authorized_by_name ? ` by ${r.authorized_by_name}` : ''}` : `Sent ${formatDateTime(r.posting_date ?? r.creation_date)}`} · ${r.pieces ?? 0} pc · ${Number(r.weight ?? 0).toFixed(3)} g`}
             amount={r.net_amount}
-            chips={r.authorize ? <Chip tone="green">Received</Chip> : r.document_status === 2 ? <Chip tone="red">Cancelled</Chip> : <Chip tone="amber">Awaiting authorisation</Chip>}
+            chips={r.authorize ? <Chip tone="green">Received</Chip> : r.document_status === 2 ? <Chip tone="red">Cancelled</Chip>
+              : approvals[r.transaction_id] ? <ApprovalChip approval={approvals[r.transaction_id]} /> : <Chip tone="amber">Awaiting authorisation</Chip>}
             onSelect={() => setSelectedId(r.transaction_id)} />
         ))}
       </ListShell>
@@ -1106,24 +1278,72 @@ function AllocationTab() {
   );
 }
 
+// ── HO approvals (super admin) ──────────────────────────────────────────
+
+function ApprovalsTab() {
+  const { approvals, isLoading, refetch } = usePendingTransferApprovals();
+  const [open, setOpen] = useState(null);
+  const pending = approvals.filter((a) => a.status === 'pending');
+  if (isLoading) return <ListRowsSkeleton />;
+  if (!pending.length) {
+    return <EmptyState icon={ClipboardCheck} title="Nothing waiting for approval." description="Transfers stores send or receive appear here until HO approves or rejects them." />;
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-xs text-muted-foreground">{pending.length} waiting · sending is posted in OrnaVerse when you approve; receiving unlocks the store&apos;s own authorisation.</p>
+      {pending.map((a) => (
+        <div key={a.id} className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
+          <button type="button" className="flex items-start justify-between gap-3 text-left" onClick={() => setOpen(a)}>
+            <span className="flex min-w-0 flex-col gap-1">
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold text-foreground">{a.document_no ?? `#${a.transaction_id}`}</span>
+                <Chip tone={a.kind === 'send' ? 'muted' : 'green'}>{a.kind === 'send' ? 'Send' : 'Receive'}</Chip>
+              </span>
+              <span className="text-sm text-muted-foreground">
+                {a.kind === 'send' ? `${a.store_code ?? 'Store'} → ${a.counterparty ?? 'branch'}` : `${a.counterparty ?? 'Branch'} → ${a.store_code ?? 'store'}`}
+                {a.pieces != null ? ` · ${a.pieces} pc` : ''}
+              </span>
+              <span className="text-xs text-muted-foreground">Requested by {a.requested_by} · {formatDateTime(a.requested_at)}</span>
+              {a.note && <span className="text-xs text-muted-foreground">Note: {a.note}</span>}
+            </span>
+            <span className="flex shrink-0 items-center gap-1 text-sm font-semibold">
+              {a.net_amount != null ? formatINR(a.net_amount) : ''}
+              <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            </span>
+          </button>
+          <ApprovalDecision approval={a} onDone={() => refetch()} />
+        </div>
+      ))}
+      {open?.kind === 'send' && <BranchOutDetail id={open.transaction_id} onClose={() => setOpen(null)} />}
+      {open?.kind === 'receive' && <BranchInDetail id={open.transaction_id} onClose={() => setOpen(null)} />}
+    </div>
+  );
+}
+
 function BranchTransferScreen() {
   const searchParams = useSearchParams();
   const requestedTab = searchParams.get('tab');
   const receiveId = Number(searchParams.get('in')) || null;
-  const initialTab = TABS.some((t) => t.key === requestedTab) ? requestedTab : 'send';
+  const initialTab = [...TABS.map((t) => t.key), 'approvals'].includes(requestedTab) ? requestedTab : 'send';
   return <BranchTransferBody key={`${initialTab}-${receiveId ?? ''}`} initialTab={initialTab} receiveId={receiveId} />;
 }
 
 function BranchTransferBody({ initialTab, receiveId }) {
   const [tab, setTab] = useState(initialTab);
   const { companyId } = useMyCompany();
+  const { required: approvalOn, isApprover, approvals } = usePendingTransferApprovals();
+  const waiting = approvals.filter((a) => a.status === 'pending').length;
+  const tabs = approvalOn && isApprover
+    ? [{ key: 'approvals', label: `HO approvals${waiting ? ` · ${waiting}` : ''}`, icon: ClipboardCheck }, ...TABS]
+    : TABS;
   if (!companyId) {
     return <div className="p-4"><EmptyState icon={Truck} title="No store selected." description="Switch to a store to manage branch transfers." /></div>;
   }
   return (
     <div className="flex flex-col gap-4 p-4 pb-8 md:px-6">
       <p className="text-sm text-muted-foreground">Send stock to other branches, receive incoming transfers and reserve stock against orders.</p>
-      <PillTabs tabs={TABS} value={tab} onChange={setTab} getKey={(t) => t.key} getLabel={(t) => t.label} getIcon={(t) => t.icon} variant="pill" scrollable />
+      <PillTabs tabs={tabs} value={tab} onChange={setTab} getKey={(t) => t.key} getLabel={(t) => t.label} getIcon={(t) => t.icon} variant="pill" scrollable />
+      {tab === 'approvals' && approvalOn && isApprover && <ApprovalsTab />}
       {tab === 'send' && <SendTab />}
       {tab === 'receive' && <ReceiveTab initialId={receiveId} />}
       {tab === 'allocation' && <AllocationTab />}

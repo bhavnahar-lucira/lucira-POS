@@ -97,12 +97,12 @@ export default function WalkInRegisterForm({ defaultMobile = '', defaultName = '
       Object.entries(rest).filter(([, v]) => v !== null && v !== '' && !(Array.isArray(v) && v.length === 0))
     );
     try {
-      await registerWalkIn.mutateAsync({
+      const registered = await registerWalkIn.mutateAsync({
         ...cleaned,
         mobile: mobile.startsWith('+91') ? mobile.slice(3) : mobile,
         ...(phone ? { phone: phone.startsWith('+91') ? phone.slice(3) : phone } : {}),
       });
-      onRegistered?.(values);
+      onRegistered?.(values, registered);
     } catch {
       // Error toast handled by useWalkInRegister
     }

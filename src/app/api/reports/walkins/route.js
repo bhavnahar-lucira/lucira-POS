@@ -16,6 +16,10 @@ async function purposesByVisit(session, companyIds, fromDate, toDate) {
     })));
     const out = new Map();
     for (const r of lists.flat()) {
+      if (r.ovVisitId != null) {
+        out.set(`id:${r.ovVisitId}`, r.purpose);
+        continue;
+      }
       const key = `${r.companyId}|${last4(r.mobileKey)}|${istDay.format(new Date(r.recordedAt))}`;
       if (!out.has(key)) out.set(key, r.purpose);
     }
@@ -115,7 +119,7 @@ export async function POST(request) {
     for (const row of rows) {
       row.jewelry_consultant = consultants.get(row.customer_id) ?? null;
       row.purpose = /walk/i.test(row.source ?? '')
-        ? purposes.get(`${row.company_id}|${last4(row.mobile)}|${row.visited_on}`) ?? null
+        ? purposes.get(`id:${row.visit_id}`) ?? purposes.get(`${row.company_id}|${last4(row.mobile)}|${row.visited_on}`) ?? null
         : null;
       delete row.customer_id;
     }

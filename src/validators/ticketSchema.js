@@ -51,6 +51,9 @@ export const confirmOrderSchema = z.object({
   description:            optionalText(2000),
   remarks:                optionalText(1000),
 }).superRefine((o, ctx) => {
+  if (o.expected_delivery_date <= o.order_date) {
+    ctx.addIssue({ code: 'custom', message: 'Expected delivery must be after the order date', path: ['expected_delivery_date'] });
+  }
   if (!o.amount_received) return;
   if (!o.advance_received_on) ctx.addIssue({ code: 'custom', message: 'Select the advance received date', path: ['advance_received_on'] });
   if (!o.payments.length) {
@@ -119,6 +122,11 @@ const confirmTicketOrderSchema = z.object({
   payments:            z.array(advancePaymentSchema).max(10).default([]),
   remarks:             optionalText(1000),
 }).superRefine((o, ctx) => {
+  o.items.forEach((item, n) => {
+    if (item.expected_delivery_date <= o.order_date) {
+      ctx.addIssue({ code: 'custom', message: 'Expected delivery must be after the order date for every product', path: ['items', n, 'expected_delivery_date'] });
+    }
+  });
   if (!o.amount_received) return;
   if (!o.advance_received_on) ctx.addIssue({ code: 'custom', message: 'Select the advance received date', path: ['advance_received_on'] });
   const paid = o.payments.reduce((s, p) => s + p.amount, 0);

@@ -26,7 +26,7 @@ function StockQty({ qty, sellable = null }) {
   const label = n <= 0
     ? 'Out of Stock'
     : reserved > 0
-      ? (sellable > 0 ? `${sellable} in stock · ${reserved} reserved` : `${reserved} reserved · none to sell`)
+      ? (sellable > 0 ? `${sellable} in stock · ${reserved} on hold` : `${reserved} on hold · none to sell`)
       : `${n} in stock`;
 
   return (
@@ -51,8 +51,8 @@ function StockQty({ qty, sellable = null }) {
  *   collapsible?: boolean,
  *   itemId?:     number, — tapping a store row opens its full spec/price
  *     detail sheet; omit to disable tapping (row stays a plain display row).
- *   currentStoreSellable?: number|null, — unreserved pieces at the active store (what checkout can sell);
- *     when lower than the store's count, the rest are shown as reserved.
+ *   currentStoreSellable?: number|null, — unallocated pieces at the active store (what checkout can sell);
+ *     when lower than the store's count, the rest are shown as on hold (allocated in OrnaVerse).
  * }} props
  */
 export default function CrossStoreStockPanel({

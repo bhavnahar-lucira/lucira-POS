@@ -70,6 +70,7 @@ const APP_CONFIG = {
     BRANCH_OUT:      32,  // prefix "BOT"
     BRANCH_IN:       33,  // prefix "BIT"
     STOCK_ALLOCATION: 37, // prefix "SAL"
+    RESERVE:         141, // prefix "RSV"
   },
 
   // ── INTERSTORE RETURN ──────────────────────────────────────────────────────

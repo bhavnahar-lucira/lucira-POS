@@ -7,13 +7,16 @@ import { getStockPieceBySku, createItemEnquiry } from '@/services/inventoryServi
 import { getStoreReadyToInvoiceLines } from '@/services/orderFulfillmentService';
 import tracker from '@/lib/analytics/tracker';
 import EVENTS from '@/lib/analytics/events';
+import { useCustomerSession } from '@/hooks/customer/useCustomerSession';
 
 /**
  * @param {{ storeId: number|null, partyId?: number|null }} params
  * @returns {{ handleBarcodeDetected: (code: string) => Promise<void> }}
  */
-export function useBarcodeLookup({ storeId, partyId = null }) {
+export function useBarcodeLookup({ storeId, partyId: partyIdOverride = null }) {
   const router = useRouter();
+  const { customerId: attachedCustomerId } = useCustomerSession();
+  const partyId = partyIdOverride ?? attachedCustomerId ?? null;
 
   const handleBarcodeDetected = useCallback(async (code) => {
     const trimmed = code.trim();
@@ -43,7 +46,7 @@ export function useBarcodeLookup({ storeId, partyId = null }) {
           toast.warning(
             line
               ? `${skuMatch.sku} is reserved for order ${line.document_no} (${line.party_name ?? 'customer'}).`
-              : `${skuMatch.sku} is reserved for a customer order and can't be sold separately.`,
+              : `${skuMatch.sku} is on hold (allocated) in OrnaVerse and can’t be sold until it is released.`,
             {
               duration: 15000,
               ...(line && { action: { label: 'Bill that order', onClick: () => router.push(`/orders?order=${encodeURIComponent(line.document_no)}`) } }),

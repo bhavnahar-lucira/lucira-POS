@@ -6,13 +6,13 @@ const COLLECTION = 'walkinVisits_POS';
 
 
 /** One staff-confirmed walk-in: the visit itself is in OrnaVerse; this keeps its purpose. */
-export async function recordWalkinVisit({ env, companyId, storeName, mobile, customerId, customerName, purpose, user }) {
+export async function recordWalkinVisit({ env, companyId, storeName, mobile, customerId, customerName, purpose, ovVisitId, user }) {
   const db = await getDb();
   const now = new Date();
   await db.collection(COLLECTION).insertOne({
     environment: env, companyId, storeName: storeName ?? null,
     mobileKey: normalizeMobileKey(mobile), customerId: customerId ?? null, customerName: customerName ?? null,
-    purpose, recordedBy: user ?? null, recordedAt: now,
+    purpose, ovVisitId: ovVisitId ?? null, recordedBy: user ?? null, recordedAt: now,
   });
 }
 

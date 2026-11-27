@@ -14,9 +14,10 @@ import {
 } from '@/services/customEstimateService';
 import { listHeldEstimates, holdEstimate, removeHeldEstimate } from '@/lib/estimation/heldEstimates';
 import { prefillFromTicket, isMetalOnPureWeight, STONE_COSTING_DEFAULTS } from '@/lib/estimation/prefillFromTicket';
-import { metalChoice } from '@/lib/ticketing/attributeMatch';
+import { metalChoice, STONE_UOC_ID, STONE_UOM_ID } from '@/lib/ticketing/attributeMatch';
 import { isMaskedValue } from '@/lib/normalizers/customer';
 import { finalSku } from '@/lib/ticketing/normalize';
+import { ticketLineNotes } from '@/lib/ticketing/orderFromFinal';
 import { uploadTemporaryFile } from '@/services/fileUploadService';
 import { resolveImageSrc } from '@/lib/resolveImageSrc';
 import CustomerAttachedBanner from '@/components/shared/CustomerAttachedBanner';
@@ -462,7 +463,7 @@ export default function CustomEstimateForm({ onDone, ticket = null }) {
         ...stones.map((s) => ({
           item_id: selectedItem.item_id, rm_id: 0, rm_attribute_id: 0, setting_id: 0,
           stone_status_id: 1, certificate_no: '', pieces: s.pieces, weight: s.weight,
-          uoc_id: 4, uom_id: 7, purity: 0, pure_weight: s.weight,
+          uoc_id: STONE_UOC_ID, uom_id: STONE_UOM_ID, purity: 0, pure_weight: s.weight,
           rate: s.rate, amount: s.amount, base_amount: s.amount,
           markup: 0, pointer_weight: 0, parts: 0, discount: 0, discount_percent: 0,
           is_center_stone: false, base_item_id: s.baseItemId,
@@ -489,6 +490,7 @@ export default function CustomEstimateForm({ onDone, ticket = null }) {
       // CreateTempVoucher call. Included here (not just the temp-voucher
       // path) so a real Order carries the same reference photo.
       ...(imagePath ? { image: imagePath } : {}),
+      ...(final ? ticketLineNotes(final, ticket) : {}),
     };
   };
 

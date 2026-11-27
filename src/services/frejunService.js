@@ -63,3 +63,21 @@ export async function getFrejunAgents(params = {}) {
   if (!res.ok) throw new Error(json.error || `Failed to load the agent overview (${res.status})`);
   return json.data;
 }
+
+export async function getFrejunSummary(params = {}) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '' && value !== 'all') query.set(key, String(value));
+  }
+  const res = await fetch(`/api/frejun/summary?${query.toString()}`, { headers: { 'Content-Type': 'application/json' } });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || `Failed to load the call summary (${res.status})`);
+  return json.data;
+}
+
+export async function getFrejunAgentTags() {
+  const res = await fetch('/api/frejun/tags', { headers: { 'Content-Type': 'application/json' } });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || `Failed to load agent tags (${res.status})`);
+  return json.data ?? [];
+}

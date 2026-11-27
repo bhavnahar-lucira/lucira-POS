@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { walkInLookup } from '@/services/customerService';
-import { normalizeWalkInCustomer } from '@/lib/normalizers/customer';
+import { normalizeWalkInCustomer, latestWalkinVisitId } from '@/lib/normalizers/customer';
 import { selectActiveStoreId, selectActiveStoreName, selectActiveStoreCode } from '@/store/slices/storeSlice';
 import tracker from '@/lib/analytics/tracker';
 import EVENTS from '@/lib/analytics/events';
@@ -16,7 +16,7 @@ function maskMobile(mobile) {
   return `${'*'.repeat(digits.length - 4)}${digits.slice(-4)}`;
 }
 
-function logWalkIn({ mobile, customer, companyId, companyName, companyCode }) {
+export function logWalkIn({ mobile, customer, companyId, companyName, companyCode }) {
   if (!companyId) return; 
   
   tracker.track(
@@ -52,6 +52,7 @@ export function useWalkInLookup() {
       const response = await walkInLookup(mobile);
       const data = response?.data;
       return {
+        visitId:        data?.WalkInRecorded ? latestWalkinVisitId(data?.Customer, companyId) : null,
         found:          !!data?.Customer,
         customer:       normalizeWalkInCustomer(data?.Customer),
         // CONFIRMED LIVE 2026-10-08: the server's own dedup (one walk-in per
@@ -92,6 +93,7 @@ export function useWalkInLookup() {
 
   return {
     lookup:    mutation.mutate,
+    lookupAsync: mutation.mutateAsync,
     result:    mutation.data ?? null,
     isLoading: mutation.isPending,
     reset:     mutation.reset,

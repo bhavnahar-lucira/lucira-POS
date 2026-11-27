@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion, useReducedMotion } from 'motion/react';
-import { Bell, BellOff, Truck } from 'lucide-react';
+import { Bell, BellOff, Truck, ClipboardCheck } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import BottomSheet from '@/components/shared/BottomSheet';
@@ -12,16 +12,17 @@ import TicketNotificationsList from '@/components/features/ticketing/TicketNotif
 import { EventRow } from '@/components/features/dashboard/UpcomingEventsCard';
 import { useTicketNotifications } from '@/hooks/ticketing/useTickets';
 import { useUpcomingEvents } from '@/hooks/dashboard/useUpcomingEvents';
-import { usePendingBranchIns } from '@/hooks/branchTransfer/useBranchTransfer';
+import { usePendingBranchIns, usePendingTransferApprovals } from '@/hooks/branchTransfer/useBranchTransfer';
 import { formatAmountOrDash } from '@/lib/priceUtils';
 
 const SEEN_KEY = 'pos.ticketNotificationsSeen';
 const SHAKE = { rotate: [0, -16, 14, -10, 8, -4, 0] };
 
 // Overdue reminders and future birthdays are excluded: they are not news, so they never make the bell shake.
-function newsKeys(data, todayEvents, transfers) {
+function newsKeys(data, todayEvents, transfers, approvalNews) {
   const today = new Date().toDateString();
   return [
+    ...approvalNews.map((a) => `approval:${a.id}:${a.status}`),
     ...transfers.map((t) => `transfer:${t.transaction_id}`),
     ...todayEvents.map((e) => `${e.type}:${e.partyId}:${today}`),
     ...(data?.g2dShared ?? []).map((t) => `g2d:${t.item_id ?? t.ticket_number}`),
@@ -76,6 +77,38 @@ function TransferNotices({ transfers, onNavigate }) {
   );
 }
 
+function ApprovalNotices({ approvals, isApprover, onNavigate }) {
+  if (!approvals.length) return null;
+  const line = (a) => {
+    const what = `${a.kind === 'send' ? 'send' : 'receive'} ${a.document_no ?? 'transfer'}${a.pieces != null ? ` (${a.pieces} pc)` : ''}`;
+    if (isApprover) return <><strong>{a.store_code ?? 'A store'}</strong> needs approval to {what}{a.counterparty ? ` · ${a.kind === 'send' ? 'to' : 'from'} ${a.counterparty}` : ''}.</>;
+    if (a.status === 'approved') return <>HO approved: {what}{a.kind === 'receive' ? ' — you can now authorise the receipt.' : ' — it is posted and in transit.'}</>;
+    return <>HO rejected: {what}{a.reason ? ` — ${a.reason}` : ''}.</>;
+  };
+  const href = (a) => (isApprover ? '/branch-transfer?tab=approvals' : a.kind === 'receive' ? `/branch-transfer?tab=receive&in=${a.transaction_id}` : '/branch-transfer?tab=send');
+  return (
+    <section className="mb-5">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{isApprover ? 'Transfer approvals' : 'HO decisions'}</h3>
+      <div className="flex flex-col gap-2">
+        {approvals.map((a) => (
+          <Link
+            key={`${a.id}-${a.status}`}
+            href={href(a)}
+            onClick={onNavigate}
+            className={`flex items-start gap-3 rounded-xl border p-3 text-sm transition-colors hover:shadow-sm ${a.status === 'rejected'
+              ? 'border-destructive/40 bg-destructive/5 text-destructive'
+              : 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100'}`}
+          >
+            <ClipboardCheck size={18} className="mt-0.5 shrink-0" aria-hidden="true" />
+            <span className="min-w-0 flex-1">{line(a)}</span>
+            <span className="shrink-0 text-xs font-semibold">{isApprover ? 'Review' : 'Open'}</span>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function EventSection({ title, events, onSelect }) {
   if (!events.length) return null;
   return (
@@ -97,14 +130,18 @@ export default function NotificationBell() {
   const birthdays = events.birthdays.filter((e) => e.daysUntil >= 0);
   const anniversaries = events.anniversaries.filter((e) => e.daysUntil >= 0);
   const transfers = usePendingBranchIns();
+  const approvalFeed = usePendingTransferApprovals();
+  const approvalNews = approvalFeed.isApprover
+    ? approvalFeed.approvals.filter((a) => a.status === 'pending')
+    : approvalFeed.approvals.filter((a) => a.status === 'approved' || a.status === 'rejected');
   const [open, setOpen] = useState(false);
   const [seen, setSeen] = useState(readSeen);
   const reduceMotion = useReducedMotion();
 
   const todayEvents = [...birthdays, ...anniversaries].filter((e) => e.isToday);
-  const keys = newsKeys(data, todayEvents, transfers);
+  const keys = newsKeys(data, todayEvents, transfers, approvalNews);
   const total = keys.length + (data?.cadOverdue?.length ?? 0);
-  const ticketCount = total - todayEvents.length - transfers.length;
+  const ticketCount = total - todayEvents.length - transfers.length - approvalNews.length;
   const hasEvents = birthdays.length + anniversaries.length > 0;
   const openCustomer = (event) => {
     setOpen(false);
@@ -157,8 +194,9 @@ export default function NotificationBell() {
         <p className="mb-4 text-sm text-muted-foreground">
           {total > 0 ? `${total} ${total === 1 ? 'item needs' : 'items need'} attention` : 'You are all caught up'}
         </p>
-        {ticketCount > 0 || hasEvents || transfers.length > 0 ? (
+        {ticketCount > 0 || hasEvents || transfers.length > 0 || approvalNews.length > 0 ? (
           <>
+            <ApprovalNotices approvals={approvalNews} isApprover={approvalFeed.isApprover} onNavigate={() => setOpen(false)} />
             <TransferNotices transfers={transfers} onNavigate={() => setOpen(false)} />
             {ticketCount > 0 && (
               <section>

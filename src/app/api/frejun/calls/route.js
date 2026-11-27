@@ -1,12 +1,17 @@
 // src/app/api/frejun/calls/route.js
+import { after } from 'next/server';
 import { getSessionFromRequest } from '@/lib/ornaverse/session';
 import { getFrejunCalls } from '@/lib/frejun/frejunClient';
 import { scanCalls } from '@/lib/frejun/callScan';
 import { enrichCallsWithCustomerNames } from '@/lib/frejun/customerNameResolver';
 import { FREJUN_STORES, identifyStoreForCall, getStoreByKey } from '@/lib/frejun/storeMapping';
 import { getFrejunScope, scopeAllowsEmail, filterCallsToScope } from '@/lib/frejun/access';
+import { rememberAgentTags, findAgentTagStore } from '@/lib/mongo/frejunAgentTags';
+import { splitAgentTag } from '@/lib/frejun/agentInfo';
 
 export const dynamic = 'force-dynamic';
+
+const normTag = (name) => String(name || '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 const EMPTY = { count: 0, next: null, previous: null, results: [], pageCount: 0, isFiltered: false };
 
@@ -25,7 +30,7 @@ export async function GET(request) {
   const dateEnd = searchParams.get('dateEnd') || searchParams.get('date_end') || '';
   const callId = searchParams.get('callId') || searchParams.get('call_id') || '';
   const storeKey = (searchParams.get('store') || searchParams.get('storeKey') || '').toLowerCase().trim();
-  const tag = (searchParams.get('tag') || '').toLowerCase().trim();
+  const tag = (searchParams.get('tag') || '').toLowerCase().replace(/\s+/g, ' ').trim();
   const search = searchParams.get('search') || '';
 
   let scope;
@@ -44,7 +49,8 @@ export async function GET(request) {
     selectedStore = getStoreByKey(storeKey) || FREJUN_STORES.find((s) => s.match.test(storeKey));
   }
   if (!selectedStore && tag && tag !== 'all') {
-    const inferred = FREJUN_STORES.find((s) => s.match.test(tag));
+    const inferred = FREJUN_STORES.find((s) => s.match.test(splitAgentTag(tag)?.storePart ?? tag))
+      || getStoreByKey(await findAgentTagStore(tag).catch(() => null));
     if (inferred && (scope.isAdmin || scope.stores.some((s) => s.key === inferred.key))) selectedStore = inferred;
   }
   if (!scope.isAdmin && !scope.stores.some((s) => s.key === selectedStore?.key)) {
@@ -69,7 +75,7 @@ export async function GET(request) {
     || selectedStore.key.toLowerCase() === tag
     || selectedStore.label.toLowerCase().includes(tag)
   ));
-  const matchesTag = (call) => (Array.isArray(call.tags) && call.tags.some((t) => t.name?.toLowerCase().includes(tag)))
+  const matchesTag = (call) => (Array.isArray(call.tags) && call.tags.some((t) => normTag(t.name).includes(tag)))
     || call.recruiter?.toLowerCase().includes(tag);
 
   if (isAgentFilter && !callId) {
@@ -77,6 +83,7 @@ export async function GET(request) {
       const { calls: scanned, truncated } = await scanCalls({
         userEmail: resolvedEmail, dateStart, dateEnd, candidateNumber: resolvedNumber, refresh: searchParams.get('refresh') === '1',
       });
+      after(() => rememberAgentTags(scanned));
       const matches = filterCallsToScope(scope, scanned).filter(matchesTag);
       const start = (page - 1) * pageSize;
       const results = matches.slice(start, start + pageSize);
@@ -114,6 +121,7 @@ export async function GET(request) {
       callId,
     });
 
+    after(() => rememberAgentTags(data?.results));
     let results = filterCallsToScope(scope, data?.results ?? []);
     const pageCount = results.length;
     let isFiltered = false;
@@ -127,7 +135,7 @@ export async function GET(request) {
       if (!isStoreTag) {
         isFiltered = true;
         results = results.filter((call) => {
-          const hasMatchingTag = Array.isArray(call.tags) && call.tags.some((t) => t.name?.toLowerCase().includes(tag));
+          const hasMatchingTag = Array.isArray(call.tags) && call.tags.some((t) => normTag(t.name).includes(tag));
           return hasMatchingTag || call.recruiter?.toLowerCase().includes(tag);
         });
       }

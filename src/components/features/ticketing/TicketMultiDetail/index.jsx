@@ -68,6 +68,10 @@ const STEP_BY_STATUS = {
 
 const isActive = (item) => item.status !== TICKET_STATUS.CANCELLED;
 const productName = (item) => `${item.item_id} · ${item.requested_specs?.category ?? 'Product'}`;
+const sumOrNull = (values) => {
+  const nums = values.filter((v) => Number.isFinite(v));
+  return nums.length ? nums.reduce((t, v) => t + v, 0) : null;
+};
 
 function ItemProgress({ status }) {
   const current = STEP_BY_STATUS[status] ?? 0;
@@ -409,6 +413,7 @@ function ConfirmTicketOrderDialog({ ticket, pendingItems, isOpen, onOpenChange, 
     ...lines.flatMap((l) => [
       !(Number(l.order_amount) > 0) && `${l.item_id} order amount`,
       !l.expected_delivery_date && `${l.item_id} delivery date`,
+      l.expected_delivery_date && orderDate && l.expected_delivery_date <= orderDate && `${l.item_id} delivery date after the order date`,
       !l.karat && `${l.item_id} karat`,
       l.karat && !rateFor(l.karat) && `today's gold rate for ${l.karat}`,
     ]),
@@ -512,7 +517,7 @@ function ConfirmTicketOrderDialog({ ticket, pendingItems, isOpen, onOpenChange, 
                 <Input id={`mco-amount-${n}`} className="h-11" type="number" min="0" inputMode="decimal" value={l.order_amount} onChange={setLine(n, 'order_amount')} />
               </FormField>
               <FormField label="Expected delivery date" htmlFor={`mco-delivery-${n}`} required>
-                <Input id={`mco-delivery-${n}`} className="h-11" type="date" min={todayIso()} value={l.expected_delivery_date} onChange={setLine(n, 'expected_delivery_date')} />
+                <Input id={`mco-delivery-${n}`} className="h-11" type="date" min={todayIso(1)} value={l.expected_delivery_date} onChange={setLine(n, 'expected_delivery_date')} />
               </FormField>
               <FormField label="Karat" htmlFor={`mco-karat-${n}`} required>
                 <NameSelect id={`mco-karat-${n}`} value={l.karat} onChange={setLine(n, 'karat')} options={karatOptions.map((o) => o.label)} placeholder="Select karat" />
@@ -536,7 +541,7 @@ function ConfirmTicketOrderDialog({ ticket, pendingItems, isOpen, onOpenChange, 
         <div className="flex flex-col gap-1 rounded-lg bg-muted/50 p-3 text-sm">
           <div className="flex justify-between"><span className="text-muted-foreground">Order amount (these products)</span><span className="tabular-nums">{formatAmountOrDash(newTotal)}</span></div>
           {!isFirstConfirmation && (
-            <div className="flex justify-between"><span className="text-muted-foreground">Already confirmed on the ticket</span><span className="tabular-nums">{formatAmountOrDash(ticket.order_details.order_amount)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Already confirmed on the ticket</span><span className="tabular-nums">{formatAmountOrDash(sumOrNull(ticket.items.filter((i) => isActive(i) && i.order_details).map((i) => i.order_details.order_amount)) ?? ticket.order_details.order_amount)}</span></div>
           )}
           {previousAdvance > 0 && (
             <div className="flex justify-between"><span className="text-muted-foreground">Advance already received</span><span className="tabular-nums">{formatAmountOrDash(previousAdvance)}</span></div>
@@ -629,7 +634,7 @@ function MultiOrderPanel({ ticket, partyId }) {
   const [note, setNote] = useState('');
   const [overrides, setOverrides] = useState({});
   const { ready, lookups } = useOrderLookups();
-  const { sendToCart, isAttaching } = useTicketCartHandoff(ticket);
+  const { sendToCart, isAttaching, isPreparing } = useTicketCartHandoff(ticket, lookups);
   const products = ticket.items.filter(isActive);
 
   const query = useQuery({
@@ -638,7 +643,7 @@ function MultiOrderPanel({ ticket, partyId }) {
       const results = [];
       for (const item of products) {
         const view = { ...item, specs: item.specs, order_details: item.order_details };
-        results.push({ item, result: await buildOrderFromFinal(item.final_details, view, lookups, overrides[item.item_id] ?? {}) });
+        results.push({ item, view, result: await buildOrderFromFinal(item.final_details, view, lookups, overrides[item.item_id] ?? {}) });
       }
       return results;
     },
@@ -680,7 +685,9 @@ function MultiOrderPanel({ ticket, partyId }) {
         note: note.trim() || null,
       }).catch(() => toast.warning('The acknowledgement could not be saved to the ticket history — the order still proceeds.'));
     }
-    await sendToCart(results.map(({ result }) => ({ item: result.item, line: result.line, summary: result.summary })));
+    await sendToCart(results.map(({ item, view, result }) => ({
+      final: item.final_details, view, overrides: overrides[item.item_id] ?? {}, line: result.line,
+    })));
   };
 
   return (
@@ -719,8 +726,8 @@ function MultiOrderPanel({ ticket, partyId }) {
           <Textarea id="multi-ack-note" rows={2} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
       )}
-      <Button type="button" className="h-11 gap-1.5 sm:self-end" disabled={!canProceed || action.isPending || isAttaching} onClick={handleCheckout}>
-        <ShoppingCart size={16} aria-hidden="true" /> {isAttaching ? 'Logging in customer…' : action.isPending ? 'Saving…' : 'Proceed to checkout'}
+      <Button type="button" className="h-11 gap-1.5 sm:self-end" disabled={!canProceed || action.isPending || isAttaching || isPreparing} onClick={handleCheckout}>
+        <ShoppingCart size={16} aria-hidden="true" /> {isPreparing ? 'Preparing OrnaVerse items…' : isAttaching ? 'Logging in customer…' : action.isPending ? 'Saving…' : 'Proceed to checkout'}
       </Button>
     </div>
   );
@@ -752,6 +759,8 @@ export default function TicketMultiDetail({ ticket, partyId }) {
   const history = [...(ticket.history ?? [])].reverse();
   const profile = ticket.customer_profile;
   const orderDetails = ticket.order_details;
+  const confirmedAmount = sumOrNull(active.map((i) => i.order_details?.order_amount));
+  const advanceTotal = sumOrNull((ticket.advances ?? []).map((a) => a.amount));
 
   return (
     <div className="flex flex-col gap-4">
@@ -852,8 +861,8 @@ export default function TicketMultiDetail({ ticket, partyId }) {
                 ['Created', `${formatDateTime(ticket.created_at)} by ${ticket.created_by}`],
                 ['Products', active.map((i) => `${i.item_id} · ${i.requested_specs?.category ?? '—'}${i.requested_specs?.budget ? ` · ${formatAmountOrDash(i.requested_specs.budget)}` : ''}`).join('\n') || '—'],
                 ['Total budget', formatAmountOrDash(ticket.budget_total)],
-                ['Order amount', formatAmountOrDash(orderDetails?.order_amount)],
-                ['Advance received', formatAmountOrDash(orderDetails?.amount_received)],
+                ['Order amount', formatAmountOrDash(confirmedAmount ?? orderDetails?.order_amount)],
+                ['Advance received', formatAmountOrDash(advanceTotal ?? orderDetails?.amount_received)],
                 ['Order no.', ticket.pos_order?.document_no ?? '—'],
               ]}
             />

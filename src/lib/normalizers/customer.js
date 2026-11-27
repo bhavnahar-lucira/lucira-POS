@@ -314,3 +314,11 @@ export function normalizeCrmLead(entity) {
     raw:         entity,
   };
 }
+/** Id of the newest "Store Walkin" visit at this store in a WalkIn/Lookup or WalkIn/Register reply — the row just recorded. */
+export function latestWalkinVisitId(crmCustomer, companyId) {
+  let latest = null;
+  for (const v of crmCustomer?.customer_visits ?? []) {
+    if (v.company_id === companyId && /walk/i.test(v.source ?? '') && (latest == null || v.id > latest)) latest = v.id;
+  }
+  return latest;
+}

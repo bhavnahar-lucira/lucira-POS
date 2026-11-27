@@ -1,9 +1,8 @@
 import { calculateItemRates } from '@/services/pricingService';
 import { getItemSizesByType, getStoneRate } from '@/services/customEstimateService';
-import { uploadTemporaryFile } from '@/services/fileUploadService';
 import { matchCustomItem } from '@/lib/estimation/prefillFromTicket';
 import {
-  DIAMOND_ITEM_GROUP_ID, norm, matchLabel, resolveStone, findSize, withResolvedAttributes,
+  DIAMOND_ITEM_GROUP_ID, STONE_UOC_ID, STONE_UOM_ID, norm, matchLabel, resolveStone, findSize, withResolvedAttributes,
 } from '@/lib/ticketing/attributeMatch';
 import { finalSku } from '@/lib/ticketing/normalize';
 import APP_CONFIG from '@/constants/appConfig';
@@ -19,21 +18,16 @@ const karatNumber = (v) => String(v ?? '').match(/\d+/)?.[0] ?? null;
 const round2 = (n) => +(Number(n) || 0).toFixed(2);
 const num = (v) => (v == null || v === '' ? null : Number(v));
 
-async function uploadRemoteImage(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const bitmap = await createImageBitmap(await res.blob());
-  const canvas = document.createElement('canvas');
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(bitmap, 0, 0);
-  bitmap.close();
-  const jpeg = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
-  if (!jpeg) throw new Error('Image could not be converted.');
-  return uploadTemporaryFile(new File([jpeg], 'final-design.jpg', { type: 'image/jpeg' }));
+/** Design SKU and image link in the line fields OrnaVerse's Order Fulfilment shows when HO raises the PO. */
+export function ticketLineNotes(final, ticket) {
+  const sku = finalSku(final);
+  const image = final?.lineItem?.image || null;
+  const ref = ticket?.ticket_number ?? ticket?.item_id;
+  const description = [sku && `SKU ${sku}`, ref && `Ticket ${ref}`].filter(Boolean).join(' | ');
+  return {
+    ...(description && { user_description: description }),
+    ...(image && { narration: `Design image: ${image}` }),
+  };
 }
 
 function check(label, workflow, reference, { unit = '₹', note } = {}) {
@@ -48,7 +42,7 @@ function check(label, workflow, reference, { unit = '₹', note } = {}) {
  * Mismatches are reported, never corrected. Blockers are data the order cannot be built without;
  * `review` lists values that had to be mapped or defaulted, which staff must confirm before ordering.
  */
-export async function buildOrderFromFinal(final, ticket, lookups, overrides = {}) {
+export async function buildOrderFromFinal(final, ticket, lookups, overrides = {}, { item: designItem = null } = {}) {
   const { items, karatOptions, metalColorOptions, stoneItemGroups, shapeOptions, colorOptions, qualityOptions } = lookups;
   const warnings = [];
   const blockers = [];
@@ -57,7 +51,7 @@ export async function buildOrderFromFinal(final, ticket, lookups, overrides = {}
   const lineItem = final.lineItem ?? {};
   const metal = final.metal ?? {};
 
-  const selectedItem = matchCustomItem(items, lineItem.category ?? lineItem.item_name);
+  const selectedItem = designItem ?? matchCustomItem(items, lineItem.category ?? lineItem.item_name);
   if (!selectedItem) {
     return { blockers: [`No OrnaVerse custom order item matches "${lineItem.category ?? lineItem.item_name}".`], warnings, review, checks: [] };
   }
@@ -174,7 +168,7 @@ export async function buildOrderFromFinal(final, ticket, lookups, overrides = {}
     stones.push({
       item_id: selectedItem.item_id, rm_id: 0, rm_attribute_id: 0, setting_id: 0,
       stone_status_id: 1, certificate_no: '', pieces: num(s.pieces) || 1, weight: stoneWeight,
-      uoc_id: 4, uom_id: 7, purity: 0, pure_weight: stoneWeight,
+      uoc_id: STONE_UOC_ID, uom_id: STONE_UOM_ID, purity: 0, pure_weight: stoneWeight,
       rate, amount: stoneAmount, base_amount: stoneAmount,
       markup: 0, pointer_weight: 0, parts: 0, discount: 0, discount_percent: 0,
       is_center_stone: false, base_item_id: defaults.baseItemId,
@@ -222,14 +216,9 @@ export async function buildOrderFromFinal(final, ticket, lookups, overrides = {}
     check('Net amount = sub total + tax', num(final.netAmount), netAmount),
   );
 
-  let imagePath = null;
-  if (lineItem.image) {
-    try {
-      imagePath = await uploadRemoteImage(lineItem.image);
-    } catch {
-      warnings.push('The final design image could not be attached to the order.');
-    }
-  }
+  // OrnaVerse never moves a temporary upload on an order line to permanent storage.
+  const imagePath = lineItem.image || null;
+  if (!imagePath) warnings.push('The workflow team sent no final design image for this product.');
 
   const taxTemplate = refRow?.item_taxes?.length ? refRow.item_taxes : defaultRow.item_taxes ?? [];
   const rowTax = taxTemplate.length ? round2(taxAmount / taxTemplate.length) : 0;
@@ -242,7 +231,7 @@ export async function buildOrderFromFinal(final, ticket, lookups, overrides = {}
     ...(colorOpt && { metal_color_id: colorOpt.value, metal_color_name: colorOpt.label }),
     sub_total: subTotal, taxable_amount: subTotal, tax_amount: taxAmount, net_amount: netAmount,
     base_sub_total: subTotal, base_tax_amount: taxAmount, base_net_amount: netAmount,
-    ...(sizeId && { item_size_id: sizeId, item_size_name: sizeName, item_size_code: sizeCode }),
+    item_size_id: sizeId, item_size_name: sizeName, item_size_code: sizeCode,
     item_components: [
       { ...defaultRow.item_components[0], ...metalPatch, pure_weight: pureWeight, rate: metalRate, amount: metalAmount, base_amount: metalAmount },
       ...stones,
@@ -254,6 +243,7 @@ export async function buildOrderFromFinal(final, ticket, lookups, overrides = {}
     stone_amount: round2(sumOf(others, 'amount')), stone_pieces: sumOf(others, 'pieces'), stone_weight: +sumOf(others, 'weight').toFixed(3),
     item_labour: labourAmount,
     ...(imagePath && { image: imagePath }),
+    ...ticketLineNotes(final, ticket),
   };
 
   let line;

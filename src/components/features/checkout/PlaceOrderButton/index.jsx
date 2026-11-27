@@ -16,7 +16,7 @@ import { formatAmount as money } from '@/lib/priceUtils';
  *     this sale (a payment mode, not a discount — see checkout/page.jsx's
  *     own comment on why at most one document can ever carry it).
  *   isPricing?: boolean,
- *   documentType?: 'invoice'|'order',
+ *   documentType?: 'invoice'|'order'|'reserve',
  * }} props
  */
 export default function PlaceOrderButton({
@@ -26,7 +26,8 @@ export default function PlaceOrderButton({
   const { total: cartTotal } = useCartTotals();
   const total = amountDue ?? cartTotal;
   const isOrder = documentType === 'order';
-  const chargeable = Math.max(0, (isOrder ? (amountCollected ?? 0) : total) - creditApplied);
+  const isReserve = documentType === 'reserve';
+  const chargeable = Math.max(0, (isOrder || isReserve ? (amountCollected ?? 0) : total) - creditApplied);
 
   return (
     <Button
@@ -39,13 +40,15 @@ export default function PlaceOrderButton({
       {isPlacingOrder ? (
         <>
           <Loader2 size={18} className="animate-spin" aria-hidden="true" />
-          {isOrder ? 'Placing order…' : 'Generating invoice…'}
+          {isReserve ? 'Reserving…' : isOrder ? 'Placing order…' : 'Generating invoice…'}
         </>
       ) : isPricing ? (
         <>
           <Loader2 size={18} className="animate-spin" aria-hidden="true" />
           Pricing items…
         </>
+      ) : isReserve ? (
+        chargeable > 0 ? `Reserve · Advance ${money(chargeable)}` : 'Reserve · No advance'
       ) : isOrder ? (
         chargeable > 0
           ? `Place Order · Advance ${money(chargeable)}`

@@ -2,7 +2,6 @@ import { calculateItemRates } from '@/services/pricingService';
 import {
   getMetalRateForItem, getItemSizesByType, getStoneRate, getLabourRate, applyLabourToLine,
 } from '@/services/customEstimateService';
-import { uploadTemporaryFile } from '@/services/fileUploadService';
 import {
   DIAMOND_ITEM_GROUP_ID, STONE_COSTING_DEFAULTS, norm, matchLabel, resolveStone, findSize, metalChoice,
 } from '@/lib/ticketing/attributeMatch';
@@ -28,24 +27,6 @@ export function matchCustomItem(items, category) {
   return (word && items.find((i) => norm(i.item_name).includes(word)))
     ?? items.find((i) => /customi[sz]ed?order/.test(norm(i.item_name)))
     ?? null;
-}
-
-async function uploadRemoteImage(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  // The CDN may serve AVIF/WebP to browsers, which OrnaVerse rejects — re-encode as JPEG.
-  const bitmap = await createImageBitmap(await res.blob());
-  const canvas = document.createElement('canvas');
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(bitmap, 0, 0);
-  bitmap.close();
-  const jpeg = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
-  if (!jpeg) throw new Error('Image could not be converted.');
-  return uploadTemporaryFile(new File([jpeg], 'final-design.jpg', { type: 'image/jpeg' }));
 }
 
 /**
@@ -187,14 +168,7 @@ export async function prefillFromTicket(final, lookups) {
     }
   }
 
-  let imagePath = null;
-  if (lineItem.image) {
-    try {
-      imagePath = await uploadRemoteImage(lineItem.image);
-    } catch {
-      warnings.push('The final design image could not be attached — upload it manually.');
-    }
-  }
+  const imagePath = lineItem.image || null;
 
   return {
     snapshot: { selectedItem, sizeId, weight, baseRow, taxTemplate, metalOnPure, stones, labourProposal, appliedLabour, imagePath },

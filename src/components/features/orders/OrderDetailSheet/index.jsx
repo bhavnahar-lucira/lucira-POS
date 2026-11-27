@@ -53,6 +53,7 @@ function OrderContent({ raw, status }) {
       <Row label="Mobile" value={raw.mobile ? <PhoneLink phone={raw.mobile} /> : null} />
       <Row label="Email" value={raw.email} />
       <Row label="Store" value={raw.company_name} />
+      <Row label="Jewelry Consultant" value={raw.employee_name ?? lineItems.find((l) => l.employee_name)?.employee_name} />
       <Row label="Status" value={STATUS_LABELS[status] ?? null} />
 
       {lineItems.length > 0 && (

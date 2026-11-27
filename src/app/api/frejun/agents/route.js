@@ -1,10 +1,12 @@
 // src/app/api/frejun/agents/route.js
 // Per-agent call totals for ONE store, built from its call logs (FreJun's own analytics only reports per login
 // account, and store agents share their store's account — they're told apart by call tags).
+import { after } from 'next/server';
 import { getSessionFromRequest } from '@/lib/ornaverse/session';
-import { scanCalls } from '@/lib/frejun/callScan';
+import { scanCalls, customerKey, countUniqueCustomers } from '@/lib/frejun/callScan';
 import { getStoreByKey } from '@/lib/frejun/storeMapping';
 import { getFrejunScope, filterCallsToScope } from '@/lib/frejun/access';
+import { rememberAgentTags } from '@/lib/mongo/frejunAgentTags';
 import { resolveAllAgents, callStatusTone, isIncomingCall } from '@/lib/frejun/agentInfo';
 
 export const dynamic = 'force-dynamic';
@@ -19,12 +21,12 @@ function aggregate(calls, storeLabel) {
         key,
         name: untagged ? `${storeLabel} line (no agent tag)` : info.agentName,
         untagged,
-        total: 0, answered: 0, unanswered: 0, minutes: 0, incoming: 0, outgoing: 0, lastCallAt: null,
+        total: 0, answered: 0, minutes: 0, incoming: 0, outgoing: 0, lastCallAt: null, customers: new Set(),
       };
       row.total += 1;
-      const tone = callStatusTone(call.status);
-      if (tone === 'done') row.answered += 1;
-      else if (tone === 'error') row.unanswered += 1;
+      if (callStatusTone(call.status) === 'done') row.answered += 1;
+      const customer = customerKey(call);
+      if (customer) row.customers.add(customer);
       row.minutes += Number(call.call_duration) || 0;
       if (isIncomingCall(call.call_type)) row.incoming += 1; else row.outgoing += 1;
       if (call.call_start_time && (!row.lastCallAt || call.call_start_time > row.lastCallAt)) row.lastCallAt = call.call_start_time;
@@ -32,7 +34,9 @@ function aggregate(calls, storeLabel) {
     }
   }
   return [...byAgent.values()]
-    .map((r) => ({ ...r, minutes: Math.round(r.minutes * 10) / 10 }))
+    .map(({ customers, ...r }) => ({
+      ...r, unanswered: r.total - r.answered, uniqueCustomers: customers.size, minutes: Math.round(r.minutes * 10) / 10,
+    }))
     .sort((a, b) => (a.untagged - b.untagged) || (b.total - a.total));
 }
 
@@ -53,19 +57,21 @@ export async function GET(request) {
     const { calls, totalCalls, truncated } = await scanCalls({
       userEmail: store.email, dateStart, dateEnd, refresh: searchParams.get('refresh') === '1',
     });
+    after(() => rememberAgentTags(calls));
     const scoped = filterCallsToScope(scope, calls);
     const data = {
       store: { key: store.key, label: store.label },
       agents: aggregate(scoped, store.label),
-      totals: scoped.reduce((t, c) => {
-        const tone = callStatusTone(c.status);
+      totals: (() => {
+        const answered = scoped.filter((c) => callStatusTone(c.status) === 'done').length;
         return {
-          total: t.total + 1,
-          answered: t.answered + (tone === 'done' ? 1 : 0),
-          unanswered: t.unanswered + (tone === 'error' ? 1 : 0),
-          minutes: t.minutes + (Number(c.call_duration) || 0),
+          total: scoped.length,
+          answered,
+          unanswered: scoped.length - answered,
+          minutes: scoped.reduce((m, c) => m + (Number(c.call_duration) || 0), 0),
+          uniqueCustomers: countUniqueCustomers(scoped),
         };
-      }, { total: 0, answered: 0, unanswered: 0, minutes: 0 }),
+      })(),
       callsCounted: scoped.length,
       totalCalls,
       truncated,

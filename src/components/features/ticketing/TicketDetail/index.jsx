@@ -240,8 +240,9 @@ export function DecisionTag({ decision }) {
   return null;
 }
 
-export const todayIso = () => {
+export const todayIso = (addDays = 0) => {
   const d = new Date();
+  d.setDate(d.getDate() + addDays);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
@@ -400,6 +401,7 @@ function ConfirmOrderDialog({ ticket, isOpen, onOpenChange, isPending, onSave, a
     !order.order_date && 'order date',
     !(Number(order.order_amount) > 0) && 'order amount',
     !order.expected_delivery_date && 'expected delivery date',
+    order.expected_delivery_date && order.order_date && order.expected_delivery_date <= order.order_date && 'expected delivery date after the order date',
     !order.karat && 'karat',
     !goldRate && "today's gold rate",
     hasAdvance && !order.advance_received_on && 'advance received date',
@@ -511,7 +513,7 @@ function ConfirmOrderDialog({ ticket, isOpen, onOpenChange, isPending, onSave, a
             />
           </FormField>
           <FormField label="Expected delivery date" htmlFor="co-delivery" required>
-            <Input id="co-delivery" className="h-11" type="date" min={todayIso()} value={order.expected_delivery_date} onChange={set('expected_delivery_date')} />
+            <Input id="co-delivery" className="h-11" type="date" min={todayIso(1)} value={order.expected_delivery_date} onChange={set('expected_delivery_date')} />
           </FormField>
           <FormField label="Karat" htmlFor="co-karat" required>
             <NameSelect id="co-karat" value={order.karat} onChange={set('karat')} options={karatOptions.map((o) => o.label)} placeholder="Select karat" />

@@ -31,6 +31,7 @@ import ProductReviewSummaryLink from '@/components/features/products/ProductRevi
 import RecentlyViewedCarousel from '@/components/features/products/RecentlyViewedCarousel';
 import SimilarProductsCarousel from '@/components/features/products/SimilarProductsCarousel';
 import WishlistButton         from '@/components/features/products/WishlistButton';
+import ReservedForNote        from '@/components/features/reserves/ReservedForNote';
 import { useRecordProductView } from '@/hooks/products/useRecentlyViewed';
 import { deriveKaratCode } from '@/lib/karat';
 import { resolveImageSrc } from '@/lib/resolveImageSrc';
@@ -353,6 +354,8 @@ function ProductDetailScreen() {
               </div>
             )}
             
+            <ReservedForNote itemId={activeItem?.item_id} itemCode={activeItem?.item_code} />
+
             {hasUnclaimableStock && (
               <div className="flex items-center gap-2.5 rounded-xl bg-status-made-order/10 border border-status-made-order/20 px-4 py-3">
                 <Info size={18} className="shrink-0 text-status-made-order" aria-hidden="true" />
@@ -364,7 +367,7 @@ function ProductDetailScreen() {
                   </p>
                   <p className="text-xs text-status-made-order/70">
                     {claimablePieces === 0
-                      ? `This piece can't be billed today — it may already be reserved by another sale, or not yet tagged for sale. It will book as Made to Order until that clears.`
+                      ? `This piece can't be billed today — it is on hold (allocated) in OrnaVerse, or not yet tagged for sale. It will book as Made to Order until that clears.`
                       : `Only ${claimablePieces} of ${summaryStock} can actually be billed today — the rest will book as Made to Order.`}
                   </p>
                 </div>

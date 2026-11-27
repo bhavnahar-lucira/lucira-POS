@@ -324,6 +324,8 @@ export const QUERY_KEYS = {
     CALLS:     (params) => ['frejun', 'calls', params],
     ANALYTICS: (params) => ['frejun', 'analytics', params],
     AGENTS:    (params) => ['frejun', 'agents', params],
+    SUMMARY:   (params) => ['frejun', 'summary', params],
+    TAGS:      () => ['frejun', 'tags'],
   },
 
   WORKFLOW_ORDERS: {

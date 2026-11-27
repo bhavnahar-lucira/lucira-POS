@@ -1,6 +1,6 @@
 'use client';
 
-import { User, Calendar, Store, PackageCheck, Workflow } from 'lucide-react';
+import { User, UserCheck, Calendar, Store, PackageCheck, Workflow } from 'lucide-react';
 import ListItemCard from '@/components/shared/ListItemCard';
 import PaymentStatusBadge, { mapOrderStatus } from '@/components/shared/PaymentStatusBadge';
 import { formatDateSlashed } from '@/lib/dateUtils';
@@ -14,6 +14,7 @@ import WorkflowStageBadge from '@/components/features/workflow/WorkflowStageBadg
  */
 export default function OrderListItem({ order, onSelect, readyLines = null, workflow = null }) {
   const { orderNo, orderDate, customerName, totalAmount, status, companyName } = order;
+  const jcName = order.salesPersonName ?? order.raw?.employee_name ?? null;
   const reservedSkus = (readyLines ?? []).map((l) => l.sku).filter(Boolean);
 
   return (
@@ -69,6 +70,13 @@ export default function OrderListItem({ order, onSelect, readyLines = null, work
         <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
           <Store size={13} className="shrink-0 text-muted-foreground/70" aria-hidden="true" />
           <span className="truncate">{companyName}</span>
+        </div>
+      )}
+
+      {jcName && (
+        <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+          <UserCheck size={13} className="shrink-0 text-muted-foreground/70" aria-hidden="true" />
+          <span className="truncate">JC: {jcName}</span>
         </div>
       )}
     </ListItemCard>

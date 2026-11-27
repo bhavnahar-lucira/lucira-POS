@@ -46,7 +46,8 @@ export default function AgentOverviewPanel({ overview, isLoading, error, search 
   return (
     <div className="flex flex-col gap-3">
       <p className="text-xs text-muted-foreground">
-        {agents.filter((a) => !a.untagged).length} agents · {totals.total.toLocaleString('en-IN')} calls · {totals.answered.toLocaleString('en-IN')} answered · {totals.unanswered.toLocaleString('en-IN')} not answered · {formatTalkTime(totals.minutes)} talk time
+        {agents.filter((a) => !a.untagged).length} agents · {totals.total.toLocaleString('en-IN')} calls · {totals.answered.toLocaleString('en-IN')} connected · {totals.unanswered.toLocaleString('en-IN')} not connected
+        {totals.uniqueCustomers != null && ` · ${totals.uniqueCustomers.toLocaleString('en-IN')} unique customers`} · {formatTalkTime(totals.minutes)} talk time
         {overview?.truncated && ` · counted the latest ${overview.callsCounted.toLocaleString('en-IN')} of ${overview.totalCalls.toLocaleString('en-IN')} calls — pick a shorter date range for exact totals`}
       </p>
 
@@ -62,7 +63,7 @@ export default function AgentOverviewPanel({ overview, isLoading, error, search 
                 <>
                   <span className="flex flex-col">
                     <span className={`text-[18px] font-bold tabular-nums ${rateTone(rate)}`}>{rate.toFixed(1)}%</span>
-                    <span className="text-xs text-muted-foreground">answered</span>
+                    <span className="text-xs text-muted-foreground">connected</span>
                   </span>
                   {!a.untagged && (
                     <Button type="button" variant="outline" size="sm" className="h-8" onClick={(e) => { e.stopPropagation(); onSelectAgent?.(a.key); }}>
@@ -74,11 +75,12 @@ export default function AgentOverviewPanel({ overview, isLoading, error, search 
             >
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
                 <Stat label="Calls" value={a.total.toLocaleString('en-IN')} />
-                <Stat label="Talk time" value={formatTalkTime(a.minutes)} />
-                <Stat label="Answered" value={a.answered.toLocaleString('en-IN')} className="text-status-in-stock" />
-                <Stat label="Not answered" value={a.unanswered.toLocaleString('en-IN')} className="text-status-error" />
+                <Stat label="Connected" value={a.answered.toLocaleString('en-IN')} className="text-status-in-stock" />
+                <Stat label="Not connected" value={a.unanswered.toLocaleString('en-IN')} className="text-status-error" />
+                <Stat label="Unique customers" value={(a.uniqueCustomers ?? 0).toLocaleString('en-IN')} />
                 <Stat label="Incoming" value={a.incoming.toLocaleString('en-IN')} />
                 <Stat label="Outgoing" value={a.outgoing.toLocaleString('en-IN')} />
+                <Stat label="Talk time" value={formatTalkTime(a.minutes)} />
               </dl>
               {a.lastCallAt && <p className="text-xs text-muted-foreground">Last call {formatDateTime(a.lastCallAt)}</p>}
             </ListItemCard>

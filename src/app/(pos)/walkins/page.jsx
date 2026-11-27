@@ -25,14 +25,17 @@ import { selectActiveStoreId, selectActiveStoreName } from '@/store/slices/store
 import { todayDateString } from '@/lib/dateUtils';
 import PhoneLink from '@/components/shared/PhoneLink';
 import { formatAmountOrNull } from '@/lib/priceUtils';
-import { WALKIN_PURPOSES } from '@/constants/walkin';
+import { WALKIN_PURPOSES } from '@/constants/walkin';
+
 import { indianMobileFromQuery } from '@/lib/phoneFormat';
 
 const isStoreWalkin = (visit) => !visit.source || /walk/i.test(visit.source);
 const last4 = (mobile) => String(mobile ?? '').replace(/\D/g, '').slice(-4);
 const visitKey = (mobile, iso) => `${last4(mobile)}|${iso ? new Date(iso).toDateString() : ''}`;
-// A customer can walk in twice in a day, so each walk-in takes the purpose recorded closest to it.
+// Purposes saved with the OrnaVerse visit id match exactly; older ones take the purpose recorded closest to the walk-in that day.
 function closestRecord(recordsByDay, visit) {
+  const exact = recordsByDay.get(`id:${visit.visitId}`);
+  if (exact) return exact[0];
   const candidates = recordsByDay.get(visitKey(visit.mobile, visit.visitedAt)) ?? [];
   const at = visit.visitedAt ? new Date(visit.visitedAt).getTime() : 0;
   return candidates.reduce((best, r) => (
@@ -176,6 +179,10 @@ export default function WalkInsPage() {
       const rows = (await res.json()).visits ?? [];
       const byDay = new Map();
       for (const r of rows) {
+        if (r.ovVisitId != null) {
+          byDay.set(`id:${r.ovVisitId}`, [r]);
+          continue;
+        }
         const key = visitKey(r.mobileKey, r.recordedAt);
         if (!byDay.has(key)) byDay.set(key, []);
         byDay.get(key).push(r);

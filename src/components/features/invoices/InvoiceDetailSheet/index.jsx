@@ -48,6 +48,7 @@ function InvoiceContent({ raw }) {
       <Row label="Mobile" value={raw.mobile ? <PhoneLink phone={raw.mobile} /> : null} />
       <Row label="Email" value={raw.email} />
       <Row label="Store" value={raw.location_name ?? raw.company_name} />
+      <Row label="Jewelry Consultant" value={raw.employee_name ?? lineItems.find((l) => l.employee_name)?.employee_name} />
 
       {lineItems.length > 0 && (
         <div className="border-t border-border pt-2 flex flex-col gap-2">

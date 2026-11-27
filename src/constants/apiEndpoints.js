@@ -70,6 +70,9 @@ const API = {
     ATTRIBUTES:    'Services/Master/Attributes/List',
     DESIGNS:       'Services/Master/Style/GetDesigns',
     DESIGN_DETAIL: 'Services/Master/Style/Retrieve',
+    STYLE_LIST:            'Services/Master/Style/List',
+    STYLE_CREATE:          'Services/Master/Style/Create',
+    STYLE_CREATE_VARIANTS: 'Services/Master/Style/CreateVariants',
   },
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -170,6 +173,15 @@ const API = {
     LIST:           'Services/POS/Invoice/List',
     GENERATE_PDF:   'Services/POS/Invoice/GeneratePDF',
     APPLY_DISCOUNT: 'Services/POS/Invoice/ApplyAdditionalDiscount',
+  },
+
+  RESERVES: {
+    CREATE:   'Services/POS/Reserve/Create',
+    UPDATE:   'Services/POS/Reserve/Update',
+    POST:     'Services/POS/Reserve/Post',
+    CANCEL:   'Services/POS/Reserve/Cancel',
+    RETRIEVE: 'Services/POS/Reserve/Retrieve',
+    LIST:     'Services/POS/Reserve/List',
   },
 
   // ─────────────────────────────────────────────────────────────────────────

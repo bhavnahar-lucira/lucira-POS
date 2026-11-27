@@ -37,7 +37,8 @@ export async function POST(request) {
   try {
     await recordWalkinVisit({
       env: session.env, companyId, storeName: store.mailing_name, mobile: body.mobile,
-      customerId: body.customerId, customerName: body.customerName, purpose: body.purpose, user: session.username,
+      customerId: body.customerId, customerName: body.customerName, purpose: body.purpose,
+      ovVisitId: Number.isInteger(body.ovVisitId) ? body.ovVisitId : null, user: session.username,
     });
     return Response.json({ ok: true }, { status: 201 });
   } catch (err) {

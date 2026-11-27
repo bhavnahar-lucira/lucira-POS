@@ -387,6 +387,18 @@ export async function buildMultiAction({ input, ticket, session, store, request,
       requested_by: session.username,
     };
     const hasCadVersion = toCad && item.cadVersions?.some((v) => String(v.version) === design.version);
+    // The panel's combined final details and "in production" state live at ticket level; they no longer hold once a product reopens.
+    const ticketRevision = ticket.estimation && {
+      item_id: item.item_id,
+      target: input.target,
+      reason: input.reason,
+      estimation: ticket.estimation,
+      manufacturing_order_number: ticket.orderNumber ?? ticket.order_number ?? null,
+      panel_status: ticket.status ?? null,
+      panel_status_label: ticket.status_label ?? null,
+      requested_at: now,
+      requested_by: session.username,
+    };
     return {
       filter: { ...itemFilter({ estimation: { $exists: true } }), pos_order: null },
       update: {
@@ -395,10 +407,12 @@ export async function buildMultiAction({ input, ticket, session, store, request,
             ? { ...PANEL_STATE.CAD_DESIGN, awaiting_cad_since: now, customer_feedback: input.reason }
             : { ...PANEL_STATE.SKU_PENDING, customer_feedback: input.reason }),
           ...(hasCadVersion && { [P('cadVersions.$[v].status')]: 'changes_requested' }),
+          ...TICKET_OPEN,
           updated_at: now,
         },
-        $unset: { [P('estimation')]: '' },
+        $unset: { [P('estimation')]: '', ...(ticketRevision && { estimation: '' }) },
         $push: {
+          ...(ticketRevision && { final_revisions: ticketRevision }),
           [P('final_revisions')]: revision,
           ...(toCad && {
             [P('design_decisions')]: {

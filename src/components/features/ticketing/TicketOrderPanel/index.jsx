@@ -19,6 +19,7 @@ import { useAttributeOptions, useKaratOptions } from '@/hooks/catalog/useCatalog
 import { useTicketAction } from '@/hooks/ticketing/useTickets';
 import { createEstimationTempVoucher } from '@/services/customEstimateService';
 import { buildOrderFromFinal } from '@/lib/ticketing/orderFromFinal';
+import { ensureDesignItem } from '@/lib/ticketing/designItem';
 import {
   addItem, attachCustomer, detachCustomer, removeItem, selectCartCustomerId, selectCartItems,
 } from '@/store/slices/cartSlice';
@@ -119,15 +120,35 @@ export function useOrderLookups() {
   };
 }
 
-/** Puts a ticket's order lines in the cart for its customer and opens checkout. lines: [{ item, line, summary }]. */
-export function useTicketCartHandoff(ticket) {
+/**
+ * Puts a ticket's order lines in the cart for its customer and opens checkout.
+ * products: [{ final, view, overrides, line }] — each is first bound to its own OrnaVerse design item.
+ */
+export function useTicketCartHandoff(ticket, lookups) {
   const router = useRouter();
   const dispatch = useDispatch();
   const cartCustomerId = useSelector(selectCartCustomerId);
   const cartItems = useSelector(selectCartItems);
   const [isAttaching, setIsAttaching] = useState(false);
+  const [isPreparing, setIsPreparing] = useState(false);
 
-  const sendToCart = async (lines) => {
+  const sendToCart = async (products) => {
+    const lines = [];
+    setIsPreparing(true);
+    try {
+      for (const { final, view, overrides, line } of products) {
+        const item = await ensureDesignItem({ final, line, ref: view.item_id ?? view.ticket_number });
+        const result = await buildOrderFromFinal(final, view, lookups, overrides, { item });
+        if (result.blockers?.length || !result.line) throw new Error(result.blockers?.[0] ?? `The order line for ${item.item_code} could not be built.`);
+        lines.push({ item: result.item, line: result.line, summary: result.summary });
+      }
+    } catch (err) {
+      toast.error(`The OrnaVerse item could not be prepared: ${err.serverMessage ?? err.message}`);
+      return;
+    } finally {
+      setIsPreparing(false);
+    }
+
     // The order is always for the ticket's customer — re-attached here if they were logged out (e.g. idle timeout)
     // or another customer is on the cart.
     if (cartCustomerId !== ticket.customer_party_id) {
@@ -191,7 +212,7 @@ export function useTicketCartHandoff(ticket) {
     router.push('/checkout');
   };
 
-  return { sendToCart, isAttaching };
+  return { sendToCart, isAttaching, isPreparing };
 }
 
 /** Blockers, OrnaVerse choices, mapping notes, figure checks and totals for one order line. */
@@ -281,7 +302,7 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
   const [overrides, setOverrides] = useState({});
   const chooseOverride = (key, value) => setOverrides((prev) => ({ ...prev, [key]: Number(value) }));
   const { ready: lookupsReady, lookups } = useOrderLookups();
-  const { sendToCart, isAttaching } = useTicketCartHandoff(ticket);
+  const { sendToCart, isAttaching, isPreparing } = useTicketCartHandoff(ticket, lookups);
 
   const final = ticket.final_details;
   const query = useQuery({
@@ -333,7 +354,7 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
     } catch (err) {
       return toast.error(err.message);
     }
-    await sendToCart([{ item, line, summary }]);
+    await sendToCart([{ final, view: ticket, overrides, line }]);
   };
 
   return (
@@ -368,8 +389,8 @@ export default function TicketOrderPanel({ ticket, partyId, onRequestChanges }) 
             />
           </div>
         )}
-        <Button type="button" className="h-11 w-full gap-1.5 sm:w-auto" disabled={!canProceed || action.isPending || isAttaching} onClick={handleCheckout}>
-          <ShoppingCart size={16} aria-hidden="true" /> {isAttaching ? 'Logging in customer…' : action.isPending ? 'Saving…' : 'Proceed to checkout'}
+        <Button type="button" className="h-11 w-full gap-1.5 sm:w-auto" disabled={!canProceed || action.isPending || isAttaching || isPreparing} onClick={handleCheckout}>
+          <ShoppingCart size={16} aria-hidden="true" /> {isPreparing ? 'Preparing OrnaVerse item…' : isAttaching ? 'Logging in customer…' : action.isPending ? 'Saving…' : 'Proceed to checkout'}
         </Button>
       </div>
     </div>

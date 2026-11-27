@@ -59,7 +59,8 @@ export async function listTransferStock({ salePartyId, baseItemId = 11, search }
     EqualityFilter: { base_item_id: null }, base_item_id: String(baseItemId),
     ...(search ? { ContainsText: search } : {}),
   });
-  return data?.Entities ?? [];
+  // A piece reserved against a customer order (Stock Allocation) must not leave the store.
+  return (data?.Entities ?? []).filter((r) => !r.is_allocated);
 }
 
 export async function priceTransferItems({ items, context }) {

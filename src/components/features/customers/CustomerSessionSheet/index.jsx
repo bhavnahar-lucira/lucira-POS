@@ -13,7 +13,8 @@ import { Button } from '@/components/ui/button';
 import { useCustomerLookup } from '@/hooks/customer/useCustomerLookup';
 import { useCustomerSearch } from '@/hooks/customer/useCustomerSearch';
 import { useCustomerSession } from '@/hooks/customer/useCustomerSession';
-import WalkInPrompt, { isWalkinHandledToday } from '../WalkInPrompt';
+import WalkInPrompt from '../WalkInPrompt';
+import { useWalkInLookup } from '@/hooks/customer/useWalkInLookup';
 import { useCart } from '@/hooks/cart/useCart';
 import { useEndCustomerVisit } from '@/components/features/voc/VocEndVisitProvider';
 import { useSelector } from 'react-redux';
@@ -21,6 +22,19 @@ import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import TOAST from '@/constants/toastMessages';
 import APP_CONFIG from '@/constants/appConfig';
 import { indianMobileFromQuery } from '@/lib/phoneFormat';
+
+function AttachActions({ onAttach }) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <Button type="button" variant="outline" onClick={() => onAttach(false)} className="h-11">
+        Attach to session
+      </Button>
+      <Button type="button" onClick={() => onAttach(true)} className="h-11">
+        Record walk-in
+      </Button>
+    </div>
+  );
+}
 
 /**
  * @param {{
@@ -46,6 +60,7 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
   });
   const companyId = useSelector(selectActiveStoreId);
   const [promptCustomer, setPromptCustomer] = useState(null);
+  const walkIn = useWalkInLookup();
   const { results: nameResults, isLoading: isNameSearching } = useCustomerSearch(trimmed, {
     enabled: isNameSearch,
   });
@@ -74,19 +89,31 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
     return session.customerId !== incomingCustomerId;
   };
 
-  const performAttach = (customerToAttach, options, isNew = false) => {
+  const recordWalkIn = async (customerToRecord) => {
+    const raw = [customerToRecord.customerContactMobile, customerToRecord.customerMobile].find((m) => m && !String(m).includes('*'));
+    const mobile = String(raw ?? '').replace(/\D/g, '').slice(-10);
+    if (mobile.length !== 10 || !companyId) {
+      toast.error('Customer attached, but the walk-in needs their full mobile — search by mobile number to record it.');
+      return;
+    }
+    try {
+      const result = await walkIn.lookupAsync(mobile);
+      if (!result.found) setPromptCustomer({ ...customerToRecord, customerMobile: mobile, isNew: true });
+      else if (result.walkInRecorded) setPromptCustomer({ ...customerToRecord, customerMobile: mobile, visitId: result.visitId });
+      else toast.info(result.message || 'This customer’s walk-in is already recorded in the last few hours.');
+    } catch (err) {
+      toast.error(err?.serverMessage ?? 'Could not record the walk-in — the customer is attached.');
+    }
+  };
+
+  const performAttach = (customerToAttach, options, { recordVisit = false, isNew = false } = {}) => {
     const attachNow = () => {
       if (wouldSwitchCustomer(customerToAttach.customerId)) {
         session.detach();
       }
       session.attach(customerToAttach, options);
-      // A walk-in is recorded only when staff confirm it in the prompt (once per customer per day).
-      const mobile = customerToAttach.customerMobile;
-      if (mobile && companyId) {
-        isWalkinHandledToday(companyId, mobile)
-          .then((handled) => { if (!handled) setPromptCustomer({ ...customerToAttach, isNew }); })
-          .catch(() => setPromptCustomer({ ...customerToAttach, isNew }));
-      }
+      if (isNew) setPromptCustomer({ ...customerToAttach, isNew: true });
+      else if (recordVisit) recordWalkIn(customerToAttach);
     };
     handleClose();
     // Switching to another customer ends the current one's visit, so offer their feedback first.
@@ -94,8 +121,8 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
     else attachNow();
   };
 
-  const handleAttachFound = () => {
-    performAttach({ ...customer, customerContactMobile: isMobileSearch ? mobileQuery : null });
+  const handleAttachFound = (recordVisit) => {
+    performAttach({ ...customer, customerContactMobile: isMobileSearch ? mobileQuery : null }, undefined, { recordVisit });
   };
 
   const handleSelectNameResult = (selected) => {
@@ -103,7 +130,7 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
   };
 
   const handleNewCustomerCreated = (newCustomer) => {
-    performAttach(newCustomer, { silent: true }, true);
+    performAttach(newCustomer, { silent: true }, { isNew: true });
   };
 
   const handleDetach = () => {
@@ -164,9 +191,7 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
           {isMobileSearch && customer && (
             <div className="flex flex-col gap-3">
               <CustomerDisplayCard customer={customer} />
-              <Button type="button" onClick={handleAttachFound} className="h-11">
-                Assign to Session
-              </Button>
+              <AttachActions onAttach={handleAttachFound} />
             </div>
           )}
           {isMobileSearch && notFound && (
@@ -198,9 +223,7 @@ export default function CustomerSessionSheet({ isOpen, onClose }) {
                 Back to results
               </button>
               <CustomerDisplayCard customer={customer} />
-              <Button type="button" onClick={handleAttachFound} className="h-11">
-                Assign to Session
-              </Button>
+              <AttachActions onAttach={handleAttachFound} />
             </div>
           )}
 

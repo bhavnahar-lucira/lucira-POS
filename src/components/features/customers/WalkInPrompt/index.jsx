@@ -11,37 +11,14 @@ import {
 import { Button } from '@/components/ui/button';
 import WalkInRegisterForm from '@/components/features/customers/WalkInRegisterForm';
 import { usePathname } from 'next/navigation';
-import { walkInLookup } from '@/services/customerService';
-import { getCustomerVisits } from '@/services/crmService';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
 import { selectCartItems } from '@/store/slices/cartSlice';
+import { latestWalkinVisitId } from '@/lib/normalizers/customer';
 import { QUERY_KEYS } from '@/constants/queryKeys';
 import { WALKIN_PURPOSES } from '@/constants/walkin';
 
-const skipKey = (companyId, mobile) => `walkinSkip:${companyId}:${String(mobile).slice(-10)}:${new Date().toDateString()}`;
 const tenDigits = (mobile) => String(mobile ?? '').replace(/\D/g, '').slice(-10);
 
-const REPEAT_WINDOW_MS = 4 * 60 * 60 * 1000;
-
-/**
- * True when asking would be pointless: staff already recorded or skipped this customer's walk-in today, or
- * OrnaVerse already has a visit for them at this store in the last ~4 hours (it would skip a new walk-in).
- */
-export async function isWalkinHandledToday(companyId, mobile) {
-  try {
-    if (sessionStorage.getItem(skipKey(companyId, mobile))) return true;
-  } catch { /* storage unavailable */ }
-  const start = new Date(); start.setHours(0, 0, 0, 0);
-  const [posRes, ornaVerse] = await Promise.all([
-    fetch(`/api/walkins/visits?company_id=${companyId}&from=${start.toISOString()}&mobile=${encodeURIComponent(mobile)}`),
-    getCustomerVisits({ companyId, take: 50 }).catch(() => null),
-  ]);
-  if (posRes.ok && ((await posRes.json()).visits ?? []).length > 0) return true;
-  const since = Date.now() - REPEAT_WINDOW_MS;
-  return (ornaVerse?.Entities ?? []).some((v) => tenDigits(v.mobile) === tenDigits(mobile) && new Date(v.date).getTime() >= since);
-}
-
-// The likely reason for the visit, from what the staff member is doing right now.
 function suggestedPurpose(pathname, hasCartItems) {
   if (pathname?.startsWith('/repair')) return 'Repair';
   if (pathname?.startsWith('/schemes')) return 'Scheme payment';
@@ -52,9 +29,9 @@ function suggestedPurpose(pathname, hasCartItems) {
 }
 
 /**
- * Asks, after a customer is assigned, whether this is a real store visit. Only recording logs a walk-in.
- * A first-time customer is registered with the full Walk-in form (JC, source, interest… saved once on the customer).
- * @param {{ customer: { customerId, customerName, customerMobile, isNew?: boolean }|null, onClose: () => void }} props
+ * Shown after "Record walk-in". An existing customer's walk-in is already recorded, so this only asks the purpose
+ * (skippable). A customer with no CRM record is registered first (that records the walk-in), or attached only.
+ * @param {{ customer: { customerId, customerName, customerMobile, isNew?: boolean, visitId?: number }|null, onClose: () => void }} props
  */
 export default function WalkInPrompt({ customer, onClose }) {
   const companyId = useSelector(selectActiveStoreId);
@@ -62,60 +39,54 @@ export default function WalkInPrompt({ customer, onClose }) {
   const pathname = usePathname();
   const queryClient = useQueryClient();
   const [purpose, setPurpose] = useState(null);
-  const [saving, setSaving] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [registeredVisitId, setRegisteredVisitId] = useState(undefined);
 
-  const isNew = !!customer?.isNew;
+  const registering = !!customer?.isNew && registeredVisitId === undefined;
+  const visitId = registeredVisitId ?? customer?.visitId ?? null;
   const suggested = suggestedPurpose(pathname, cartItems.length > 0);
-  const chosenPurpose = purpose ?? suggested ?? (isNew ? 'Walk-in' : null);
-  // "Walk-in" says nothing about intent, so it's only kept as a new customer's fallback, not offered as a choice.
   const choices = [
     ...(suggested ? [suggested] : []),
     ...WALKIN_PURPOSES.filter((p) => p !== suggested && p !== 'Walk-in'),
   ];
 
-  const close = () => { setPurpose(null); onClose(); };
+  const close = () => { setPurpose(null); setRegisteredVisitId(undefined); onClose(); };
 
-  const skip = () => {
-    try { sessionStorage.setItem(skipKey(companyId, customer.customerMobile), '1'); } catch { /* storage unavailable */ }
-    close();
-  };
-
-  const savePurpose = async (value = chosenPurpose) => {
+  const savePurpose = async (value, ovVisitId) => {
     const res = await fetch('/api/walkins/visits', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        companyId, mobile: tenDigits(customer.customerMobile), customerId: customer.customerId, customerName: customer.customerName, purpose: value,
+        companyId, mobile: tenDigits(customer.customerMobile), customerId: customer.customerId, customerName: customer.customerName,
+        purpose: value, ovVisitId,
       }),
     });
-    if (!res.ok) throw new Error('The visit was recorded but its purpose could not be saved');
+    if (!res.ok) throw new Error('The walk-in is recorded but its purpose could not be saved');
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CRM.VISITS(companyId) });
     queryClient.invalidateQueries({ queryKey: ['walkin-purposes', companyId] });
   };
 
-  const record = async (value) => {
-    setSaving(value);
+  const save = async () => {
+    setSaving(true);
     try {
-      const lookup = (await walkInLookup(tenDigits(customer.customerMobile)))?.data;
-      // OrnaVerse skips a walk-in within ~4 hours of the customer's last one; the POS keeps the same single entry.
-      if (lookup && lookup.WalkInRecorded === false) {
-        toast.info(lookup.Message || 'This customer’s walk-in is already recorded in the last few hours.');
-        close();
-        return;
-      }
-      await savePurpose(value);
-      toast.success(`Walk-in recorded · ${value}`);
+      await savePurpose(purpose, visitId);
+      toast.success(`Purpose saved · ${purpose}`);
       close();
     } catch (err) {
-      toast.error(err?.serverMessage ?? err?.message ?? 'Could not record the walk-in');
+      toast.error(err?.message ?? 'Could not save the purpose');
     } finally {
-      setSaving(null);
+      setSaving(false);
     }
   };
 
-  const onNewCustomerRegistered = async () => {
+  const onRegistered = async (_values, registered) => {
+    const id = latestWalkinVisitId(registered?.Customer, companyId);
+    if (!purpose) {
+      setRegisteredVisitId(id);
+      return;
+    }
     try {
-      await savePurpose();
+      await savePurpose(purpose, id);
     } catch (err) {
       toast.error(err?.message ?? 'Could not save the purpose');
     }
@@ -123,14 +94,16 @@ export default function WalkInPrompt({ customer, onClose }) {
   };
 
   return (
-    <Dialog open={!!customer} onOpenChange={(open) => { if (!open) skip(); }}>
-      <DialogContent className={isNew ? 'sm:max-w-lg max-h-[90vh] overflow-y-auto' : 'sm:max-w-md'}>
+    <Dialog open={!!customer} onOpenChange={(open) => { if (!open) close(); }}>
+      <DialogContent className={registering ? 'sm:max-w-lg max-h-[90vh] overflow-y-auto' : 'sm:max-w-md'}>
         <DialogHeader>
-          <DialogTitle>Is {customer?.customerName || 'this customer'} in the store?</DialogTitle>
+          <DialogTitle>
+            {registering ? `Register ${customer?.customerName || 'this customer'} as a walk-in` : 'Purpose of visit'}
+          </DialogTitle>
           <DialogDescription>
-            {isNew
-              ? 'First visit: pick why they came, then register them below. Skip if they are not in the store.'
-              : 'Choose why they came, then record the visit. Skip if you are only looking them up.'}
+            {registering
+              ? 'Not in OrnaVerse CRM yet. Register them to record the walk-in, or attach only for internal use.'
+              : `Walk-in recorded for ${customer?.customerName || 'this customer'}. Why did they come in?`}
           </DialogDescription>
         </DialogHeader>
 
@@ -144,10 +117,10 @@ export default function WalkInPrompt({ customer, onClose }) {
                 key={p}
                 type="button"
                 size="sm"
-                variant={chosenPurpose === p ? 'default' : 'outline'}
-                disabled={!!saving}
+                variant={purpose === p ? 'default' : 'outline'}
+                disabled={saving}
                 onClick={() => setPurpose(p)}
-                aria-pressed={chosenPurpose === p}
+                aria-pressed={purpose === p}
               >
                 {p}
               </Button>
@@ -155,22 +128,24 @@ export default function WalkInPrompt({ customer, onClose }) {
           </div>
         </div>
 
-        {isNew && customer && (
+        {registering && customer && (
           <div className="border-t border-border pt-4">
             <WalkInRegisterForm
               defaultMobile={tenDigits(customer.customerMobile)}
               defaultName={customer.customerName ?? ''}
-              onRegistered={onNewCustomerRegistered}
+              onRegistered={onRegistered}
             />
           </div>
         )}
 
         <DialogFooter className="gap-2 sm:gap-2">
-          <Button type="button" variant="outline" onClick={skip} disabled={!!saving}>Skip, just viewing</Button>
-          {!isNew && (
-            <Button type="button" onClick={() => record(chosenPurpose)} disabled={!chosenPurpose || !!saving} className="gap-2">
+          <Button type="button" variant="outline" onClick={close} disabled={saving}>
+            {registering ? 'Attach only' : 'Skip'}
+          </Button>
+          {!registering && (
+            <Button type="button" onClick={save} disabled={!purpose || saving} className="gap-2">
               {saving && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
-              Record visit
+              Save purpose
             </Button>
           )}
         </DialogFooter>

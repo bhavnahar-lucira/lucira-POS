@@ -24,6 +24,7 @@ import { formatAmountOrNull as formatINR } from '@/lib/priceUtils';
 import tracker from '@/lib/analytics/tracker';
 import EVENTS, { WEBENGAGE_EVENTS } from '@/lib/analytics/events';
 import { buildProductImpressionData, buildProductClickData } from '@/lib/analytics/webengageEvents';
+import ReservedForNote from '@/components/features/reserves/ReservedForNote';
 import { buildProductAttributes } from '@/lib/analytics/productAttributes';
 
 // Swatch colors are a presentational mapping only — metal_id itself is real data.
@@ -295,6 +296,7 @@ function ProductCard({
         {item_code && (
           <span className="text-[10px] text-muted-foreground sm:text-[11px] md:text-xs">{item_code}</span>
         )}
+        <ReservedForNote itemId={item_id} itemCode={item_code} compact />
 
       </div>
     </motion.div>

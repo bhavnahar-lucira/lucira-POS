@@ -1,6 +1,9 @@
 import { getStoneTypeDetails, getComponentAttribute, getRawMaterialItems } from '@/services/customEstimateService';
 
 export const DIAMOND_ITEM_GROUP_ID = 112;
+// Stones are priced per carat; OrnaVerse's component-based promotions ignore a stone with any other unit.
+export const STONE_UOC_ID = 5;
+export const STONE_UOM_ID = 8;
 export const STONE_COSTING_DEFAULTS = {
   [DIAMOND_ITEM_GROUP_ID]: { baseItemId: 13, salesCostingId: 10, purchaseCostingId: 10 },
 };
@@ -86,6 +89,7 @@ async function resolveComponent(c) {
   return {
     ...c, rm_id: item.item_id, rm_attribute_id: item.item_attribute_id, attribute: item.attribute,
     sub_type_id: item.sub_type_id ?? c.sub_type_id, item_code: item.item_code,
+    uoc_id: item.uoc_id ?? c.uoc_id, uom_id: item.uom_id ?? c.uom_id,
   };
 }
 
