@@ -35,9 +35,8 @@ export function usePaymentModes() {
       const entities = data?.Entities ?? [];
       return entities.map(normalizeMode).filter(isPosPaymentMode);
     },
-    // Checkout data must always reflect live state — see
-    // useCheckoutPricing/useActivePromotions/useRetrieveCustomer.
-    staleTime: 0,
+    // Live on every visit (gcTime 0); the short staleTime only stops a second component re-fetching it.
+    staleTime: 10 * 1000,
 
     gcTime: 0,
   });

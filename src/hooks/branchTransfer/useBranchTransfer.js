@@ -137,8 +137,9 @@ export function usePendingBranchIns() {
     queryKey: [KEY, 'in', 'pending', companyId],
     queryFn: async () => (await listBranchIns({ take: 100 })).rows.filter((r) => !r.authorize && r.document_status !== 2),
     enabled: !!companyId,
-    staleTime: 60 * 1000,
-    refetchInterval: 3 * 60 * 1000,
+    staleTime: 2 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
   return query.data ?? [];
 }
@@ -184,8 +185,9 @@ export function useTransferApprovals(kind, ids) {
     queryKey: [KEY, 'approvals', kind, list.join(',')],
     queryFn: () => approvalsFetch(`${APPROVALS_URL}?kind=${kind}&transaction_ids=${list.join(',')}`),
     enabled: list.length > 0,
-    staleTime: 0,
-    refetchInterval: 60 * 1000,
+    staleTime: 30 * 1000,
+    refetchInterval: 3 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
   return { required: query.data?.required ?? true, approvals: query.data?.approvals ?? {}, isLoading: query.isLoading && list.length > 0 };
 }
@@ -197,8 +199,9 @@ export function usePendingTransferApprovals() {
     queryKey: [KEY, 'approvals', 'pending', companyId],
     queryFn: () => approvalsFetch(`${APPROVALS_URL}?scope=pending`),
     enabled: !!companyId,
-    staleTime: 30 * 1000,
-    refetchInterval: 2 * 60 * 1000,
+    staleTime: 2 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
   return {
     approvals: query.data?.approvals ?? [],

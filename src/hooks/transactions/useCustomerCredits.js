@@ -14,7 +14,7 @@ export function useCustomerCredits(partyId) {
     queryKey:  QUERY_KEYS.REFUNDS.CUSTOMER_CREDITS(partyId, activeStoreId),
     queryFn:   () => getCustomerCredits({ partyId }),
     enabled:   !!partyId && !!activeStoreId,
-    staleTime: 0,
+    staleTime: 10 * 1000,
     gcTime:    0,
   });
 

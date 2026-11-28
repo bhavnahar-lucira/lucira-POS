@@ -26,10 +26,37 @@
 import { UPSTREAM } from '@/lib/ornaverse/upstream';
 import {
   getBuyerHistory, upsertPurchase, unnamedSalesPersonIds, fillSalesPersonNames, recordsMissingCategory, markCategoriesChecked,
+  storeDocumentFingerprints,
 } from '@/lib/mongo/buyerPurchases';
 import API from '@/constants/apiEndpoints';
 
-const CONCURRENCY = 5; // parallel Retrieve calls — gentle on OrnaVerse + Mongo
+const CONCURRENCY = 2;
+const RECENT_MS = 45 * 24 * 60 * 60 * 1000;
+
+let storeSyncChain = Promise.resolve();
+function oneStoreAtATime(fn) {
+  const run = storeSyncChain.then(fn, fn);
+  storeSyncChain = run.catch(() => {});
+  return run;
+}
+
+const norm = (v) => {
+  if (v == null || v === '' || v === 'NA') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : String(v);
+};
+
+const LIST_VS_SAVED = [
+  ['document_status', 'documentStatus'],
+  ['net_amount', 'totalAmount'],
+  ['balance_amount', 'balanceAmount'],
+  ['receipt_amount', 'receiptAmount'],
+];
+
+function changedSinceSaved(row, saved) {
+  if (!saved) return true;
+  return LIST_VS_SAVED.some(([listField, savedField]) => row[listField] !== undefined && norm(row[listField]) !== norm(saved[savedField]));
+}
 
 async function ornaversePost(path, body, session) {
   const headers = { 'Content-Type': 'application/json', Cookie: session.cookie };
@@ -197,16 +224,23 @@ async function fetchStoreDocuments(kind, companyId, session) {
   const list = await ornaversePost(LIST_PATH[kind], { Take: 0, Skip: 0, company_id: companyId }, session);
   const entities = list?.Entities ?? [];
   const trustworthy = entities.filter((e) => e.company_id === companyId);
+  const saved = await storeDocumentFingerprints(companyId, kind);
 
   let transactionIds;
   if (trustworthy.length > 0) {
-    transactionIds = trustworthy.map((e) => e.transaction_id);
+    transactionIds = trustworthy
+      .filter((e) => !('party_id' in e && e.party_id == null))
+      .filter((e) => changedSinceSaved(e, saved.get(e.transaction_id)))
+      .map((e) => e.transaction_id);
   } else if (RECEIPT_PATH[kind]) {
     const receiptPeek = await ornaversePost(RECEIPT_PATH[kind], { Take: 1, company_id: companyId }, session);
     if ((receiptPeek?.TotalCount ?? 0) === 0) return [];
 
     const receiptData = await ornaversePost(RECEIPT_PATH[kind], { Take: 0, company_id: companyId }, session);
-    transactionIds = groupReceiptsByTransaction(receiptData?.Entities ?? []).map((g) => g.transactionId);
+    const recentCutoff = Date.now() - RECENT_MS;
+    transactionIds = groupReceiptsByTransaction(receiptData?.Entities ?? [])
+      .filter((g) => !saved.has(g.transactionId) || g.documentDateMs >= recentCutoff)
+      .map((g) => g.transactionId);
   } else {
     return [];
   }
@@ -229,17 +263,18 @@ async function fetchStoreDocuments(kind, companyId, session) {
  *   returnsSynced: number, exchangesSynced: number, buybacksSynced: number,
  * }>}
  */
-export async function syncStorePurchases({ companyId, session }) {
-  const entitiesByKind = await Promise.all(
-    STORE_SYNC_KINDS.map((kind) => fetchStoreDocuments(kind, companyId, session)),
-  );
-  const syncedByKind = await Promise.all(
-    STORE_SYNC_KINDS.map((kind, i) => upsertEntities(kind, entitiesByKind[i], session)),
-  );
-  const [invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced] = syncedByKind;
-  const categoriesFilled = await refreshMissingCategories(companyId, session);
-  const namesFilled = await fillMissingSalesPersonNames(companyId, session);
-  return { invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced, categoriesFilled, namesFilled };
+export function syncStorePurchases({ companyId, session }) {
+  return oneStoreAtATime(async () => {
+    const syncedByKind = [];
+    for (const kind of STORE_SYNC_KINDS) {
+      const entities = await fetchStoreDocuments(kind, companyId, session);
+      syncedByKind.push(await upsertEntities(kind, entities, session));
+    }
+    const [invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced] = syncedByKind;
+    const categoriesFilled = await refreshMissingCategories(companyId, session);
+    const namesFilled = await fillMissingSalesPersonNames(companyId, session);
+    return { invoicesSynced, ordersSynced, returnsSynced, exchangesSynced, buybacksSynced, categoriesFilled, namesFilled };
+  });
 }
 
 // The store-level discovery can't see some documents (e.g. a ₹0 freebie invoice has no receipt for the

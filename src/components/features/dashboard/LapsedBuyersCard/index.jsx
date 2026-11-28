@@ -4,11 +4,10 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSelector } from 'react-redux';
-import { ChevronRight, Coins, Loader2, UserRoundSearch } from 'lucide-react';
+import { ChevronRight, Coins, UserRoundSearch } from 'lucide-react';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import { useBuyerPurchases } from '@/hooks/buyers/useBuyerPurchases';
-import { useBuyersCoins } from '@/hooks/buyers/useBuyersCoins';
 import { groupPurchasesByBuyer } from '@/lib/buyers/groupPurchasesByBuyer';
 import { daysSince } from '@/lib/buyers/buyerFilters';
 import { selectActiveStoreId } from '@/store/slices/storeSlice';
@@ -18,6 +17,7 @@ import PhoneLink from '@/components/shared/PhoneLink';
 import { useLuciraPoints } from '@/hooks/customers/useLuciraPoints';
 
 const LAPSED_DAYS = 90;
+const MAX_ROWS = 20;
 
 function getInitials(name) {
   if (!name) return '?';
@@ -63,7 +63,7 @@ function BuyerPoints({ companyId, partyId, mobile, points: preloadedPoints }) {
   );
 }
 
-/** Every buyer of the active store with no purchase in the last 90 days, sorted by Lucira coins descending on pageload. */
+/** Top buyers by spend with no purchase in the last 90 days; points load only for rows on screen. */
 export default function LapsedBuyersCard() {
   const router = useRouter();
   const activeStoreId = useSelector(selectActiveStoreId);
@@ -77,22 +77,10 @@ export default function LapsedBuyersCard() {
       .filter((b) => b.daysSince != null && b.daysSince > LAPSED_DAYS);
   }, [purchases, now]);
 
-  const { coinsMap, isLoadingCoins } = useBuyersCoins({
-    buyers: lapsedBuyers,
-    companyId: activeStoreId,
-    enabled: !!activeStoreId,
-  });
-
-  const buyers = useMemo(() => {
-    return [...lapsedBuyers].sort((a, b) => {
-      const partyIdA = Number(a._id);
-      const partyIdB = Number(b._id);
-      const coinsA = coinsMap.get(partyIdA) ?? -1;
-      const coinsB = coinsMap.get(partyIdB) ?? -1;
-      if (coinsB !== coinsA) return coinsB - coinsA;
-      return b.totalSpend - a.totalSpend;
-    });
-  }, [lapsedBuyers, coinsMap]);
+  const buyers = useMemo(
+    () => [...lapsedBuyers].sort((a, b) => b.totalSpend - a.totalSpend).slice(0, MAX_ROWS),
+    [lapsedBuyers],
+  );
 
   if (!activeStoreId && !isSuperAdmin) return null;
 
@@ -102,7 +90,6 @@ export default function LapsedBuyersCard() {
         <h2 className="font-heading text-base text-foreground">Buyers</h2>
         {!isLoading && (
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            {isLoadingCoins && <Loader2 size={12} className="animate-spin text-amber-500" aria-hidden="true" />}
             <span>No purchase in the last {LAPSED_DAYS} days</span>
           </span>
         )}
@@ -160,7 +147,6 @@ export default function LapsedBuyersCard() {
                     companyId={activeStoreId}
                     partyId={Number(buyer._id)}
                     mobile={buyer.customerMobile}
-                    points={coinsMap.get(Number(buyer._id))}
                   />
                 )}
               </div>

@@ -40,11 +40,12 @@ import API from '@/constants/apiEndpoints';
  * @param {{ take?: number, skip?: number, company_id?: number }} params
  * @returns {Promise<object>} { Entities[], TotalCount }
  */
-export async function getOrders({ take = 50, skip = 0, company_id } = {}) {
+export async function getOrders({ take = 50, skip = 0, company_id, sort } = {}) {
   const response = await axiosInstance.post(API.ORDERS.LIST, {
     Take:       take,
     Skip:       skip,
     company_id: company_id ?? undefined,
+    ...(sort && { Sort: sort }),
   });
   return response.data;
 }
@@ -137,11 +138,12 @@ export async function applyOrderDiscount({ transaction_id, additional_discount }
  * @param {{ take?: number, skip?: number, company_id?: number }} params
  * @returns {Promise<object>} { Entities[], TotalCount }
  */
-export async function getInvoiceList({ take = 100, skip = 0, company_id } = {}) {
+export async function getInvoiceList({ take = 100, skip = 0, company_id, sort } = {}) {
   const response = await axiosInstance.post(API.INVOICES.LIST, {
     Take:       take,
     Skip:       skip,
     company_id: company_id ?? undefined,
+    ...(sort && { Sort: sort }),
   });
   return response.data;
 }

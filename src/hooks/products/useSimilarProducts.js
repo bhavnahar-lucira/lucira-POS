@@ -1,5 +1,9 @@
 import { useMemo } from 'react';
-import { useAllCatalog } from '@/hooks/catalog/useAllCatalog';
+import { useQuery } from '@tanstack/react-query';
+import { getProducts } from '@/services/catalogService';
+import APP_CONFIG from '@/constants/appConfig';
+
+const SIMILAR_POOL = 24;
 
 /**
  * @param {{
@@ -11,7 +15,20 @@ import { useAllCatalog } from '@/hooks/catalog/useAllCatalog';
  * @returns {{ items: object[], isLoading: boolean }} 
  */
 export function useSimilarProducts(product, storeId, { limit = 12, enabled = true } = {}) {
-  const { data: catalog = [], isLoading } = useAllCatalog(storeId, { enabled });
+  const typeId = product?.type_id ?? null;
+  const groupId = typeId == null ? product?.item_group_id ?? null : null;
+  const { data: catalog = [], isLoading } = useQuery({
+    queryKey: ['catalog', 'similar', storeId, typeId, groupId],
+    queryFn: async ({ signal }) => (await getProducts({
+      current_company_id: storeId,
+      Take: SIMILAR_POOL,
+      Skip: 0,
+      show_out_of_stock: false,
+      ...(typeId != null ? { type_ids: [typeId] } : groupId != null ? { item_group_ids: [groupId] } : {}),
+    }, signal))?.Entities ?? [],
+    enabled: enabled && !!storeId && !!product?.item_id && (typeId != null || groupId != null),
+    staleTime: APP_CONFIG.STALE_TIME.CATALOG,
+  });
 
   const items = useMemo(() => {
     const currentId = product?.item_id;

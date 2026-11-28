@@ -43,7 +43,7 @@ function summarizeGroup(lineItems) {
  *   error:     Error|null,
  * }}
  */
-export function useCheckoutPricing() {
+export function useCheckoutPricing({ refetchOnWindowFocus = false } = {}) {
   const { items, appliedPromos } = useCart();
   const activeStoreId = useSelector(selectActiveStoreId);
 
@@ -88,6 +88,7 @@ export function useCheckoutPricing() {
     // must always reflect live state; this query is never worth serving
     // stale for the sake of avoiding one extra round trip.
     staleTime: 0,
+    refetchOnWindowFocus,
 
     gcTime: 0,
     retry: false,

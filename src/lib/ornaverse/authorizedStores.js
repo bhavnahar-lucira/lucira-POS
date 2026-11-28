@@ -32,7 +32,19 @@ export async function getUserStores(session) {
   return Array.isArray(data) ? data : data?.Entities ?? data?.data ?? data?.result ?? [];
 }
 
-export async function getAuthorizedCompanyIds(session) {
+const STORES_TTL_MS = 5 * 60 * 1000;
+const storesCache = new Map();
+
+export async function getUserStoresCached(session) {
+  const key = `${session.env}|${session.username}`;
+  const hit = storesCache.get(key);
+  if (hit && hit.expiresAt > Date.now()) return hit.stores;
   const stores = await getUserStores(session);
+  storesCache.set(key, { stores, expiresAt: Date.now() + STORES_TTL_MS });
+  return stores;
+}
+
+export async function getAuthorizedCompanyIds(session) {
+  const stores = await getUserStoresCached(session);
   return new Set(stores.map((s) => s.company_id));
 }

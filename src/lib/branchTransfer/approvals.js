@@ -60,24 +60,49 @@ function closedInOrnaverse(kind, entity) {
 }
 
 /** Closes pending requests whose OrnaVerse document has moved on without the POS, so HO only sees real decisions. */
+const RECONCILE_EVERY_MS = 10 * 60 * 1000;
+const RECONCILE_MAX_PER_CALL = 8;
+const RECONCILE_CONCURRENCY = 2;
+
 export async function reconcilePending(session, col, approvals) {
-  const pending = approvals.filter((a) => a.status === APPROVAL_STATUS.PENDING).slice(0, 60);
-  await Promise.all(pending.map(async (a) => {
-    let entity;
-    try {
-      entity = (await ornaverseCall(session, RETRIEVE[a.kind], { EntityId: a.transaction_id }))?.Entity ?? null;
-    } catch (err) {
-      if (err.status !== 400) return;
-      entity = null;
-    }
-    const reason = closedInOrnaverse(a.kind, entity);
-    if (!reason) return;
-    const update = {
-      status: APPROVAL_STATUS.CLOSED, closed_reason: reason, decided_at: new Date(),
-      decided_by: reason === 'received_in_ornaverse' ? entity?.authorized_by_name ?? null : entity?.posted_by_name ?? null,
-    };
-    await col.updateOne({ _id: a._id, status: APPROVAL_STATUS.PENDING }, { $set: update });
-    Object.assign(a, update);
-  }));
+  const cutoff = Date.now() - RECONCILE_EVERY_MS;
+  const due = approvals
+    .filter((a) => a.status === APPROVAL_STATUS.PENDING && !(a.reconciled_at?.getTime?.() > cutoff))
+    .sort((a, b) => (a.reconciled_at?.getTime?.() ?? 0) - (b.reconciled_at?.getTime?.() ?? 0))
+    .slice(0, RECONCILE_MAX_PER_CALL);
+  let next = 0;
+  const worker = async () => {
+    while (next < due.length) await reconcileOne(session, col, due[next++], cutoff);
+  };
+  await Promise.all(Array.from({ length: Math.min(RECONCILE_CONCURRENCY, due.length) }, worker));
   return approvals;
+}
+
+async function reconcileOne(session, col, a, cutoff) {
+  const now = new Date();
+  const claim = await col.updateOne(
+    {
+      _id: a._id,
+      status: APPROVAL_STATUS.PENDING,
+      $or: [{ reconciled_at: { $exists: false } }, { reconciled_at: { $lt: new Date(cutoff) } }],
+    },
+    { $set: { reconciled_at: now } },
+  );
+  if (!claim.modifiedCount) return;
+  a.reconciled_at = now;
+  let entity;
+  try {
+    entity = (await ornaverseCall(session, RETRIEVE[a.kind], { EntityId: a.transaction_id }))?.Entity ?? null;
+  } catch (err) {
+    if (err.status !== 400) return;
+    entity = null;
+  }
+  const reason = closedInOrnaverse(a.kind, entity);
+  if (!reason) return;
+  const update = {
+    status: APPROVAL_STATUS.CLOSED, closed_reason: reason, decided_at: new Date(),
+    decided_by: reason === 'received_in_ornaverse' ? entity?.authorized_by_name ?? null : entity?.posted_by_name ?? null,
+  };
+  await col.updateOne({ _id: a._id, status: APPROVAL_STATUS.PENDING }, { $set: update });
+  Object.assign(a, update);
 }

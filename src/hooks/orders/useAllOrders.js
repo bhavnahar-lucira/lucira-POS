@@ -9,15 +9,15 @@ import APP_CONFIG from '@/constants/appConfig';
 /**
  * @param {{ enabled?: boolean, staleTime?: number, refetchOnWindowFocus?: boolean }} [options]
  */
-export function useAllOrders({ enabled = true, staleTime, refetchOnWindowFocus } = {}) {
+export function useAllOrders({ enabled = true, staleTime, refetchOnWindowFocus, take = 0, sort, fallbackTake = take } = {}) {
   const activeStoreId = useSelector(selectActiveStoreId);
 
   const query = useQuery({
-    queryKey: QUERY_KEYS.ORDERS.LIST({ skip: 0, take: 0, companyId: activeStoreId }),
+    queryKey: QUERY_KEYS.ORDERS.LIST({ skip: 0, take, companyId: activeStoreId, ...(sort && { sort }) }),
     queryFn: async () => {
       const [ordersRes, invoicesRes] = await Promise.all([
-        fetchStoreScopedDocuments({ kind: 'order',   companyId: activeStoreId }),
-        fetchStoreScopedDocuments({ kind: 'invoice', companyId: activeStoreId }),
+        fetchStoreScopedDocuments({ kind: 'order',   companyId: activeStoreId, take, sort, fallbackTake }),
+        fetchStoreScopedDocuments({ kind: 'invoice', companyId: activeStoreId, take, sort, fallbackTake }),
       ]);
       const orderEntities   = ordersRes.entities;
       const invoiceEntities = invoicesRes.entities;

@@ -22,9 +22,8 @@ export function useBankPosAccounts() {
     },
     // Checkout data must always reflect live state — see
     // useCheckoutPricing/useActivePromotions/useRetrieveCustomer.
-    staleTime: 0,
-
-    gcTime: 0,
+    staleTime: 30 * 1000,
+    gcTime: 60 * 1000,
   });
 
   return {

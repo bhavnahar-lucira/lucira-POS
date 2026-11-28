@@ -13,6 +13,7 @@
 // available" badge appear on that customer's Invoice tab.
 
 import axiosInstance from '@/lib/axios/axiosInstance';
+import { mapWithConcurrency } from '@/lib/mapWithConcurrency';
 import API from '@/constants/apiEndpoints';
 import APP_CONFIG from '@/constants/appConfig';
 
@@ -122,7 +123,7 @@ async function openAdvanceRows(partyId) {
 export async function listUnusedAdvanceReceipts(partyId) {
   const rows = (await openAdvanceRows(partyId))
     .filter((r) => Math.abs(Number(r.balance_amount) - Number(r.amount)) < 0.01);
-  return Promise.all(rows.map(async (r) => {
+  return mapWithConcurrency(rows, async (r) => {
     const entity = (await getAdvanceReceiptDetail(r.transaction_id))?.Entity ?? {};
     return {
       id: r.transaction_id,
@@ -134,7 +135,7 @@ export async function listUnusedAdvanceReceipts(partyId) {
         amount: Number(d.amount) || 0, bankPosId: d.bank_pos ? Number(d.bank_pos) : null, refNo: d.ref_no ?? '',
       })),
     };
-  }));
+  });
 }
 
 /**
@@ -146,12 +147,12 @@ export async function findReusedPaymentRefs(partyId, payments) {
   const refs = new Set((payments ?? []).map((p) => p.refNo?.trim()).filter(Boolean));
   if (!refs.size) return [];
   const rows = (await openAdvanceRows(partyId)).slice(0, 25);
-  const hits = await Promise.all(rows.map(async (r) => {
+  const hits = await mapWithConcurrency(rows, async (r) => {
     const entity = (await getAdvanceReceiptDetail(r.transaction_id))?.Entity ?? {};
     return (entity.details ?? [])
       .filter((d) => d.ref_no && refs.has(String(d.ref_no).trim()))
       .map((d) => ({ refNo: String(d.ref_no).trim(), documentNo: r.document_no }));
-  }));
+  });
   return hits.flat();
 }
 

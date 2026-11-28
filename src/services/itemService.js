@@ -61,7 +61,7 @@ export const getDesignVariants = (styleId) =>
  * one-off single-style lookup still uses the plain function above, since
  * it's never called from a large mounted list.
  */
-export const getDesignVariantsQueued = createConcurrencyQueue(getDesignVariants, { concurrency: 6 });
+export const getDesignVariantsQueued = createConcurrencyQueue(getDesignVariants, { concurrency: 3 });
 
 /**
  * Search the master item catalogue by SKU/code substring — NOT scoped to

@@ -1,7 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 
-async function syncStorePurchases(companyId) {
-  const res = await fetch(`/api/buyers/sync-store/${companyId}`, { method: 'POST' });
+async function syncStorePurchases({ companyId, force = false }) {
+  const res = await fetch(`/api/buyers/sync-store/${companyId}${force ? '?force=1' : ''}`, { method: 'POST' });
   if (!res.ok) throw new Error('Sync failed');
   return res.json();
 }

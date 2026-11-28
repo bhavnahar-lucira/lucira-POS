@@ -1,13 +1,13 @@
 import { todayDateString } from '@/lib/dateUtils';
 import APP_CONFIG from '@/constants/appConfig';
 
-export const LIVE_REPORT_REFRESH_MS = 2 * 60 * 1000;
+export const LIVE_REPORT_REFRESH_MS = 10 * 60 * 1000;
 
 /** Ranges that include today keep refreshing while open, so new bills and orders show up; past ranges can't change. */
 export function liveReportOptions(toDate) {
   const isLive = !!toDate && toDate >= todayDateString();
   return isLive
-    ? { staleTime: 0, refetchInterval: LIVE_REPORT_REFRESH_MS, refetchOnWindowFocus: true }
+    ? { staleTime: 60 * 1000, refetchInterval: LIVE_REPORT_REFRESH_MS, refetchOnWindowFocus: false }
     : { staleTime: APP_CONFIG.STALE_TIME.ANALYTICS, refetchOnWindowFocus: false };
 }
 

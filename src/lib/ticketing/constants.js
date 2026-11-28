@@ -18,7 +18,7 @@ export const TICKET_STATUS_LABELS = {
   g2d_approved:               'Estimate approved – awaiting order confirmation',
   awaiting_cad:               'Awaiting CAD design',
   awaiting_customer_feedback: 'CAD design shared – customer to confirm',
-  awaiting_final:             'Design approved – awaiting final details & SKU',
+  awaiting_final:             'Design approved – awaiting final details',
   final_received:             'Final details received – ready to place order',
   order_placed:               'Order placed',
   cancelled:                  'Cancelled',

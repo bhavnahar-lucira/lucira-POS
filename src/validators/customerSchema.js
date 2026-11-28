@@ -148,10 +148,11 @@ export function buildUpdateCustomerSchema(raw) {
     address:   z.string().optional().or(z.literal('')),
     address_1: z.string().optional().or(z.literal('')),
 
-    country_id: z.number().int().positive().optional().nullable(),
-    state_id:   z.number().int().positive().optional().nullable(),
-    city_id:    z.number().int().positive().optional().nullable(),
-    nationality_id: z.number().int().positive().optional().nullable(),
+    // OrnaVerse returns 0 for an unset location/nationality; 0 means "not set", not invalid.
+    country_id: z.number().int().nonnegative().optional().nullable(),
+    state_id:   z.number().int().nonnegative().optional().nullable(),
+    city_id:    z.number().int().nonnegative().optional().nullable(),
+    nationality_id: z.number().int().nonnegative().optional().nullable(),
 
     pin_code: z
       .string()

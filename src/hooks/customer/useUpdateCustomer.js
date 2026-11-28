@@ -36,8 +36,12 @@ import TOAST from '@/constants/toastMessages';
 const PHONE_FIELDS = new Set(['mobile', 'phone']);
 const DATE_FIELDS  = new Set(['birth_date', 'anniversary']);
 
+// OrnaVerse stores "not set" as 0 for these, while the form holds null.
+const ZERO_IS_UNSET = new Set(['gender', 'marital_status', 'religion_id', 'country_id', 'state_id', 'city_id', 'nationality_id']);
+
 function normalizeForCompare(value, key) {
   if (value == null || value === 'NA') return '';
+  if (ZERO_IS_UNSET.has(key) && Number(value) === 0) return '';
   const str = String(value).trim();
   if (PHONE_FIELDS.has(key)) return str.replace(/\D/g, '').slice(-10);
   if (DATE_FIELDS.has(key)) return str.slice(0, 10);

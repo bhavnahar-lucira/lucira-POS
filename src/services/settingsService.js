@@ -65,13 +65,12 @@ export async function getTaxes({ company_id } = {}) {
   return response.data;
 }
 
-/**
- * Check whether a metal rate has been entered for today.
- * Call at POS startup — warn the operator if rates are missing.
- * @returns {Promise<object>} OrnaVerse response with rate status
- */
-export async function checkMetalRateToday() {
-  const response = await axiosInstance.post(API.SETTINGS.CHECK_METAL_RATE_TODAY, {});
+/** Today's metal rate as OrnaVerse's sales form checks it — `{ rate }`, 0 when none is set for the date. */
+export async function checkMetalRateToday({ date, useKaratRate }) {
+  const day = new Date(date).toUTCString();
+  const response = await axiosInstance.post(API.SETTINGS.CHECK_METAL_RATE_TODAY, {
+    from_date: day, to_date: day, use_karat_rate: useKaratRate,
+  });
   return response.data;
 }
 

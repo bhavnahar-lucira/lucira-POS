@@ -3,6 +3,8 @@
 import { Coins } from 'lucide-react';
 import { useMetalRates } from '@/hooks/settings/useMetalRates';
 
+const TICKER_CODES = ['09', '14', '18', '22', '999'];
+
 const money = (n) => `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/g`;
 
 function RateSpans({ resolved }) {
@@ -17,7 +19,7 @@ function RateSpans({ resolved }) {
 }
 
 export default function MetalRatesTicker() {
-  const { rates, isLoading, hasAny } = useMetalRates();
+  const { rates, isLoading, hasAny } = useMetalRates(TICKER_CODES);
 
   if (!isLoading && !hasAny) return null;
 

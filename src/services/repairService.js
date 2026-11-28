@@ -4,6 +4,7 @@
 //   store  Repair Invoice (RIN, 119) — lines are the REP lines back in stock, billed for the repair charge.
 
 import axiosInstance from '@/lib/axios/axiosInstance';
+import { mapWithConcurrency } from '@/lib/mapWithConcurrency';
 import API from '@/constants/apiEndpoints';
 import { localDocumentDate } from '@/lib/checkout/documentFields';
 
@@ -98,7 +99,7 @@ export const retrieveRepairOut = retrieveOf(EP.REPAIR_OUT_RETRIEVE);
 export async function getBilledRepairOrderIds() {
   const { items } = await listRepairInvoices({ take: 500 });
   const live = items.filter((inv) => inv.document_status !== DOCUMENT_STATUS.CANCELLED);
-  const docs = await Promise.all(live.map((inv) => retrieveRepairInvoice(inv.transaction_id).catch(() => null)));
+  const docs = await mapWithConcurrency(live, (inv) => retrieveRepairInvoice(inv.transaction_id).catch(() => null));
   const billed = new Map();
   for (const doc of docs) {
     for (const line of doc?.line_items ?? []) {

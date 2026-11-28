@@ -3,6 +3,11 @@ import { useAllOrders } from '@/hooks/orders/useAllOrders';
 import { useReturns, useExchanges, useBuybacks, useURDPurchases } from '@/hooks/transactions/useTransactionLists';
 import APP_CONFIG from '@/constants/appConfig';
 
+// Only today, yesterday and the 7-day sparkline are shown, so the newest documents are enough.
+const DASHBOARD_DOCS_TAKE = 150;
+const NEWEST_FIRST = ['transaction_id DESC'];
+const DASHBOARD_FALLBACK_TAKE = 40;
+
 // ── Date helpers ──────────────────────────────────────────────
 
 function toLocalPrefix(date) {
@@ -55,11 +60,15 @@ export function useDashboardSummary({ jcId = null } = {}) {
   } = useAllOrders({
     staleTime: APP_CONFIG.STALE_TIME.ANALYTICS,
     refetchOnWindowFocus: false,
+    take: DASHBOARD_DOCS_TAKE,
+    sort: NEWEST_FIRST,
+    fallbackTake: DASHBOARD_FALLBACK_TAKE,
   });
-  const { items: returns,   isLoading: returnsLoading,   isError: returnsError,   refetch: refetchReturns }   = useReturns({ skip: 0 });
-  const { items: exchanges, isLoading: exchangesLoading, isError: exchangesError, refetch: refetchExchanges } = useExchanges({ skip: 0 });
-  const { items: buybacks,  isLoading: buybacksLoading,  isError: buybacksError,  refetch: refetchBuybacks }  = useBuybacks({ skip: 0 });
-  const { items: urdPurchases, isLoading: urdLoading, isError: urdError, refetch: refetchUrd } = useURDPurchases({ skip: 0 });
+  const listOpts = { skip: 0, refetchOnWindowFocus: false };
+  const { items: returns,   isLoading: returnsLoading,   isError: returnsError,   refetch: refetchReturns }   = useReturns(listOpts);
+  const { items: exchanges, isLoading: exchangesLoading, isError: exchangesError, refetch: refetchExchanges } = useExchanges(listOpts);
+  const { items: buybacks,  isLoading: buybacksLoading,  isError: buybacksError,  refetch: refetchBuybacks }  = useBuybacks(listOpts);
+  const { items: urdPurchases, isLoading: urdLoading, isError: urdError, refetch: refetchUrd } = useURDPurchases(listOpts);
 
   const isLoading = ordersLoading || returnsLoading || exchangesLoading || buybacksLoading || urdLoading;
   const isError   = ordersError || returnsError || exchangesError || buybacksError || urdError;

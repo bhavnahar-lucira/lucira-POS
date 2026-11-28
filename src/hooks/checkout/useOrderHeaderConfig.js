@@ -23,16 +23,14 @@ export function useOrderHeaderConfig(documentId) {
   const finYearQuery = useQuery({
     queryKey: QUERY_KEYS.DOCUMENT_CONFIG.FINANCIAL_YEARS(),
     queryFn:  getFinancialYears,
-    staleTime: 0,
-
+    staleTime: 10 * 1000,
     gcTime: 0,
   });
 
   const docNumQuery = useQuery({
     queryKey: QUERY_KEYS.DOCUMENT_CONFIG.DOCUMENT_NUMBERING(),
     queryFn:  getDocumentNumberingList,
-    staleTime: 0,
-
+    staleTime: 10 * 1000,
     gcTime: 0,
   });
 

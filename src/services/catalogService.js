@@ -285,6 +285,7 @@ export async function getLivePricesForItems(itemIds, companyId) {
     // individually, in small waves, so the damage is limited to the item
     // that actually fails and we don't fire 24 parallel heavy calls.
     console.error('[catalogService] batch pricing failed, retrying individually', err);
+    if (toPrice.length <= 1) return { prices, answered };
 
     const WAVE = 4;
     for (let i = 0; i < toPrice.length; i += WAVE) {
@@ -340,7 +341,7 @@ export async function getLivePricesForItems(itemIds, companyId) {
 // back as `NextRawSkip`; callers (useCatalogProducts.js) must always pass
 // back exactly that value, never a locally-computed one.
 const RAW_PAGE_SIZE = 24; // server's real hard cap — see above and fetchEntireStoreCatalog's own note
-const BACKFILL_CONCURRENCY = 6;
+const BACKFILL_CONCURRENCY = 3;
 // Ceiling on raw pages walked per call (~1,440 raw rows) — bounds worst-case
 // latency for a store whose real stock is a small fraction of a large
 // unfiltered tenant pool. Coming up short of Take within this budget isn't
@@ -371,17 +372,19 @@ export async function getProducts(params, signal) {
     ...rest
   } = params;
 
+  const rawSize = Math.min(Take, RAW_PAGE_SIZE);
   const matched = [];
   const seenIds = new Set();
   let skip = rawSkip;
   let rawPagesFetched = 0;
   let tenantTotalCount = Infinity; // unknown until the first response answers
   let exhausted = false;
+  let width = 1;
 
   while (matched.length < Take && rawPagesFetched < BACKFILL_SAFETY_MAX_RAW_PAGES) {
     const batchSkips = [];
-    for (let i = 0; i < BACKFILL_CONCURRENCY; i++) {
-      const s = skip + i * RAW_PAGE_SIZE;
+    for (let i = 0; i < width; i++) {
+      const s = skip + i * rawSize;
       if (s >= tenantTotalCount) break;
       batchSkips.push(s);
     }
@@ -391,27 +394,37 @@ export async function getProducts(params, signal) {
       batchSkips.map((s) =>
         axiosInstance
           .post(API.CATALOG.GET_PRODUCTS, {
-            current_company_id, Take, Skip: s, show_out_of_stock, ...rest,
+            current_company_id, Take: rawSize, Skip: s, show_out_of_stock, ...rest,
           }, { signal })
           .then((res) => res.data)
       )
     );
 
     let anyNonEmpty = false;
-    for (const data of responses) {
+    let nextSkip = skip + batchSkips.length * rawSize;
+    let full = false;
+    for (let p = 0; p < responses.length && !full; p++) {
+      const data = responses[p];
       rawPagesFetched++;
       tenantTotalCount = data?.TotalCount ?? tenantTotalCount;
       const entities = data?.Entities ?? [];
       if (entities.length > 0) anyNonEmpty = true;
-      for (const e of entities) {
+      for (let j = 0; j < entities.length; j++) {
+        const e = entities[j];
         if (e.item_id != null) {
           if (seenIds.has(e.item_id)) continue;
           seenIds.add(e.item_id);
         }
         if (belongsToStore(e, current_company_id)) matched.push(e);
+        if (matched.length >= Take) {
+          full = true;
+          nextSkip = batchSkips[p] + j + 1;
+          break;
+        }
       }
     }
-    skip += BACKFILL_CONCURRENCY * RAW_PAGE_SIZE;
+    skip = nextSkip;
+    width = BACKFILL_CONCURRENCY;
 
     if (!anyNonEmpty) { exhausted = true; break; }
     if (skip >= tenantTotalCount) { exhausted = true; break; }
@@ -540,7 +553,7 @@ export async function getProducts(params, signal) {
 // reported, trading more worst-case latency for completeness.
 async function fetchEntireStoreCatalog(seedCompanyId, onProgress, showOutOfStock = false) {
   const PAGE_SIZE = 24; // the server's real hard cap, confirmed by direct testing
-  const CONCURRENCY = 6;
+  const CONCURRENCY = 3;
   const SAFETY_MAX_PAGES = showOutOfStock ? 2000 : 500; // ~48,000 items (OOS) vs ~12,000 (default) — generous ceiling against a runaway loop
 
   const all = [];

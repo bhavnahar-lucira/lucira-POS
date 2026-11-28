@@ -230,7 +230,7 @@ export default function CustomizeSheet({
   const matchedVariantInStockHere = !matchedVariant?._isMTO && (matchedVariant?.pieces ?? 0) > 0;
 
   // ── Live price for the matched variant ────────────────────────────────────
-  const needsLivePricing = !!exactVariant;
+  const needsLivePricing = isOpen && !!exactVariant;
   const {
     data:      livePricing,
     isLoading: pricingLoading,

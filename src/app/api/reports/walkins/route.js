@@ -1,4 +1,5 @@
 import { getSessionFromRequest } from '@/lib/ornaverse/session';
+import { mapWithConcurrency as mapLimited } from '@/lib/mapWithConcurrency';
 import API from '@/constants/apiEndpoints';
 import { DATE_RE, isValidCompanyIds, getAuthorizedStores, postUpstream } from '@/lib/reports/serverAccess';
 import { fetchVisits } from '@/lib/nonBuyers/server';
@@ -87,7 +88,7 @@ export async function POST(request) {
   if (!stores) return Response.json({ error: 'Not authorized for this store' }, { status: 403 });
 
   try {
-    const perStore = await Promise.all(companyIds.map(async (companyId) => {
+    const perStore = await mapLimited(companyIds, async (companyId) => {
       const visits = await fetchVisits(session, companyId, fromDate);
       return visits.flatMap((v) => {
         const at = v.date ? new Date(v.date) : null;
@@ -109,7 +110,7 @@ export async function POST(request) {
           person: normalizeMobileKey(clean(v.mobile)) ?? (v.customer_id != null ? `lead:${v.customer_id}` : `visit:${v.id}`),
         }];
       });
-    }));
+    });
 
     const rows = perStore.flat();
     const [consultants, purposes] = await Promise.all([

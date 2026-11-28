@@ -1,5 +1,7 @@
 import { getSessionFromRequest } from '@/lib/ornaverse/session';
 import { syncStorePurchases } from '@/lib/ornaverse/buyerSync';
+import { claimStoreSync, releaseStoreSync } from '@/lib/mongo/buyerPurchases';
+import { SYNC_INTERVAL_MS } from '@/lib/nonBuyers/server';
 import { getAuthorizedCompanyIds } from '@/lib/ornaverse/authorizedStores';
 
 // On-demand store-level historical sync — called from the /buyers LIST page
@@ -36,10 +38,15 @@ export async function POST(request, { params }) {
     }
   }
 
+  const force = new URL(request.url).searchParams.get('force') === '1';
   try {
+    if (!(await claimStoreSync(session.env, id, force ? 0 : SYNC_INTERVAL_MS))) {
+      return Response.json({ ok: true, skipped: 'recently_synced' });
+    }
     const result = await syncStorePurchases({ companyId: id, session });
     return Response.json({ ok: true, ...result });
   } catch (err) {
+    await releaseStoreSync(session.env, id).catch(() => {});
     console.error('[api/buyers/sync-store] failed', err);
     return Response.json({ error: 'Could not reach OrnaVerse' }, { status: 502 });
   }

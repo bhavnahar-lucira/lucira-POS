@@ -115,7 +115,7 @@ const APP_CONFIG = {
   // Take: 0 = fetch all (use only for small/static datasets)
   PAGINATION: {
     DEFAULT_TAKE:       50,
-    CATALOG_TAKE:       24,
+    CATALOG_TAKE:       16,
     ORDERS_TAKE:        50,
     INVOICES_TAKE:      100,
     TRANSACTIONS_TAKE:  50,   // returns, refunds, exchange, buyback, URD, repair

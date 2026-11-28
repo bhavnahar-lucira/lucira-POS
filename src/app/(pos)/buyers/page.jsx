@@ -67,7 +67,7 @@ export default function BuyersPage() {
   useEffect(() => {
     if (companyId == null || syncedStoresRef.current.has(companyId)) return;
     syncedStoresRef.current.add(companyId);
-    sync(companyId).then(() => refetch()).catch((err) => console.warn('[buyers/sync-store]', err));
+    sync({ companyId }).then(() => refetch()).catch((err) => console.warn('[buyers/sync-store]', err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId]);
 
@@ -76,7 +76,7 @@ export default function BuyersPage() {
     setCoinsRefreshKey((k) => k + 1);
     queryClient.invalidateQueries({ queryKey: ['buyers'] });
     queryClient.invalidateQueries({ queryKey: ['nector'] });
-    sync(companyId).then(() => refetch()).catch((err) => console.warn('[buyers/sync-store]', err));
+    sync({ companyId, force: true }).then(() => refetch()).catch((err) => console.warn('[buyers/sync-store]', err));
   };
 
   const allGroupedBuyers = useMemo(() => {

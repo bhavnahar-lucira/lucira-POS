@@ -14,10 +14,10 @@ const queryClient = new QueryClient({
 
       gcTime: 10 * 60 * 1000, // 10 minutes
 
-      retry: 2,
+      retry: (failureCount, error) => failureCount < 1 && !(error?.code === 429 || error?.code >= 500),
 
-      // Refetch when window regains focus — good for stock data
-      refetchOnWindowFocus: true,
+      // Off by default: tab switches multiplied OrnaVerse load. Billing pages opt in.
+      refetchOnWindowFocus: false,
 
       refetchOnReconnect: true,
     },

@@ -225,7 +225,7 @@ function ProductDetailScreen() {
   }, [product, numericUnitPrice, activeItem, livePricing, activePrimaryImage, shopifyIds, externalProductId, shopifyImagesLoading]);
   
   const madeToOrderQty = Math.max(0, quantity - availableStock);
-  const { data: masterPricing } = useMasterPricing(activeItem ?? null, madeToOrderQty > 0);
+  const { data: masterPricing } = useMasterPricing(activeItem ?? null, madeToOrderQty > 0 && !claimableLoading);
   const masterUnitPrice        = (masterPricing?.sub_total ?? 0) > 0 ? masterPricing.sub_total : null;
   const masterDisplayUnitPrice = (masterPricing?.sub_total ?? 0) > 0 ? masterPricing.net_amount : null;
 

@@ -36,6 +36,7 @@ import EVENTS, { GA_ECOMMERCE_EVENTS, WEBENGAGE_EVENTS } from '@/lib/analytics/e
 import { buildBeginCheckoutData, buildShippingInfoData, buildPaymentFailureData, cartItemsToCheckoutItems } from '@/lib/analytics/webengageEvents';
 import { formatAmount } from '@/lib/priceUtils';
 import APP_CONFIG from '@/constants/appConfig';
+import { useMetalRateGuard } from '@/hooks/checkout/useMetalRateGuard';
 
 const { LOYALTY_MODE_TYPE } = APP_CONFIG.PAYMENT_MODES;
 
@@ -63,7 +64,7 @@ function CheckoutScreen() {
     invoice, order,
     isLoading: isPricing,
     error: pricingError,
-  } = useCheckoutPricing();
+  } = useCheckoutPricing({ refetchOnWindowFocus: true });
   useCarryOverOrderPromos({ invoice, order, isPricing });
   const doc = invoice ?? order;
   const hasDoc = !!doc;
@@ -184,6 +185,7 @@ function CheckoutScreen() {
   }) : { success: true };
 
   const isValid = validation.success && hasDoc && !isPricing && !pricingError && !reserveIssue;
+  const metalRateGuard = useMetalRateGuard();
 
   const handlePlaceOrderClick = () => {
     if (!isValid || isSubmitting) return;
@@ -379,8 +381,11 @@ function CheckoutScreen() {
         a fixed bar spans the full viewport and overlapped the sidebar. */}
     <div className="sticky bottom-0 z-20 border-t border-border bg-card p-4 shadow-lg md:px-6">
       <div className="max-w-6xl mx-auto w-full flex flex-col items-center gap-2">
+        {metalRateGuard.message && (
+          <p role="alert" className="text-sm font-medium text-destructive">{metalRateGuard.message}</p>
+        )}
         <PlaceOrderButton
-          isValid={isValid}
+          isValid={isValid && !metalRateGuard.rateMissing}
           isPlacingOrder={isSubmitting}
           onPlaceOrder={handlePlaceOrderClick}
           amountDue={payableTotal}

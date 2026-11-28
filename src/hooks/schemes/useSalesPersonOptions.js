@@ -13,7 +13,7 @@ export function useSalesPersonOptions(companyId) {
     // Used directly at checkout for sales_person_id — must always reflect
     // live state (see useCheckoutPricing/useActivePromotions/
     // useRetrieveCustomer for the same reasoning elsewhere in checkout).
-    staleTime: 0,
+    staleTime: 10 * 1000,
 
     gcTime: 0,
   });

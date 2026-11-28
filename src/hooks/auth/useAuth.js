@@ -5,7 +5,6 @@ import { toast } from 'sonner';
 
 import { login as loginToOrnaverse, logout as logoutFromOrnaverse } from '@/services/authService';
 import { getUserStores }       from '@/services/storeService';
-import { checkMetalRateToday } from '@/services/settingsService';
 
 import {
   setAuthenticated,
@@ -75,16 +74,6 @@ export function useAuth() {
       : storesData?.Entities ?? storesData?.data ?? storesData?.result ?? [];
 
     dispatch(setAvailableStores(stores));
-    try {
-      const rateCheck = await checkMetalRateToday();
-      const ratesSet  = rateCheck?.is_set ?? rateCheck?.Entity?.is_set ?? true;
-      if (!ratesSet) {
-        toast.warning(TOAST.METAL_RATES.NOT_SET);
-      }
-    } catch {
-      // Network or auth issue — don't block login
-    }
-
     if (stores.length === 1) {
       const store = stores[0];
       try {

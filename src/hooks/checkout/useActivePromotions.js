@@ -3,10 +3,11 @@ import { QUERY_KEYS } from '@/constants/queryKeys';
 import { listPromotions } from '@/services/promotionService';
 import { isPromotionActive } from '@/lib/normalizers/promotion';
 
-export function useActivePromotions() {
+export function useActivePromotions({ enabled = true } = {}) {
   return useQuery({
     queryKey:  QUERY_KEYS.CRM.PROMOTION_LIST(),
     queryFn:   listPromotions,
+    enabled,
     // NOT a static 30 min (as this used to be, same category as "categories,
     // payment modes" — but unlike those, this drives whether a promo auto-
     // applies at all). Confirmed live (2026-10-12): OrnaVerse's own promotions

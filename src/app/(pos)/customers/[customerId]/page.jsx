@@ -11,6 +11,7 @@ import {
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useSelector } from 'react-redux';
+import { reportInvalidFields } from '@/lib/forms/reportInvalidFields';
 import { useQuery } from '@tanstack/react-query';
 import PhoneNumberField from '@/components/shared/PhoneNumberField';
 import { selectIsSuperAdmin } from '@/store/slices/authSlice';
@@ -341,7 +342,7 @@ function EditTab({ customer, onSaved }) {
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
+    <form onSubmit={handleSubmit(onSubmit, reportInvalidFields)} className="flex flex-col gap-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ep_name">Full name <span className="text-destructive">*</span></Label>

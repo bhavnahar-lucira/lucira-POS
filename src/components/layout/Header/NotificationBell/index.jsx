@@ -12,13 +12,16 @@ import TicketNotificationsList from '@/components/features/ticketing/TicketNotif
 import { EventRow } from '@/components/features/dashboard/UpcomingEventsCard';
 import { useTicketNotifications } from '@/hooks/ticketing/useTickets';
 import { useUpcomingEvents } from '@/hooks/dashboard/useUpcomingEvents';
-import { usePendingBranchIns, usePendingTransferApprovals } from '@/hooks/branchTransfer/useBranchTransfer';
+// import { usePendingBranchIns, usePendingTransferApprovals } from '@/hooks/branchTransfer/useBranchTransfer';
 import { formatAmountOrDash } from '@/lib/priceUtils';
 
 const SEEN_KEY = 'pos.ticketNotificationsSeen';
 const SHAKE = { rotate: [0, -16, 14, -10, 8, -4, 0] };
 
 // Overdue reminders and future birthdays are excluded: they are not news, so they never make the bell shake.
+const NO_TRANSFERS = [];
+const NO_APPROVAL_FEED = { approvals: [], isApprover: false };
+
 function newsKeys(data, todayEvents, transfers, approvalNews) {
   const today = new Date().toDateString();
   return [
@@ -129,8 +132,11 @@ export default function NotificationBell() {
   const events = useUpcomingEvents();
   const birthdays = events.birthdays.filter((e) => e.daysUntil >= 0);
   const anniversaries = events.anniversaries.filter((e) => e.daysUntil >= 0);
-  const transfers = usePendingBranchIns();
-  const approvalFeed = usePendingTransferApprovals();
+  // Branch Transfer is not live yet: no polling from the bell until it is.
+  // const transfers = usePendingBranchIns();
+  // const approvalFeed = usePendingTransferApprovals();
+  const transfers = NO_TRANSFERS;
+  const approvalFeed = NO_APPROVAL_FEED;
   const approvalNews = approvalFeed.isApprover
     ? approvalFeed.approvals.filter((a) => a.status === 'pending')
     : approvalFeed.approvals.filter((a) => a.status === 'approved' || a.status === 'rejected');

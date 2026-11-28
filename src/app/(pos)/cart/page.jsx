@@ -27,7 +27,7 @@ export default function CartPage() {
     detachCustomer,
   } = useCart();
   
-  const { invoice, order, isLoading: isPricing, error: pricingError } = useCheckoutPricing();
+  const { invoice, order, isLoading: isPricing, error: pricingError } = useCheckoutPricing({ refetchOnWindowFocus: true });
   const displayRows = useMemo(
     () => buildCartDisplayRows(items, { invoice, order }),
     [items, invoice, order]

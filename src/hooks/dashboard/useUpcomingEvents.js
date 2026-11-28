@@ -120,6 +120,8 @@ export function useUpcomingEvents() {
     },
     enabled:   !!activeStoreId,
     staleTime: APP_CONFIG.STALE_TIME.STATIC,
+    gcTime:    APP_CONFIG.STALE_TIME.STATIC,
+    refetchOnWindowFocus: false,
   });
 
   return {

@@ -7,7 +7,7 @@ import { QUERY_KEYS } from '@/constants/queryKeys';
 import APP_CONFIG from '@/constants/appConfig';
 const MAX_CANARIES = 3;
 const EPOCH_CHECK_FLOOR = APP_CONFIG.STALE_TIME.STOCK; // 1 min
-const EPOCH_POLL_MS = 3 * 60 * 1000; // 3 min
+const EPOCH_POLL_MS = 10 * 60 * 1000;
 const NO_EPOCH = 'no-epoch';
 
 // Picks up to MAX_CANARIES items, one per distinct karat, from the stable

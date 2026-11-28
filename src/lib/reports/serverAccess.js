@@ -1,6 +1,6 @@
 // SERVER-ONLY helpers shared by the /api/reports/* routes.
 import { UPSTREAM } from '@/lib/ornaverse/upstream';
-import { getUserStores } from '@/lib/ornaverse/authorizedStores';
+import { getUserStoresCached } from '@/lib/ornaverse/authorizedStores';
 
 export const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -11,18 +11,7 @@ export function isValidCompanyIds(companyIds) {
     && companyIds.every((id) => Number.isInteger(id) && id > 0);
 }
 
-// A report page fires several report requests at once; one GetUserStores per user per few minutes is enough.
-const STORES_TTL_MS = 5 * 60 * 1000;
-const storesCache = new Map();
-
-export async function getUserStoresCached(session) {
-  const key = `${session.env}|${session.username}`;
-  const hit = storesCache.get(key);
-  if (hit && hit.expiresAt > Date.now()) return hit.stores;
-  const stores = await getUserStores(session);
-  storesCache.set(key, { stores, expiresAt: Date.now() + STORES_TTL_MS });
-  return stores;
-}
+export { getUserStoresCached };
 
 /**
  * The requested stores, as OrnaVerse's GetUserStores returns them for this
@@ -60,4 +49,25 @@ export async function postUpstream(session, path, body) {
 
 export function toRfc1123(dateOnlyString) {
   return new Date(`${dateOnlyString}T00:00:00Z`).toUTCString();
+}
+
+const REPORT_TTL_TODAY_MS = 2 * 60 * 1000;
+const REPORT_TTL_PAST_MS = 15 * 60 * 1000;
+const reportCache = new Map();
+
+/** Shares one OrnaVerse run of a report between everyone asking for the same thing within a short window. */
+export function cachedReport(session, name, { companyIds, fromDate, toDate }, run) {
+  const key = [session.env, session.companyId ?? '', name, [...companyIds].sort((a, b) => a - b).join(','), fromDate, toDate].join('|');
+  const now = Date.now();
+  const hit = reportCache.get(key);
+  if (hit && hit.expiresAt > now) return hit.promise;
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+  const ttl = toDate >= today ? REPORT_TTL_TODAY_MS : REPORT_TTL_PAST_MS;
+  const promise = run();
+  reportCache.set(key, { promise, expiresAt: now + ttl });
+  promise.catch(() => reportCache.delete(key));
+  if (reportCache.size > 500) {
+    for (const [k, v] of reportCache) if (v.expiresAt <= now) reportCache.delete(k);
+  }
+  return promise;
 }

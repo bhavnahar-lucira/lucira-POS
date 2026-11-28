@@ -40,6 +40,7 @@
 // buildOrderLineItems for both of the above.
 
 import { getStockPieces } from '@/services/inventoryService';
+import { createLimiter } from '@/lib/mapWithConcurrency';
 import { getItemDetail, getDesignVariants } from '@/services/itemService';
 import { priceStockPiecesForSale, calculateItemRates, findRealBomComponents, scalePricedRowToQuantity } from '@/services/pricingService';
 import { applyPromotions } from '@/services/promotionService';
@@ -241,14 +242,16 @@ async function fetchStockCandidatesByItemId({ items, activeStoreId }) {
   const distinctItemIds = [...new Set(items.map((item) => item.itemId))];
   if (distinctItemIds.length === 0) return new Map();
 
+  const take = distinctItemIds.length * 50;
   const response = await getStockPieces({
     itemIds:   distinctItemIds,
     companyId: activeStoreId,
-    take:      distinctItemIds.length * 50,
+    take,
   });
   const rows = response?.data?.Entities ?? [];
 
   const byItemId = new Map();
+  byItemId.complete = rows.length < take;
   for (const row of rows) {
     const bucket = byItemId.get(row.item_id);
     if (bucket) bucket.push(row);
@@ -322,9 +325,9 @@ async function claimStockPieces({ item, activeStoreId, claimed, candidatesByItem
   const neededForThisItem = item.fulfillmentItemLineNo != null ? 1 : (item.quantity ?? 1);
   const availablePieces = (rows) => rows.reduce((sum, r) => sum + (r.pieces > 0 ? r.pieces : 1), 0);
   const findReserved = (rows) => rows.find((r) => r.item_line_no === item.fulfillmentItemLineNo && !claimed.has(r.stock_journal_id));
-  const needsRefetch = item.fulfillmentItemLineNo != null
+  const needsRefetch = !candidatesByItemId.complete && (item.fulfillmentItemLineNo != null
     ? !findReserved(rows)
-    : availablePieces(available) < neededForThisItem;
+    : availablePieces(available) < neededForThisItem);
   if (needsRefetch) {
     const response = await getStockPieces({ itemId: item.itemId, companyId: activeStoreId });
     rows = response?.data?.Entities ?? [];
@@ -414,8 +417,9 @@ async function buildOrderLineItems({ items, documentId }) {
   // lookups both fail the error could name whichever happened to reject
   // faster. allSettled always resolves, so the check below walks `items` in
   // cart order and reports the first genuine failure deterministically.
+  const limited = createLimiter(3);
   const settled = await Promise.allSettled(
-    items.map(async (item) => {
+    items.map((item) => limited(async () => {
       const [master, bomComponents] = await Promise.all([
         resolveFullItem({ itemId: item.itemId, styleId: item.styleId }),
         findRealBomComponents(item.itemId),
@@ -425,7 +429,7 @@ async function buildOrderLineItems({ items, documentId }) {
       // bag's weight, which OrnaVerse rejects for one piece ("Weight cannot exceed 0.300 for 3 pcs").
       if (master.is_default_sku) return master;
       return bomComponents ? { ...master, item_components: bomComponents } : master;
-    })
+    }))
   );
 
   const masters = [];

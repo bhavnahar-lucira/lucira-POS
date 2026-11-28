@@ -11,6 +11,7 @@ import {
 import LocationSelect from '@/components/shared/LocationSelect';
 import PhoneNumberField from '@/components/shared/PhoneNumberField';
 import { customerSchema } from '@/validators/customerSchema';
+import { reportInvalidFields } from '@/lib/forms/reportInvalidFields';
 import { storedValueToPhone } from '@/lib/normalizers/customer';
 import { useCreateCustomer } from '@/hooks/customer/useCreateCustomer';
 import { useCountries, useStates, useCities } from '@/hooks/settings/useLocation';
@@ -83,7 +84,7 @@ export default function NewCustomerForm({ defaultMobile = '', defaultName = '', 
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
+    <form onSubmit={handleSubmit(onSubmit, reportInvalidFields)} className="flex flex-col gap-4">
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="party_name">

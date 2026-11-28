@@ -1,7 +1,8 @@
 import API from '@/constants/apiEndpoints';
+import { mapWithConcurrency as mapLimited } from '@/lib/mapWithConcurrency';
 import { getSessionFromRequest } from '@/lib/ornaverse/session';
 import {
-  DATE_RE, isValidCompanyIds, getAuthorizedStores, getUserStoresCached, postUpstream, toRfc1123,
+  DATE_RE, isValidCompanyIds, getAuthorizedStores, getUserStoresCached, postUpstream, toRfc1123, cachedReport,
 } from '@/lib/reports/serverAccess';
 import { countBills } from '@/lib/reports/billCounts';
 import { salesPersonDocumentTotals, salesPersonSalesDetails, listAllSalesForRepeatReport } from '@/lib/mongo/buyerPurchases';
@@ -60,7 +61,7 @@ function resolveItemCategory(item) {
 
 async function fetchWalkinsByConsultant(session, companyIds, fromDate, toDate) {
   try {
-    const perStore = await Promise.all(companyIds.map(async (companyId) => {
+    const perStore = await mapLimited(companyIds, async (companyId) => {
       const visits = await fetchVisits(session, companyId, fromDate);
       return visits.flatMap((v) => {
         const at = v.date ? new Date(v.date) : null;
@@ -81,7 +82,7 @@ async function fetchWalkinsByConsultant(session, companyIds, fromDate, toDate) {
           notes: cleanStr(v.notes),
         }];
       });
-    }));
+    });
 
     const rows = perStore.flat();
     if (!rows.length) return new Map();
@@ -270,9 +271,9 @@ const REPORTS = {
   // One POS Dashboard call per store; OrnaVerse's Schemes figure only ever covers the login's current store.
   async summaryStores(session, { companyIds, fromDate, toDate }) {
     const [perStore, orders] = await Promise.all([
-      Promise.all(companyIds.map((companyId) => postUpstream(session, API.REPORTS.POS_DASHBOARD, {
+      mapLimited(companyIds, (companyId) => postUpstream(session, API.REPORTS.POS_DASHBOARD, {
         company_ids: [companyId], from_date: toRfc1123(fromDate), to_date: toRfc1123(toDate),
-      }))),
+      }), 4),
       postUpstream(session, API.REPORTS.OPEN_POS_ORDERS, {
         document_status: 1, company_ids: companyIds, from_date: fromDate, to_date: toDate,
         IncludeColumns: ['document_no', 'company_id'],
@@ -326,13 +327,13 @@ const REPORTS = {
   // OrnaVerse merges categories across company_ids and applies Take before grouping,
   // so: one call per store, no Take (both confirmed live 2026-10-27).
   async category(session, { companyIds, fromDate, toDate }) {
-    const perStore = await Promise.all(companyIds.map(async (companyId) => {
+    const perStore = await mapLimited(companyIds, async (companyId) => {
       const data = await postUpstream(session, API.REPORTS.CATEGORY_WISE_SALES, {
         document_status: 1, company_ids: [companyId], from_date: fromDate, to_date: toDate,
         IncludeColumns: CATEGORY_COLUMNS,
       });
       return (data?.Entities ?? []).map((row) => ({ ...row, company_id: companyId }));
-    }));
+    });
     return { rows: perStore.flat() };
   },
 
@@ -534,7 +535,7 @@ export async function POST(request) {
   }
 
   try {
-    return Response.json(await run(session, { companyIds, fromDate, toDate }, stores));
+    return Response.json(await cachedReport(session, `sales:${report}`, { companyIds, fromDate, toDate }, () => run(session, { companyIds, fromDate, toDate }, stores)));
   } catch (err) {
     console.error(`[api/reports/sales] ${report} failed`, err);
     return Response.json({ error: 'Report failed' }, { status: err.status === 401 ? 401 : 502 });

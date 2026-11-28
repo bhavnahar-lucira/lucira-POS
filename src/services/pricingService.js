@@ -71,7 +71,7 @@ export async function calculateItemRates(items, documentId = 52) {
  *   scalePricedRowToQuantity) — its `sku` is set when a real piece was
  *   priced, absent for made-to-order
  */
-export async function priceItemAsSold({ item, companyId }) {
+export async function priceItemAsSold({ item, companyId, stockRows }) {
   if (!item?.item_id) return null;
 
   if (companyId) {
@@ -81,8 +81,8 @@ export async function priceItemAsSold({ item, companyId }) {
     // see claimStockPieces for why). take: 5, not 1 — with is_allocated
     // filtered client-side, take:1 could land exactly on an allocated row
     // and miss other genuinely-available stock one row further down.
-    const response = await getStockPieces({ itemId: item.item_id, companyId, take: 5 });
-    const row = (response?.data?.Entities ?? []).find((r) => !r.is_allocated);
+    const rows = stockRows ?? (await getStockPieces({ itemId: item.item_id, companyId, take: 5 }))?.data?.Entities ?? [];
+    const row = rows.find((r) => !r.is_allocated);
     if (row) {
       // Price the row AS-IS first (whatever its own pieces count is) — the
       // server prices a bulk row's real rates off its real weight, so this

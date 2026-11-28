@@ -40,6 +40,7 @@ import {
   getInvoiceList, getInvoiceDetail,
 } from '@/services/orderService';
 import axiosInstance from '@/lib/axios/axiosInstance';
+import { mapWithConcurrency } from '@/lib/mapWithConcurrency';
 import API from '@/constants/apiEndpoints';
 
 export async function getOrderReceiptList({ take = 0, company_id } = {}) {
@@ -108,6 +109,8 @@ function groupReceiptsByTransaction(rows) {
  *   first; totalCount is the real number of distinct documents for this
  *   store, independent of how many were actually Retrieved for this page
  */
+const RETRIEVE_CONCURRENCY = 3;
+
 export async function fetchDocumentsByRetrieve({ kind, companyId, take = 0, skip = 0 }) {
   const getReceipts = kind === 'order' ? getOrderReceiptList : getInvoiceReceiptList;
   const getDetail   = kind === 'order' ? getOrderDetail      : getInvoiceDetail;
@@ -117,8 +120,10 @@ export async function fetchDocumentsByRetrieve({ kind, companyId, take = 0, skip
   const grouped = groupReceiptsByTransaction(receiptRows);
   const page = take > 0 ? grouped.slice(skip, skip + take) : grouped;
 
-  const details = await Promise.all(
-    page.map(({ transactionId }) => getDetail(transactionId).catch(() => null))
+  const details = await mapWithConcurrency(
+    page,
+    ({ transactionId }) => getDetail(transactionId).catch(() => null),
+    RETRIEVE_CONCURRENCY,
   );
 
   // Defensive re-check, not redundant: Retrieve has no reason to hand back a
@@ -142,10 +147,10 @@ export async function fetchDocumentsByRetrieve({ kind, companyId, take = 0, skip
  * @param {{ kind: 'order'|'invoice', companyId: number, take?: number, skip?: number }} params
  * @returns {Promise<{ entities: object[], totalCount: number, viaFallback: boolean }>}
  */
-export async function fetchStoreScopedDocuments({ kind, companyId, take = 0, skip = 0 }) {
+export async function fetchStoreScopedDocuments({ kind, companyId, take = 0, skip = 0, sort, fallbackTake = take }) {
   const list = kind === 'order'
-    ? await getOrders({ take, skip, company_id: companyId })
-    : await getInvoiceList({ take, skip, company_id: companyId });
+    ? await getOrders({ take, skip, company_id: companyId, sort })
+    : await getInvoiceList({ take, skip, company_id: companyId, sort });
 
   const entities = list?.Entities ?? [];
 
@@ -173,6 +178,6 @@ export async function fetchStoreScopedDocuments({ kind, companyId, take = 0, ski
     return { entities: [], totalCount: 0, viaFallback: false };
   }
 
-  const fallback = await fetchDocumentsByRetrieve({ kind, companyId, take, skip });
+  const fallback = await fetchDocumentsByRetrieve({ kind, companyId, take: fallbackTake, skip });
   return { entities: fallback.entities, totalCount: fallback.totalCount, viaFallback: true };
 }

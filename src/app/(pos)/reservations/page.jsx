@@ -85,16 +85,36 @@ function PayPanel({ r, onDone, onDismiss }) {
 
 const formatDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 
-function ReserveItems({ id }) {
-  const { data, isLoading, isError } = useQuery({
+function ReserveItems({ id, cancelled }) {
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['reserves', 'detail', id],
     queryFn: () => retrieveReserve(id),
     staleTime: 0,
   });
   if (isLoading) return <p className="text-xs text-muted-foreground">Loading items…</p>;
-  if (isError || !data) return <p className="text-xs text-status-error">Couldn’t load the items.</p>;
+  if (isError || !data) {
+    return (
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-status-error">Couldn’t load the items.</p>
+        <Button size="sm" variant="outline" onClick={() => refetch()}>Try again</Button>
+      </div>
+    );
+  }
   const lines = data.line_items ?? [];
   const advance = (data.receipt_details ?? []).map((r) => `${r.mode_name ?? r.mode_code} ${formatAmount(r.amount)}`).join(' · ');
+  if (!lines.length) {
+    return (
+      <div className="flex flex-col gap-1 rounded-lg bg-muted/40 p-3 text-sm">
+        <p className="font-medium text-foreground">No items to show</p>
+        <p className="text-xs text-muted-foreground">
+          {cancelled
+            ? 'This reserve was cancelled, so OrnaVerse released the reserved piece and no longer keeps its items.'
+            : 'OrnaVerse returned no items for this reserve.'}
+        </p>
+        {advance && <p className="text-xs text-muted-foreground">Advance: {advance}</p>}
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-2">
       {lines.map((l) => (
@@ -149,7 +169,7 @@ function ReserveCard({ r, highlight, onCancel }) {
           </Button>
         )}
       </div>
-      {open && <div className="mt-3 border-t border-border pt-3"><ReserveItems id={r.transaction_id} /></div>}
+      {open && <div className="mt-3 border-t border-border pt-3"><ReserveItems id={r.transaction_id} cancelled={r.document_status === 2} /></div>}
       {paying && <PayPanel r={r} onDone={() => setPaying(false)} onDismiss={() => setPaying(false)} />}
     </div>
   );

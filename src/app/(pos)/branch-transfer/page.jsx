@@ -48,7 +48,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 const formatINR = formatAmountOrDash;
 const formatDate = formatDatePadded;
 const DOCS = APP_CONFIG.DOCUMENT_TYPES;
-const LIST_LIMIT = 60;
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Whole days since the stock entry that brought the piece into this store. */
+const daysInStore = (r) => {
+  const t = r.document_date ? new Date(r.document_date).getTime() : NaN;
+  return Number.isFinite(t) ? Math.max(0, Math.floor((Date.now() - t) / DAY_MS)) : null;
+};
+const AGE_TONE = (days) => (days > 180
+  ? 'bg-destructive/15 text-destructive'
+  : days > 90 ? 'bg-status-made-order/15 text-status-made-order' : 'bg-status-in-stock/15 text-status-in-stock');
 
 const TABS = [
   { key: 'send', label: 'Send', icon: Truck },
@@ -358,8 +366,11 @@ function StockPicker({ salePartyId, excludeKeys, onAdd, isAdding }) {
     staleTime: 0,
     gcTime: 0,
   });
-  const rows = (stock.data ?? []).filter((r) => !excludeKeys.has(stockKey(r)));
-  const visible = rows.slice(0, LIST_LIMIT);
+  const [oldestFirst, setOldestFirst] = useState(true);
+  const rows = (stock.data ?? [])
+    .filter((r) => !excludeKeys.has(stockKey(r)))
+    .map((r) => ({ ...r, ageDays: daysInStore(r) }))
+    .sort((a, b) => ((b.ageDays ?? -1) - (a.ageDays ?? -1)) * (oldestFirst ? 1 : -1));
   const toggle = (r) => setPicked((p) => (p.some((x) => stockKey(x) === stockKey(r)) ? p.filter((x) => stockKey(x) !== stockKey(r)) : [...p, r]));
 
   return (
@@ -372,17 +383,25 @@ function StockPicker({ salePartyId, excludeKeys, onAdd, isAdding }) {
           </button>
         ))}
       </div>
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search SKU, item code or certificate" className="h-10 pl-9" aria-label="Search stock" />
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search SKU, item code or certificate" className="h-10 pl-9" aria-label="Search stock" />
+        </div>
+        <Button type="button" variant="outline" className="h-10" onClick={() => setOldestFirst((v) => !v)} aria-label="Change sort order">
+          {oldestFirst ? 'Oldest in store first' : 'Newest in store first'}
+        </Button>
       </div>
+      {!stock.isLoading && !stock.isError && rows.length > 0 && (
+        <p className="text-xs text-muted-foreground">{rows.length} piece{rows.length === 1 ? '' : 's'} · scroll to see all</p>
+      )}
       {stock.isLoading ? <InlineLoader className="py-4" label="Loading stock…" /> : stock.isError ? (
         <ErrorState className="py-4" title="Couldn't load stock." onRetry={stock.refetch} />
       ) : rows.length === 0 ? (
         <p className="py-4 text-center text-sm text-muted-foreground">No stock found.</p>
       ) : (
-        <div className="flex max-h-80 flex-col divide-y divide-border overflow-y-auto rounded-lg border border-border">
-          {visible.map((r) => {
+        <div className="flex max-h-[28rem] flex-col divide-y divide-border overflow-y-auto rounded-lg border border-border">
+          {rows.map((r) => {
             const on = picked.some((x) => stockKey(x) === stockKey(r));
             return (
               <button key={stockKey(r)} type="button" onClick={() => toggle(r)} aria-pressed={on}
@@ -392,14 +411,26 @@ function StockPicker({ salePartyId, excludeKeys, onAdd, isAdding }) {
                   <span className="block truncate text-xs text-muted-foreground">
                     {r.sku || '—'} · {r.location_name} · {r.pieces} pc · {Number(r.weight ?? 0).toFixed(3)} g{r.certificate_no ? ` · ${r.certificate_no}` : ''}
                   </span>
+                  {r.document_date && (
+                    <span className="block truncate text-xs text-muted-foreground">
+                      Since {formatDate(r.document_date)}{r.document_name ? ` · ${r.document_name}` : ''}
+                    </span>
+                  )}
                 </span>
-                {on && <Check className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
+                <span className="flex shrink-0 items-center gap-2">
+                  {r.ageDays != null && (
+                    <span title={`Since ${formatDate(r.document_date)}${r.document_name ? ` · ${r.document_name}${r.document_no ? ` ${r.document_no}` : ''}` : ''}`}
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${AGE_TONE(r.ageDays)}`}>
+                      {r.ageDays} day{r.ageDays === 1 ? '' : 's'}
+                    </span>
+                  )}
+                  {on && <Check className="h-4 w-4 text-primary" aria-hidden="true" />}
+                </span>
               </button>
             );
           })}
         </div>
       )}
-      {rows.length > LIST_LIMIT && <p className="text-xs text-muted-foreground">Showing {LIST_LIMIT} of {rows.length} — search to narrow down.</p>}
       <Button type="button" disabled={!picked.length || isAdding} onClick={async () => { await onAdd(picked); setPicked([]); }}>
         {isAdding ? 'Adding…' : `Add ${picked.length || ''} item${picked.length === 1 ? '' : 's'}`.replace('  ', ' ')}
       </Button>

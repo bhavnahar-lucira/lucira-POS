@@ -4,18 +4,19 @@
 import { after } from 'next/server';
 
 import { postUpstream, getUserStoresCached } from '@/lib/reports/serverAccess';
-import { listStoreSales } from '@/lib/mongo/buyerPurchases';
+import { listStoreSales, claimStoreSync, releaseStoreSync } from '@/lib/mongo/buyerPurchases';
 import { rememberLeadMobiles, unmaskVisitMobiles } from '@/lib/mongo/leadMobiles';
 import { syncStorePurchases } from '@/lib/ornaverse/buyerSync';
 import { normalizeCrmVisit } from '@/lib/normalizers/customer';
 import { deriveNonBuyers } from './deriveNonBuyers';
 import { RECENCY_OPTIONS, VISIT_FREQUENCY_OPTIONS, matchesBand, daysSince } from '@/lib/buyers/buyerFilters';
 import API from '@/constants/apiEndpoints';
+import { mapWithConcurrency } from '@/lib/mapWithConcurrency';
 
 const VISIT_PAGE_SIZE = 200;
 const MAX_VISIT_PAGES = 100;
 const RESULT_TTL_MS = 2 * 60 * 1000;
-const SYNC_INTERVAL_MS = 15 * 60 * 1000;
+export const SYNC_INTERVAL_MS = 15 * 60 * 1000;
 
 // shortcut: in-memory per server instance, so another instance may recompute once; move to a shared
 // store if Non-Buyers ever runs on many instances under heavy use.
@@ -70,12 +71,14 @@ export function syncStoreInBackground(session, companyId) {
   lastSyncAt.set(key, Date.now());
   after(async () => {
     try {
+      if (!(await claimStoreSync(session.env, companyId, SYNC_INTERVAL_MS))) return;
       await syncStorePurchases({ companyId, session });
       for (const resultKey of results.keys()) {
         if (resultKey.startsWith(`${key}|`)) results.delete(resultKey);
       }
     } catch (err) {
       lastSyncAt.delete(key);
+      await releaseStoreSync(session.env, companyId).catch(() => {});
       console.error('[nonBuyers] store sync failed', companyId, err?.message);
     }
   });
@@ -116,12 +119,12 @@ export async function getNonBuyers({ session, companyId, fromDate = '', toDate =
  */
 export async function getNonBuyersAllStores({ session, ...options }) {
   const stores = await getUserStoresCached(session);
-  const perStore = await Promise.all(stores.map(async (store) => {
+  const perStore = await mapWithConcurrency(stores, async (store) => {
     const rows = await getNonBuyers({ session, companyId: store.company_id, ...options });
     return rows.map((row) => ({
       ...row, key: `${store.company_id}:${row.key}`, storeId: store.company_id, storeName: store.mailing_name ?? null,
     }));
-  }));
+  });
   return perStore.flat();
 }
 

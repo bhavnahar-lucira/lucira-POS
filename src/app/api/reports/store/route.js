@@ -1,6 +1,6 @@
 import { getSessionFromRequest } from '@/lib/ornaverse/session';
 import {
-  DATE_RE, isValidCompanyIds, getAuthorizedStores, postUpstream, toRfc1123,
+  DATE_RE, isValidCompanyIds, getAuthorizedStores, postUpstream, toRfc1123, cachedReport,
 } from '@/lib/reports/serverAccess';
 
 export const maxDuration = 60;
@@ -25,7 +25,7 @@ const daysBetween = (fromDay, toDay) => Math.round((Date.parse(toDay) - Date.par
 
 const entities = (data) => data?.Entities ?? [];
 
-async function mapWithConcurrency(items, worker, limit = 6) {
+async function mapWithConcurrency(items, worker, limit = 4) {
   const results = new Array(items.length);
   let next = 0;
   const run = async () => {
@@ -37,9 +37,9 @@ async function mapWithConcurrency(items, worker, limit = 6) {
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
   return results;
 }
-const perStore = (companyIds, fetchStore) => Promise.all(companyIds.map(async (companyId) => (
+const perStore = (companyIds, fetchStore) => mapWithConcurrency(companyIds, async (companyId) => (
   (await fetchStore(companyId)).map((row) => ({ ...row, company_id: companyId }))
-))).then((parts) => parts.flat());
+)).then((parts) => parts.flat());
 
 const REPORTS = {
   // OrnaVerse POS Dashboard "Payment Collections", one call per store.
@@ -332,7 +332,7 @@ export async function POST(request) {
   }
 
   try {
-    return Response.json(await run(session, { companyIds, fromDate, toDate }));
+    return Response.json(await cachedReport(session, `store:${report}`, { companyIds, fromDate, toDate }, () => run(session, { companyIds, fromDate, toDate })));
   } catch (err) {
     console.error(`[api/reports/store] ${report} failed`, err);
     return Response.json({ error: 'Report failed' }, { status: err.status === 401 ? 401 : 502 });

@@ -38,7 +38,7 @@ export function normalizeTransaction(entity) {
 }
 
 function makeTransactionListHook({ queryKeyFn, fetchFn }) {
-  return function useTransactionList({ skip = 0, enabled = true } = {}) {
+  return function useTransactionList({ skip = 0, enabled = true, refetchOnWindowFocus } = {}) {
     const storeId = useSelector((state) => state.store.activeStoreId);
     const take    = APP_CONFIG.PAGINATION.ORDERS_TAKE ?? 50;
 
@@ -54,6 +54,7 @@ function makeTransactionListHook({ queryKeyFn, fetchFn }) {
       },
       enabled:   enabled && !!storeId,
       staleTime: APP_CONFIG.STALE_TIME.ORDERS,
+      ...(refetchOnWindowFocus != null ? { refetchOnWindowFocus } : {}),
     });
 
     return {

@@ -71,7 +71,7 @@ const MAX_FREE_GIFT_PROBE = 25;
 export function useGoldCoinPromoManager() {
   const dispatch = useDispatch();
   const activeStoreId = useSelector(selectActiveStoreId);
-  const { appliedPromos } = useCart();
+  const { items: cartItems, appliedPromos } = useCart();
   const { invoice, order, isLoading: isPricing } = useCheckoutPricing();
   // Whichever pricing group currently holds priced lines — never both at
   // once (buildPricedLineItems is strictly all-or-nothing; see its own
@@ -88,7 +88,7 @@ export function useGoldCoinPromoManager() {
     ...(invoice?.promotionDetails ?? []),
     ...(order?.promotionDetails ?? []),
   ];
-  const { data: activePromotions = [], isSuccess: promotionsLoaded } = useActivePromotions();
+  const { data: activePromotions = [], isSuccess: promotionsLoaded } = useActivePromotions({ enabled: cartItems.length > 0 });
   const breakdown = getPromoBreakdown(appliedPromos, promotionDetails);
 
   useEffect(() => {

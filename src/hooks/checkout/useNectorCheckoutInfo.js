@@ -18,7 +18,7 @@ import { QUERY_KEYS } from '@/constants/queryKeys';
  *     rules (min invoice value / item group) block it BEFORE ever calling Preview.
  * }}
  */
-const OUTAGE_RECHECK_MS = 30 * 1000;
+const OUTAGE_RECHECK_MS = 60 * 1000;
 
 export function useNectorCheckoutInfo(
   { mobile, companyId, partyId, netAmount, remainingDue, lineItems = [] },

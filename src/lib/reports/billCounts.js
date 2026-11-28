@@ -17,9 +17,11 @@ function nextDay(dateString) {
 }
 
 // InvoiceItems/List ignores IncludeColumns and is slow without a store filter, so it's fetched per store and month.
+const EARLIEST_REPORT_DAY = '2020-01-01';
+
 function monthChunks(fromDate, toDate) {
   const chunks = [];
-  let start = fromDate;
+  let start = fromDate < EARLIEST_REPORT_DAY ? EARLIEST_REPORT_DAY : fromDate;
   while (start <= toDate) {
     const [y, m] = start.split('-').map(Number);
     const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);

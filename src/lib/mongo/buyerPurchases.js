@@ -117,6 +117,44 @@ export async function listPurchases({ companyId } = {}) {
 }
 
 /** One store's invoices and orders, only the fields the Non-Buyers matching needs. */
+/** Map(transactionId → saved status/amounts) for one store and document type, to skip unchanged documents on sync. */
+export async function storeDocumentFingerprints(companyId, documentType) {
+  const db = await getDb();
+  const rows = await db.collection(COLLECTION)
+    .find(
+      { ...environmentMatch(), companyId, documentType },
+      { projection: { transactionId: 1, documentDate: 1, documentStatus: 1, balanceAmount: 1, receiptAmount: 1, totalAmount: 1 } },
+    )
+    .toArray();
+  return new Map(rows.map((r) => [r.transactionId, r]));
+}
+
+const SYNC_STATE = 'buyerSyncState_POS';
+
+/** Claims the store's sync slot if the last sync is older than minIntervalMs — shared by every server instance. */
+export async function claimStoreSync(env, companyId, minIntervalMs) {
+  const col = (await getDb()).collection(SYNC_STATE);
+  const now = new Date();
+  try {
+    await col.updateOne(
+      {
+        _id: `${env}|${companyId}`,
+        $or: [{ lastSyncAt: { $exists: false } }, { lastSyncAt: { $lt: new Date(now.getTime() - minIntervalMs) } }],
+      },
+      { $set: { lastSyncAt: now } },
+      { upsert: true },
+    );
+    return true;
+  } catch (err) {
+    if (err?.code === 11000) return false;
+    throw err;
+  }
+}
+
+export async function releaseStoreSync(env, companyId) {
+  await (await getDb()).collection(SYNC_STATE).updateOne({ _id: `${env}|${companyId}` }, { $unset: { lastSyncAt: 1 } });
+}
+
 export async function listStoreSales(companyId) {
   const db = await getDb();
   return db.collection(COLLECTION)
